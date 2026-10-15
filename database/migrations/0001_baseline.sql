@@ -1,0 +1,9 @@
+-- PostgreSQL reference implementation; technology decision remains governed by ADR.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE institutions (institution_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE class_sessions (session_id uuid PRIMARY KEY, tenant_id uuid NOT NULL, class_id uuid NOT NULL, actor_epoch bigint NOT NULL CHECK(actor_epoch>0), state_version bigint NOT NULL DEFAULT 0, status varchar(32) NOT NULL, version_tuple jsonb NOT NULL, home_region varchar(64) NOT NULL, started_at timestamptz, ended_at timestamptz);
+CREATE UNIQUE INDEX one_live_session_per_class ON class_sessions(class_id) WHERE status IN ('PREPARING','ACTIVE','DEGRADED','RECOVERING','ENDING');
+CREATE TABLE classroom_snapshots (snapshot_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL, class_id uuid NOT NULL, session_id uuid NOT NULL REFERENCES class_sessions(session_id), actor_epoch bigint NOT NULL, state_version bigint NOT NULL, last_event_sequence bigint NOT NULL, schema_version varchar(32) NOT NULL, payload jsonb NOT NULL, checksum char(64) NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(session_id,state_version));
+CREATE TABLE idempotency_records (tenant_id uuid NOT NULL, class_id uuid NOT NULL, command_id uuid NOT NULL, status varchar(32) NOT NULL, result jsonb, expires_at timestamptz NOT NULL, PRIMARY KEY(tenant_id,class_id,command_id));
+CREATE TABLE outbox_events (outbox_id bigserial PRIMARY KEY, event_id uuid NOT NULL UNIQUE, tenant_id uuid NOT NULL, aggregate_id varchar(128) NOT NULL, event_type varchar(128) NOT NULL, schema_version varchar(32) NOT NULL, payload jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), published_at timestamptz);
+CREATE INDEX outbox_unsent_idx ON outbox_events(created_at) WHERE published_at IS NULL;

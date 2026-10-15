@@ -1,0 +1,9 @@
+id: V0-002
+title: "Secure PPTX upload"
+week: W2
+status: TODO
+depends_on: ["V0-001"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

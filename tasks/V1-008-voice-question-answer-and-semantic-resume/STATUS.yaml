@@ -1,0 +1,9 @@
+id: V1-008
+title: "Voice question answer and semantic resume"
+week: W12
+status: TODO
+depends_on: ["V1-007", "V0-015"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

@@ -1,0 +1,9 @@
+id: V1-004
+title: "Mock floor orchestration and invariants"
+week: W10
+status: TODO
+depends_on: ["V1-003"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

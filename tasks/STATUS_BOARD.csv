@@ -1,0 +1,31 @@
+id,week,status,title,depends_on,path
+FND-001,W1,TODO,Repository bootstrap and quality commands,,tasks/FND-001-repository-bootstrap-and-quality-commands
+FND-002,W1,TODO,Accept V0 blocking ADRs,FND-001,tasks/FND-002-accept-v0-blocking-adrs
+FND-003,W1,TODO,Contract and generated artifact automation,FND-001,tasks/FND-003-contract-and-generated-artifact-automation
+V0-001,W2,TODO,Course and source artifact persistence,FND-002;FND-003,tasks/V0-001-course-and-source-artifact-persistence
+V0-002,W2,TODO,Secure PPTX upload,V0-001,tasks/V0-002-secure-pptx-upload
+V0-003,W3,TODO,Compiler job runner and checkpoints,V0-002,tasks/V0-003-compiler-job-runner-and-checkpoints
+V0-004,W3,TODO,PPTX structural extraction,V0-003,tasks/V0-004-pptx-structural-extraction
+V0-005,W3,TODO,Slide rendering and fidelity,V0-003;FND-002,tasks/V0-005-slide-rendering-and-fidelity
+V0-006,W4,TODO,Baseline scene and CTF builder,V0-004;V0-005,tasks/V0-006-baseline-scene-and-ctf-builder
+V0-007,W4,TODO,Teacher review preview,V0-006,tasks/V0-007-teacher-review-preview
+V0-008,W4,TODO,Atomic publication and index version,V0-006;V0-007,tasks/V0-008-atomic-publication-and-index-version
+V0-009,W5,TODO,Class and runtime session plan,V0-008,tasks/V0-009-class-and-runtime-session-plan
+V0-010,W5,TODO,In-process Classroom Aggregate,V0-009,tasks/V0-010-in-process-classroom-aggregate
+V0-011,W5,TODO,Classroom frontend snapshot and event reducer,V0-010,tasks/V0-011-classroom-frontend-snapshot-and-event-reducer
+V0-012,W6,TODO,Neutral TTS provider and deterministic mock,FND-002;V0-010,tasks/V0-012-neutral-tts-provider-and-deterministic-mock
+V0-013,W6,TODO,Timeline narration captions and checkpoints,V0-011;V0-012,tasks/V0-013-timeline-narration-captions-and-checkpoints
+V0-014,W7,TODO,Approved-content indexing,V0-008;FND-002,tasks/V0-014-approved-content-indexing
+V0-015,W7,TODO,Grounded text question,V0-013;V0-014,tasks/V0-015-grounded-text-question
+V0-016,W8,TODO,V0 end-to-end golden path,V0-015,tasks/V0-016-v0-end-to-end-golden-path
+V0-017,W8,TODO,V0 security accessibility and evaluation gate,V0-016,tasks/V0-017-v0-security-accessibility-and-evaluation-gate
+V1-001,W9,TODO,Accept V1 runtime media and STT ADRs,V0-017,tasks/V1-001-accept-v1-runtime-media-and-stt-adrs
+V1-002,W9,TODO,Actor epoch event outbox and replay,V1-001;V0-010,tasks/V1-002-actor-epoch-event-outbox-and-replay
+V1-003,W10,TODO,Raise Hand queue and cancellation,V1-002,tasks/V1-003-raise-hand-queue-and-cancellation
+V1-004,W10,TODO,Mock floor orchestration and invariants,V1-003,tasks/V1-004-mock-floor-orchestration-and-invariants
+V1-005,W11,TODO,SFU teacher audio and reconnect,V1-001;V0-013,tasks/V1-005-sfu-teacher-audio-and-reconnect
+V1-006,W11,TODO,Floor token and temporary microphone,V1-004;V1-005,tasks/V1-006-floor-token-and-temporary-microphone
+V1-007,W11,TODO,Streaming STT lifecycle,V1-006,tasks/V1-007-streaming-stt-lifecycle
+V1-008,W12,TODO,Voice question answer and semantic resume,V1-007;V0-015,tasks/V1-008-voice-question-answer-and-semantic-resume
+V1-009,W12,TODO,Moderator and accessible realtime controls,V1-003;V1-007,tasks/V1-009-moderator-and-accessible-realtime-controls
+V1-010,W12,TODO,Pilot load chaos observability and release gate,V1-008;V1-009,tasks/V1-010-pilot-load-chaos-observability-and-release-gate

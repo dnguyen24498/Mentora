@@ -1,0 +1,9 @@
+id: V1-005
+title: "SFU teacher audio and reconnect"
+week: W11
+status: TODO
+depends_on: ["V1-001", "V0-013"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

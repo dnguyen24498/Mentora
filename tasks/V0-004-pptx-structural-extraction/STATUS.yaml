@@ -1,0 +1,9 @@
+id: V0-004
+title: "PPTX structural extraction"
+week: W3
+status: TODO
+depends_on: ["V0-003"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

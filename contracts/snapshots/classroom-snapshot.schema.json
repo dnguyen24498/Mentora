@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Classroom Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "class_id",
+    "session_id",
+    "actor_epoch",
+    "state_version",
+    "last_event_sequence",
+    "version_tuple",
+    "states",
+    "lesson",
+    "queue",
+    "active_floor",
+    "pending_effects",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "class_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "actor_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_event_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "version_tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "course_version",
+        "ctf_version",
+        "content_package_version",
+        "lesson_plan_version",
+        "knowledge_index_version",
+        "policy_version",
+        "home_region"
+      ],
+      "properties": {
+        "course_version": {
+          "type": "string"
+        },
+        "ctf_version": {
+          "type": "string"
+        },
+        "content_package_version": {
+          "type": "string"
+        },
+        "lesson_plan_version": {
+          "type": "string"
+        },
+        "knowledge_index_version": {
+          "type": "string"
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "home_region": {
+          "type": "string"
+        }
+      }
+    },
+    "states": {
+      "type": "object"
+    },
+    "lesson": {
+      "type": "object"
+    },
+    "queue": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object"
+      }
+    },
+    "active_floor": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "pending_effects": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

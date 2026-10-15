@@ -1,0 +1,9 @@
+id: V1-010
+title: "Pilot load chaos observability and release gate"
+week: W12
+status: TODO
+depends_on: ["V1-008", "V1-009"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

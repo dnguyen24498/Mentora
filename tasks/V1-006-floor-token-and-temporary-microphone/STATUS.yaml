@@ -1,0 +1,9 @@
+id: V1-006
+title: "Floor token and temporary microphone"
+week: W11
+status: TODO
+depends_on: ["V1-004", "V1-005"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

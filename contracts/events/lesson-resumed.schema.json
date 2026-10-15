@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lesson Resumed",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "tenant_id",
+    "class_id",
+    "actor_epoch",
+    "state_version",
+    "sequence",
+    "type",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "class_id": {
+      "type": "string"
+    },
+    "actor_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "const": "lesson.resumed"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkpoint_id",
+        "segment_id",
+        "audio_generation"
+      ],
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "segment_id": {
+          "type": "string"
+        },
+        "audio_generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

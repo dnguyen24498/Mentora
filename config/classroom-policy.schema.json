@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Classroom Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question_policy",
+    "queue_policy",
+    "finish_current_sentence",
+    "maximum_speaking_seconds",
+    "floor_grant_ttl_seconds",
+    "allow_text_questions",
+    "maximum_queue_size"
+  ],
+  "properties": {
+    "question_policy": {
+      "enum": [
+        "RAISE_HAND",
+        "TEXT_ONLY",
+        "FREE_INTERRUPT",
+        "TEACHER_APPROVED"
+      ]
+    },
+    "queue_policy": {
+      "enum": [
+        "FIFO",
+        "TEACHER_SELECTED",
+        "AI_SELECTED",
+        "ACCESSIBILITY_PRIORITY",
+        "TEXT_FIRST"
+      ]
+    },
+    "finish_current_sentence": {
+      "type": "boolean"
+    },
+    "maximum_speaking_seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 600
+    },
+    "floor_grant_ttl_seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 120
+    },
+    "vad_prompt_silence_ms": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 10000
+    },
+    "vad_finalize_silence_ms": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 20000
+    },
+    "allow_text_questions": {
+      "type": "boolean"
+    },
+    "maximum_queue_size": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "cooldown_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600
+    }
+  }
+}

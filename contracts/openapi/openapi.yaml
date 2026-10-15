@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info: {title: Mentora API, version: 1.0.0}
+paths:
+  /courses/{courseId}/materials:
+    post:
+      operationId: uploadMaterial
+      parameters: [{in: path, name: courseId, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
+      responses: {'202': {description: Accepted}}
+  /course-versions/{versionId}/publish:
+    post:
+      operationId: publishVersion
+      parameters: [{in: path, name: versionId, required: true, schema: {type: string}}]
+      responses: {'202': {description: Accepted}}
+  /classes/{classId}/start:
+    post:
+      operationId: startClass
+      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
+      responses: {'202': {description: Accepted}, '409': {description: Invalid state/version}}
+  /classes/{classId}/snapshot:
+    get:
+      operationId: getSnapshot
+      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
+      responses: {'200': {description: Authoritative snapshot}}
+  /classes/{classId}/bootstrap-token:
+    post:
+      operationId: issueBootstrapToken
+      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
+      responses: {'200': {description: Short-lived token}}

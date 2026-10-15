@@ -1,0 +1,9 @@
+id: V0-001
+title: "Course and source artifact persistence"
+week: W2
+status: TODO
+depends_on: ["FND-002", "FND-003"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

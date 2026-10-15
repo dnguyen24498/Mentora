@@ -1,0 +1,10 @@
+question_policy: RAISE_HAND
+queue_policy: FIFO
+finish_current_sentence: true
+maximum_speaking_seconds: 90
+floor_grant_ttl_seconds: 60
+vad_prompt_silence_ms: 1500
+vad_finalize_silence_ms: 3000
+allow_text_questions: true
+maximum_queue_size: 100
+cooldown_seconds: 30

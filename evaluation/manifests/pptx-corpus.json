@@ -1,0 +1,22 @@
+{
+  "version": "0.1",
+  "items": [],
+  "categories": [
+    "simple",
+    "vietnamese_fonts",
+    "custom_fonts",
+    "table",
+    "chart",
+    "smartart",
+    "equation",
+    "notes",
+    "semantic_reveal",
+    "media",
+    "scan"
+  ],
+  "metrics": [
+    "text_accuracy",
+    "render_similarity",
+    "review_seconds_per_slide"
+  ]
+}

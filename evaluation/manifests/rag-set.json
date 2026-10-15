@@ -1,0 +1,10 @@
+{
+  "version": "0.1",
+  "items": [],
+  "metrics": [
+    "evidence_recall",
+    "citation_correctness",
+    "groundedness",
+    "cross_version_violations"
+  ]
+}

@@ -1,0 +1,21 @@
+mentora-engineering-spec/
+├── SOURCE_OF_TRUTH.md
+├── ARCHITECTURE.md
+├── CONSISTENCY_REPORT.md
+├── governance/{DECISION_LEDGER,TERMINOLOGY_REGISTRY,TRACEABILITY_MATRIX}
+├── docs/architecture/00-25 + ARCHITECTURE_FULL.md
+├── docs/product/
+├── docs/adr/proposed/
+├── docs/state-machines/
+├── docs/sequences/
+├── docs/data/
+├── docs/providers/
+├── docs/security/
+├── docs/accessibility/
+├── docs/operations/
+├── docs/testing/
+├── contracts/{commands,events,snapshots,security,ctf,openapi,websocket}
+├── config/
+├── database/migrations/
+├── evaluation/
+└── dev/

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Floor Token Claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "iss",
+    "aud",
+    "jti",
+    "tenant_id",
+    "class_id",
+    "room_id",
+    "student_id",
+    "request_id",
+    "floor_id",
+    "actor_epoch",
+    "minimum_state_version",
+    "permissions",
+    "nonce",
+    "iat",
+    "exp"
+  ],
+  "properties": {
+    "iss": {
+      "type": "string"
+    },
+    "aud": {
+      "const": "mentora-media"
+    },
+    "jti": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "class_id": {
+      "type": "string"
+    },
+    "room_id": {
+      "type": "string"
+    },
+    "student_id": {
+      "type": "string"
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "floor_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actor_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "minimum_state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "permissions": {
+      "const": [
+        "publish_audio"
+      ]
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 16
+    },
+    "iat": {
+      "type": "integer"
+    },
+    "exp": {
+      "type": "integer"
+    }
+  }
+}

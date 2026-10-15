@@ -1,0 +1,15 @@
+{
+  "version": "0.1",
+  "items": [],
+  "conditions": [
+    "clean",
+    "classroom_noise",
+    "mobile",
+    "accent_variation"
+  ],
+  "metrics": [
+    "wer",
+    "final_latency",
+    "false_end_rate"
+  ]
+}

@@ -1,0 +1,44 @@
+baseline: "1.0"
+terms:
+  BaselineContentPackage:
+    definition: "Deterministic runtime-usable content produced without semantic AI dependency."
+    owner: "Publication domain"
+  PublishedContentPackage:
+    definition: "Immutable published scenes, assets, overlays, steps, and media timelines."
+    owner: "Publication Service"
+  ContentIR:
+    definition: "Internal compiler representation, never served directly to classroom clients."
+    owner: "Compiler"
+  CTF:
+    definition: "Immutable package envelope referencing content, teaching, lessons, assessments, assets, provenance, and versions."
+    owner: "Publication Service"
+  TeachingGraph:
+    definition: "Optional reviewed concepts, prerequisites, misconceptions, objectives, evidence, and relations."
+    owner: "Teaching domain"
+  LessonPlan:
+    definition: "Approved instructional sequence with scene refs, safe markers, scripts, activities, and fallbacks."
+    owner: "Teaching domain"
+  RuntimeSessionPlan:
+    definition: "Class-specific immutable tuple of content, lesson, knowledge, policy, region, and capability versions."
+    owner: "Class Management"
+  ClassroomActor:
+    definition: "Single serialized authoritative owner of active classroom state."
+    owner: "Runtime Control Plane"
+  TeacherOrchestrator:
+    definition: "Pedagogical decision component invoked under Classroom Actor control; not authoritative for floor, grades, attendance, or versions."
+    owner: "Teaching runtime"
+  TurnManager:
+    definition: "Actor module controlling queue, floor, STT reservation, speaking, and completion."
+    owner: "Classroom Actor"
+  TimelineController:
+    definition: "Actor module coordinating semantic speech markers, visuals, pause, cancellation, checkpoints, and resume."
+    owner: "Classroom Actor"
+  SpeakingFloor:
+    definition: "Temporary fenced permission for one student to publish audio."
+    owner: "Classroom Actor"
+  KnowledgeIndex:
+    definition: "Version-pinned rebuildable retrieval projection of approved content."
+    owner: "Knowledge Service"
+  SFU:
+    definition: "Media transport capability; never authoritative for lesson state."
+    owner: "Media Plane"

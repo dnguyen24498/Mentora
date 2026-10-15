@@ -1,0 +1,9 @@
+id: V1-009
+title: "Moderator and accessible realtime controls"
+week: W12
+status: TODO
+depends_on: ["V1-003", "V1-007"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

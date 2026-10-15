@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Floor Granted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "tenant_id",
+    "class_id",
+    "actor_epoch",
+    "state_version",
+    "sequence",
+    "type",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "class_id": {
+      "type": "string"
+    },
+    "actor_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "const": "student.floor.granted"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "floor_id",
+        "student_id",
+        "token",
+        "expires_at",
+        "maximum_speaking_seconds"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "floor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "student_id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 16
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "maximum_speaking_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 600
+        }
+      }
+    }
+  }
+}

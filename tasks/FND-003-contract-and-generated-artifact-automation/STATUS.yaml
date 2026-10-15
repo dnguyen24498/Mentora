@@ -1,0 +1,9 @@
+id: FND-003
+title: "Contract and generated artifact automation"
+week: W1
+status: TODO
+depends_on: ["FND-001"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

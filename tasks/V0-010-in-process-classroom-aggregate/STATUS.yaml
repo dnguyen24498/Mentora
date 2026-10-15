@@ -1,0 +1,9 @@
+id: V0-010
+title: "In-process Classroom Aggregate"
+week: W5
+status: TODO
+depends_on: ["V0-009"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

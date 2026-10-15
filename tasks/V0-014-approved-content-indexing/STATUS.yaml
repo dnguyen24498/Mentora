@@ -1,0 +1,9 @@
+id: V0-014
+title: "Approved-content indexing"
+week: W7
+status: TODO
+depends_on: ["V0-008", "FND-002"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

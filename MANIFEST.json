@@ -1,0 +1,610 @@
+{
+  "baseline": "1.0",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "29885b979ee36430236f74caee38f8675abc95375f536bead45ad2658700b243",
+      "size": 114
+    },
+    {
+      "path": "AI_IMPLEMENTATION_GUIDE.md",
+      "sha256": "fecb23f4a231efa929a48f8ee672eecb9c0bbed23949da7e058b906695232fab",
+      "size": 1521
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "sha256": "93f5ac4c57813843f3d6467c3801771c1c48f556e6dc5ed23a66f36129450455",
+      "size": 200
+    },
+    {
+      "path": "CONSISTENCY_REPORT.md",
+      "sha256": "87ff847ef16b16b1ff890f58b11012ac948fe88ca102f49013e071084c1eec73",
+      "size": 750
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "6b9d35c156cc7b186a9d8ee1fedc7fdfcf3035f2183944ee4092fc005c279d0c",
+      "size": 330
+    },
+    {
+      "path": "README.md",
+      "sha256": "9ba00a3854808ed918ab60256232df25260e94df53f801cb4a0ed336b21d8250",
+      "size": 1049
+    },
+    {
+      "path": "SOURCE_OF_TRUTH.md",
+      "sha256": "6a64fed07d961842843fe74a45ea72d494f969075a15dc8e6dfffa780a6d91f0",
+      "size": 1591
+    },
+    {
+      "path": "TASK_TEMPLATE.md",
+      "sha256": "4bb7ad91e920a5402e4689eb21d6729c122fa5c6ddee45f7922018b5c075774d",
+      "size": 861
+    },
+    {
+      "path": "config/classroom-policy.example.yaml",
+      "sha256": "c65dcd237ac9a9c76a15b55fd86c9abd6702f6a81add5207037f70ffb5a2c0c2",
+      "size": 264
+    },
+    {
+      "path": "config/classroom-policy.schema.json",
+      "sha256": "c1617f7b18141e3740f55bbe575be00d1878529978f73fe7e1a815af4822b3cc",
+      "size": 1467
+    },
+    {
+      "path": "contracts/commands/audio-cancel-ack.schema.json",
+      "sha256": "fa31e4de39054ae510e1b37107a1863cdd3a5a999827a4ddd264b3fcf03434db",
+      "size": 1570
+    },
+    {
+      "path": "contracts/commands/cancel-hand.schema.json",
+      "sha256": "77012bf22c1bff8bc19e51ffab04145746c38eddd79cfadec08c9d83b6fe7111",
+      "size": 1572
+    },
+    {
+      "path": "contracts/commands/finish-speaking.schema.json",
+      "sha256": "dc537b934def0b6c80752c2c524b6affc7bc0983480ecb610c8495ca1ddfab8e",
+      "size": 1556
+    },
+    {
+      "path": "contracts/commands/raise-hand.schema.json",
+      "sha256": "9bff5b045252bb084d8e54600f7883d6b6bbfd4832bdc39f4c70d19319e37e74",
+      "size": 1706
+    },
+    {
+      "path": "contracts/commands/text-question.schema.json",
+      "sha256": "a2fde22d51ab8905e9e9ad889854e651d13bbd9618484e4fe860b8c39fdb414e",
+      "size": 1587
+    },
+    {
+      "path": "contracts/common.schema.json",
+      "sha256": "98c472e70f103e709f168ad89fc2d62fbf659a7ef1508c44d8175f02e5dcc060",
+      "size": 522
+    },
+    {
+      "path": "contracts/ctf/lesson-plan.schema.json",
+      "sha256": "fc2f595edb0125c4ee1af5e64618aca4c933a5146742f6efceb5cc308f6d9606",
+      "size": 1576
+    },
+    {
+      "path": "contracts/ctf/manifest.schema.json",
+      "sha256": "436b857b88322415fba42474654ea89ed05f0a9fabef23ec3b96cde85f754f51",
+      "size": 1549
+    },
+    {
+      "path": "contracts/ctf/scene.schema.json",
+      "sha256": "bafe8e08c23b204a321184e79067d282c43d4047552abfa50107e3bef033ed85",
+      "size": 1470
+    },
+    {
+      "path": "contracts/events/audio-cancel-requested.schema.json",
+      "sha256": "6444af58427840d3fe3a42718631ee519e92e568d4d0725c79bbabfd37e9533e",
+      "size": 1568
+    },
+    {
+      "path": "contracts/events/floor-granted.schema.json",
+      "sha256": "4508fb096983c628d6b6946f20794cede1d4f407e57a9dbff75bf61c8032e931",
+      "size": 1985
+    },
+    {
+      "path": "contracts/events/floor-revoked.schema.json",
+      "sha256": "4ce81696bdf865a92c45dfdddff05895bde920a2f2d30101dfafc2f912c20ab4",
+      "size": 1666
+    },
+    {
+      "path": "contracts/events/hand-queued.schema.json",
+      "sha256": "df8487ca902c7311ef1940d4f493b2f3cfc265cd0743d836fc2a749d6a27b9a7",
+      "size": 1629
+    },
+    {
+      "path": "contracts/events/lesson-resumed.schema.json",
+      "sha256": "1c238c92eb624bdb90b5f17251473b8e9c348434d10d50a5315862fb6c54f171",
+      "size": 1617
+    },
+    {
+      "path": "contracts/events/transcript-finalized.schema.json",
+      "sha256": "37cfda9c8f17a18ea772bf48b3617758790d02b6fc138ce8cc7016cd70eff4c5",
+      "size": 2006
+    },
+    {
+      "path": "contracts/openapi/openapi.yaml",
+      "sha256": "565dabcc79b3954aa87fe3f327c81865350576b557a595d8fa3dc9026b8d732c",
+      "size": 1367
+    },
+    {
+      "path": "contracts/security/floor-token-claims.schema.json",
+      "sha256": "3e1ee2623f224560d2b23a8e464ff72a80bd764a58a73f401c5c987f57e500ec",
+      "size": 1315
+    },
+    {
+      "path": "contracts/snapshots/classroom-snapshot.schema.json",
+      "sha256": "026f1b035e1ba253663403bc902f221bd1fde031d3ea5303d11a64119a5ccf43",
+      "size": 2187
+    },
+    {
+      "path": "contracts/websocket/PROTOCOL.md",
+      "sha256": "a8d99af6b72ac14b28bad281618e8be986d2e040c19933d80cd7d78623e6c605",
+      "size": 1001
+    },
+    {
+      "path": "database/migrations/0001_baseline.sql",
+      "sha256": "d511529f148663506fb6a21466d7e6c641c67259c27a92018caad689c1674468",
+      "size": 1877
+    },
+    {
+      "path": "dev/README.md",
+      "sha256": "c44cade0eb33ee5f71f722e21d73a88672509c4b76667f619927633ebb0cb0aa",
+      "size": 295
+    },
+    {
+      "path": "docs/accessibility/CLASSROOM_ACCESSIBILITY.md",
+      "sha256": "ee2aad6f0e627440f08ebacd92e64a7d1e5d10292170d22d8d1eab02901bbc9c",
+      "size": 880
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P001_ORDERED_STREAM.md",
+      "sha256": "f32a9c2c8e97eeebb1e812396db519016a80396e20a55224e91157b31228cc00",
+      "size": 936
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P002_ACTOR_RUNTIME.md",
+      "sha256": "a70dad1aff8721252851f1750eac134acbea174cb8193bc3dd5f851ecedfd83c",
+      "size": 903
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P003_DURABLE_WORKFLOW.md",
+      "sha256": "f451001df89c048dd60b7966af5f3431848b9e61f909c9a9edad9f0093c573c2",
+      "size": 912
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P004_SFU.md",
+      "sha256": "2fbee83d7b52272b215f0ac6f652f1b6ce82aa7d11e7b897260b3d45728511bd",
+      "size": 893
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P005_RENDERER.md",
+      "sha256": "86d1a7e86ef07ac63408bc36dd0fc688c7d57111910fc03f991a15ec99f6b29e",
+      "size": 858
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P006_STT.md",
+      "sha256": "a6bb3099ab5c6f2d1cc1ac48311c5fccfd4ddbedaa3a805d9d15e9028d5ca8f0",
+      "size": 815
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P007_TTS_OMNIVOICE.md",
+      "sha256": "d1bd5cae7be7dbd46d40536df0c4d13bc1e2a603183f26fa6765665a12cfe03d",
+      "size": 860
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P008_SEARCH.md",
+      "sha256": "633f9e7af0294402445eeaf4ab20fce665be7a379a493b12da46b0472afbd560",
+      "size": 856
+    },
+    {
+      "path": "docs/adr/proposed/ADR-P009_CLOUD_REGION.md",
+      "sha256": "902a37a1aaf0e470556fd5251e152410f30508b5787e9bd928ad4298577f881e",
+      "size": 832
+    },
+    {
+      "path": "docs/architecture/00_ARCHITECTURE_BASELINE.md",
+      "sha256": "3a9eceb9007e632d9afd0a20b9998e8bf66235a14edf4accce540b842ca5b6fa",
+      "size": 2242
+    },
+    {
+      "path": "docs/architecture/01_OVERALL_ARCHITECTURE.md",
+      "sha256": "1ac36d927ffb1008c3e9aa312c24ea361cac02623cc723fc21fbe27ec4b3ed92",
+      "size": 1929
+    },
+    {
+      "path": "docs/architecture/02_ARCHITECTURAL_INVARIANTS.md",
+      "sha256": "735b792941b9cd5871ee98e12c63995a21f58b7c1abd289e9f492172b76f01f0",
+      "size": 1477
+    },
+    {
+      "path": "docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md",
+      "sha256": "55febb3da5bf7015f2a8dab36052ac351ed328640048a2a2e9cb79467426f1e2",
+      "size": 1398
+    },
+    {
+      "path": "docs/architecture/04_CONTENT_COMPILER.md",
+      "sha256": "05a3d2cc29fc1dab4e1f70d58dd9a996227af81dd1eddb0a0cb9a69c0f51b489",
+      "size": 1452
+    },
+    {
+      "path": "docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md",
+      "sha256": "ccdf91341896d7cb2498d1e845b443ff22f3073f5d9f9c41eb147d5c9dab80f2",
+      "size": 1060
+    },
+    {
+      "path": "docs/architecture/06_CTF_TEACHING_GRAPH_AND_LESSON.md",
+      "sha256": "fe8f231df333da11e9d209ba3288e4dc24478a85a86f41712c3d53d7ab3c7eaf",
+      "size": 1067
+    },
+    {
+      "path": "docs/architecture/07_PUBLICATION_AND_REVIEW.md",
+      "sha256": "e8b391f5ccb1c1b9134bb694bfb75c2940095c8502a104703f8de7fccce1fcda",
+      "size": 1074
+    },
+    {
+      "path": "docs/architecture/08_RUNTIME_CONTROL_PLANE.md",
+      "sha256": "1107c850dbdaf36b05916d378daf727e65b880b2362d8ed10acdb29b342bfa62",
+      "size": 1120
+    },
+    {
+      "path": "docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md",
+      "sha256": "8591bcef22414f0e38bec6c5acd41cd9ca38f50cdcb531d887f1def8bdf72c53",
+      "size": 1149
+    },
+    {
+      "path": "docs/architecture/10_TEACHER_ORCHESTRATOR.md",
+      "sha256": "99246d4a5051d920a3b33be0cfd8bcdcf0372c762f72b9b30e3915718e512a66",
+      "size": 1027
+    },
+    {
+      "path": "docs/architecture/11_RAISE_HAND_AND_TURN_CONTROL.md",
+      "sha256": "509375f24d763673d820c0f8b7cc710b6558314c9ed52d3da8d8a6efb873f87f",
+      "size": 1201
+    },
+    {
+      "path": "docs/architecture/12_TIMELINE_PRESENTATION_AND_RESUME.md",
+      "sha256": "d9ca511d8917ea3a8d9d2fdaaf31a50a1951ad16599e6f40fd12ff9dbb75849c",
+      "size": 1120
+    },
+    {
+      "path": "docs/architecture/13_MEDIA_SPEECH_AND_VOICE.md",
+      "sha256": "2e05a9b6326426f63e548357e44c664f8e9cc5854a3bfa9bee7457bba1262852",
+      "size": 1226
+    },
+    {
+      "path": "docs/architecture/14_LLM_RAG_AND_AI_SAFETY.md",
+      "sha256": "a54c9cac9f83eafc7c33aad45bb0d6b2828e537efd12bbcbb332bfe68ebf2680",
+      "size": 1066
+    },
+    {
+      "path": "docs/architecture/15_FRONTEND_CLASSROOM_AND_STUDIO.md",
+      "sha256": "b49b4e8f0b0da79b0df7614ff5898b9ddbed9efec228eb27b65f9646af52bae6",
+      "size": 1080
+    },
+    {
+      "path": "docs/architecture/16_DATA_STORAGE_AND_EVENTS.md",
+      "sha256": "c102fb4a8f3dac25faebc205c47e82b556f15e8656d419125014732d3c4ceab5",
+      "size": 1104
+    },
+    {
+      "path": "docs/architecture/17_SECURITY_PRIVACY_AND_GOVERNANCE.md",
+      "sha256": "994b619eb5c86ea3a7bcc1ae5735159fdfd58d40e6993ee125c849b943c5a83a",
+      "size": 1186
+    },
+    {
+      "path": "docs/architecture/18_ACCESSIBILITY_AND_INCLUSION.md",
+      "sha256": "ae9cb134e9781584f51192d5cafb9619ff707550581c085d6a0f9fcb19e76e58",
+      "size": 1042
+    },
+    {
+      "path": "docs/architecture/19_RELIABILITY_SLO_AND_BACKPRESSURE.md",
+      "sha256": "65f3aeaf8854be1ccf5434678543dc3b0606083a514bdf9cc2d77f933817c06d",
+      "size": 1122
+    },
+    {
+      "path": "docs/architecture/20_OBSERVABILITY_COST_AND_CAPACITY.md",
+      "sha256": "66ab24d6139059531d1e5b3e3986e0a18f2f8a3bd4976061291d1dc6667f4db3",
+      "size": 1026
+    },
+    {
+      "path": "docs/architecture/21_TESTING_CHAOS_AND_ACCEPTANCE.md",
+      "sha256": "6667e0f45bc50891f9985964d7823d59ed90bbbbd63e78f06674a2d396ae9526",
+      "size": 1097
+    },
+    {
+      "path": "docs/architecture/22_DEPLOYMENT_AND_SCALING.md",
+      "sha256": "92ca150597f66fea54f37161787657bccdddc3974afaf9a57ceb26fc7e93d873",
+      "size": 1005
+    },
+    {
+      "path": "docs/architecture/23_LMS_SIS_SCORM_AND_INTEGRATIONS.md",
+      "sha256": "81585448450ac190d64f85e5ff21e9b745695fb2739f5273586b790aa8448b12",
+      "size": 986
+    },
+    {
+      "path": "docs/architecture/24_ROADMAP_AND_REPOSITORY.md",
+      "sha256": "3acab022e5e170d5cb523c23097baf967ed2b4228951a046ea87664d74c370a6",
+      "size": 1138
+    },
+    {
+      "path": "docs/architecture/25_IMPLEMENTATION_CHECKLIST.md",
+      "sha256": "12786eebf18a5dda1556b5c98941d7f195d6d9f3e5f1926e68e4ac86eb986387",
+      "size": 1187
+    },
+    {
+      "path": "docs/architecture/ARCHITECTURE_FULL.md",
+      "sha256": "16998b008784f7907c4427d108dff1e81a0f926e9027fdaf7ee63f730fc602c1",
+      "size": 33024
+    },
+    {
+      "path": "docs/data/DATA_MODEL_AND_TRANSACTIONS.md",
+      "sha256": "ed76934a66cb9067dadc7a693f6c238b2341901e31a1a53e92bc766c3a1fb4eb",
+      "size": 1045
+    },
+    {
+      "path": "docs/data/OUTBOX_SNAPSHOT_AND_RETENTION.md",
+      "sha256": "2ccd791b08c1adf782b2df8a91bdabba1787984fe7aadee3e15217b707adf861",
+      "size": 910
+    },
+    {
+      "path": "docs/operations/ACTOR_RECOVERY_RUNBOOK.md",
+      "sha256": "73d14a0d88543c9e98036b4b1cf33d0861badb3197a28bbe05f0145372515a70",
+      "size": 892
+    },
+    {
+      "path": "docs/operations/AI_PROVIDER_OUTAGE_RUNBOOK.md",
+      "sha256": "a729d28405eef5b6c87fc43108406176a1d184aba350a782b7814e46d1a41864",
+      "size": 895
+    },
+    {
+      "path": "docs/operations/COST_SPIKE_RUNBOOK.md",
+      "sha256": "ee7777c904525e32cfe96b805839c067613fc25c855c5764f68f1aaa1b76878e",
+      "size": 914
+    },
+    {
+      "path": "docs/operations/DATABASE_FAILOVER_RUNBOOK.md",
+      "sha256": "40439446eaeb9b4871ecba4c4b0087e6c0b491a40429464678f50a6f4291928a",
+      "size": 893
+    },
+    {
+      "path": "docs/operations/MEDIA_OUTAGE_RUNBOOK.md",
+      "sha256": "e31cccc915c443ad11e6e9c218fcbfc6dd7a42837ef4e32fac6966e1d496fb7c",
+      "size": 884
+    },
+    {
+      "path": "docs/operations/SLO_CAPACITY_AND_ERROR_BUDGET.md",
+      "sha256": "08a11c5586fec5f989fbbba3c5602ea985ef2d7b5dd0b37a7d76b2dd098b231f",
+      "size": 1001
+    },
+    {
+      "path": "docs/product/PRODUCT_REQUIREMENTS.md",
+      "sha256": "800c6746454c3c8b7c7fec01ee445d021b02dd0eae975397c26da4ac473b8099",
+      "size": 1112
+    },
+    {
+      "path": "docs/product/V0_SCOPE.md",
+      "sha256": "2cec8e4294068f2631599d65efc96010174ed6c5985a86f5d5faa1feea406017",
+      "size": 907
+    },
+    {
+      "path": "docs/product/V1_SCOPE.md",
+      "sha256": "870b0ce2ba20a7d443d758d97276deeaecbaace6a36fda90b7f868b4f51472f1",
+      "size": 948
+    },
+    {
+      "path": "docs/providers/DOCUMENT_RENDERER.md",
+      "sha256": "a94b6e9e6b15ecba890bac7dca0de762addb26131f82fde42267430431d05224",
+      "size": 907
+    },
+    {
+      "path": "docs/providers/LLM_PROVIDER.md",
+      "sha256": "a2df94985f63100d8e58f11f458c2f903ba78ea91156ac3aa999cfb397ac9f76",
+      "size": 951
+    },
+    {
+      "path": "docs/providers/SEARCH_PROVIDER.md",
+      "sha256": "6313947cce91e964cead1097e93dac08888b7794a1bcd4688471fe7ee3959e57",
+      "size": 942
+    },
+    {
+      "path": "docs/providers/SFU_PROVIDER.md",
+      "sha256": "68cdb2c0cea688b20c42e6281a2b4ba076f144b7e305588f366d68d6f8a11ca2",
+      "size": 904
+    },
+    {
+      "path": "docs/providers/STT_PROVIDER.md",
+      "sha256": "a6819c92151dae64e9c558d26eaaf96cf6adbc04809e6ec1130227f5d516122a",
+      "size": 970
+    },
+    {
+      "path": "docs/providers/TTS_VOICE_PROVIDER.md",
+      "sha256": "7678874f88bfe0df73db67223c7245dd40fd8be99b68105bc5e3a89b911df6db",
+      "size": 963
+    },
+    {
+      "path": "docs/providers/VISION_OCR_PROVIDER.md",
+      "sha256": "36511a3ba3b092cc43e00f55d3c90350ca919b828097c7134df1180b84592113",
+      "size": 918
+    },
+    {
+      "path": "docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md",
+      "sha256": "34a6ce220e53430c4246044407f266b857405214b3a4bdb8708c04289218cdb1",
+      "size": 1009
+    },
+    {
+      "path": "docs/security/THREAT_MODEL_AND_CONTROLS.md",
+      "sha256": "d8a8d9f4128462c4ae1e341ca27a2bae7d278d550b1e819fff88fdb8d09216a1",
+      "size": 1035
+    },
+    {
+      "path": "docs/sequences/ACTOR_FAILOVER.md",
+      "sha256": "009b2587c4833739d3c37028c8df03be14c52914178f3a6cc2e2f087920fe115",
+      "size": 911
+    },
+    {
+      "path": "docs/sequences/AUDIO_CANCEL_TIMEOUT.md",
+      "sha256": "5727391594bf382f9e405e49089dbdbd96dd024aec771b4e30118eeaf6e66eea",
+      "size": 920
+    },
+    {
+      "path": "docs/sequences/CLASS_END.md",
+      "sha256": "381d6dc7831efe0167850949375608c6d7c4a72f78519a25c899b262b2929e47",
+      "size": 909
+    },
+    {
+      "path": "docs/sequences/CLASS_START.md",
+      "sha256": "372b1d11fdc7b11f7af6491d8fa558d18115a558e612f843e48924b5617656ac",
+      "size": 936
+    },
+    {
+      "path": "docs/sequences/COURSE_UPLOAD_PUBLICATION.md",
+      "sha256": "ccd72ca37c20627a33da642da2d3c166f4bc9e0723eaaa01eb8a59a07de1f65a",
+      "size": 949
+    },
+    {
+      "path": "docs/sequences/DUPLICATE_COMMAND.md",
+      "sha256": "1ed753413228881481fabe8856b01325ddda5f060ef115b28c021d1dd0e570a2",
+      "size": 895
+    },
+    {
+      "path": "docs/sequences/MIC_PUBLISH_FAILURE.md",
+      "sha256": "1421153d9cb65993f34a58305d36ab5fd88102af57e69fe1fb6e5b72cca25e19",
+      "size": 901
+    },
+    {
+      "path": "docs/sequences/RAG_OR_LLM_TIMEOUT.md",
+      "sha256": "2f016d9883324a6dacd36f39698ec6557f67bf22a397fdaa3c7f416734fbe184",
+      "size": 900
+    },
+    {
+      "path": "docs/sequences/RAISE_HAND_SUCCESS.md",
+      "sha256": "ee91f8e815bd54846450c811bb1b563a5fa95c82034e19ecdcc54a7857d746f0",
+      "size": 967
+    },
+    {
+      "path": "docs/sequences/SFU_FAILURE.md",
+      "sha256": "4eb740de9c3509d3a530c96b11860ebdfab2d757496656ee9f71430b88fc5511",
+      "size": 913
+    },
+    {
+      "path": "docs/sequences/STT_CAPACITY_UNAVAILABLE.md",
+      "sha256": "e627f79edb700e052006386c3aa0a61ace909be27afe2c5aa4bb8a5504cdc86f",
+      "size": 905
+    },
+    {
+      "path": "docs/sequences/STT_FINAL_TIMEOUT.md",
+      "sha256": "0d59c9ad613bcab381b43dab0db24f1698bcd557ac3d2e3d896261336f408150",
+      "size": 895
+    },
+    {
+      "path": "docs/sequences/STUDENT_DISCONNECT_QUEUED.md",
+      "sha256": "3bfc7afabb743be8bfe645ef1f9b76a89a67c5ee108158bc4cf49495edeb20d8",
+      "size": 902
+    },
+    {
+      "path": "docs/sequences/STUDENT_DISCONNECT_SPEAKING.md",
+      "sha256": "48b18649ff253aabeeffdd09922f2eba7fc1a87e21468c5d1ac452d0996d995b",
+      "size": 915
+    },
+    {
+      "path": "docs/sequences/TTS_FAILURE.md",
+      "sha256": "2f2207d93ea5789f59d9c224330f8191cf7ad28c6d09245cd43bae03de2d4238",
+      "size": 886
+    },
+    {
+      "path": "docs/sequences/WEBSOCKET_RECONNECT.md",
+      "sha256": "2441fc4c04ef337cdbaf9723e366e12d80fc5e30b0c9a1ec19d6eace8d147e67",
+      "size": 920
+    },
+    {
+      "path": "docs/state-machines/CLASSROOM_SESSION_STATE_MACHINE.md",
+      "sha256": "774c241205e6232b6c8ceae2efcedf3be9c3817a2b5763e572676b8a1a16d330",
+      "size": 1157
+    },
+    {
+      "path": "docs/state-machines/COMPILER_JOB_STATE_MACHINE.md",
+      "sha256": "c5c6e9a93803d5c00eb6ca746664cb9d71d5433499b927c02fa5481c3a5fab87",
+      "size": 1136
+    },
+    {
+      "path": "docs/state-machines/MEDIA_CONNECTION_STATE_MACHINE.md",
+      "sha256": "1c42d001a143066ffe57a1f46e8a3b31da573a88e8683a7305d94066009ba616",
+      "size": 1069
+    },
+    {
+      "path": "docs/state-machines/PUBLICATION_STATE_MACHINE.md",
+      "sha256": "17c8b849ecdc9620975206212ad6615a5db2b00a0fe5bec2773fcd6a578d58d8",
+      "size": 1078
+    },
+    {
+      "path": "docs/state-machines/TEACHER_VOICE_STATE_MACHINE.md",
+      "sha256": "ac3622bbb8d9ce15dfd4f123bcbe1d07c759c540df5376efa8f6aef055014e30",
+      "size": 1128
+    },
+    {
+      "path": "docs/state-machines/TIMELINE_STATE_MACHINE.md",
+      "sha256": "a6e4403352276d2259b34353fde38abe3a88de87915ebb1f934788a9701ff523",
+      "size": 1093
+    },
+    {
+      "path": "docs/state-machines/TURN_MANAGER_STATE_MACHINE.md",
+      "sha256": "31c1f8ef8ac4dae1728af493164ac9a50af883f47bffb5a068d8ed06d557c300",
+      "size": 1186
+    },
+    {
+      "path": "docs/testing/CONTENT_AND_AI_EVALUATION.md",
+      "sha256": "91396230c53c24c34fc36dbd2c2224f19fb62add231c2fac6213a3a96c07b997",
+      "size": 1051
+    },
+    {
+      "path": "docs/testing/INVARIANT_AND_CHAOS_TESTS.md",
+      "sha256": "b22b52bb6321cb969a0b49e45f7a6e0d0b6a538ef7402c5f12118493cae538c7",
+      "size": 1038
+    },
+    {
+      "path": "docs/testing/TEST_STRATEGY.md",
+      "sha256": "f373bab059204b3779f22da7e0dfa60655f3182290ba0eb5e2b0e1bd4aa62add",
+      "size": 886
+    },
+    {
+      "path": "evaluation/README.md",
+      "sha256": "938a06c947613b4cd1e0205ba32a68c6c0b7cac17ccfb9b3f02ddcd96c17c740",
+      "size": 209
+    },
+    {
+      "path": "evaluation/manifests/pptx-corpus.json",
+      "sha256": "93b91ada0ee501a235646317df8eb4c8926508c7b387392c3c21b5bf60d24610",
+      "size": 334
+    },
+    {
+      "path": "evaluation/manifests/rag-set.json",
+      "sha256": "530db006d70a4d25e0bc0ea3d218c78029748f79b5424285b883feab9ad20040",
+      "size": 160
+    },
+    {
+      "path": "evaluation/manifests/vietnamese-stt.json",
+      "sha256": "a4ffd3c261abd7fd7c6a1905e11afca246a58ad88d10592ee5819a2d71ab45bc",
+      "size": 207
+    },
+    {
+      "path": "governance/DECISION_LEDGER.yaml",
+      "sha256": "aa3ea160694400557b739902e3c62babce6722a2768a079dc8c2dc764bf73ce4",
+      "size": 5873
+    },
+    {
+      "path": "governance/TERMINOLOGY_REGISTRY.yaml",
+      "sha256": "72f902dd35fc612d5e6f3ec5df1feba9661696ce08338ca9a81f33cb1946ae9d",
+      "size": 2161
+    },
+    {
+      "path": "governance/TRACEABILITY_MATRIX.csv",
+      "sha256": "c17afebdcad38e30c43f0e2e6326a87d77c0baeffd27c635c2752f1eb660539f",
+      "size": 16266
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Floor Revoked",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "tenant_id",
+    "class_id",
+    "actor_epoch",
+    "state_version",
+    "sequence",
+    "type",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "class_id": {
+      "type": "string"
+    },
+    "actor_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "const": "student.floor.revoked"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "floor_id",
+        "reason"
+      ],
+      "properties": {
+        "floor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason": {
+          "enum": [
+            "FINISHED",
+            "TIMEOUT",
+            "DISCONNECTED",
+            "MODERATOR",
+            "FAILOVER",
+            "MEDIA_FAILURE",
+            "CANCELLED"
+          ]
+        }
+      }
+    }
+  }
+}

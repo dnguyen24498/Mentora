@@ -1,0 +1,9 @@
+id: V0-015
+title: "Grounded text question"
+week: W7
+status: TODO
+depends_on: ["V0-013", "V0-014"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

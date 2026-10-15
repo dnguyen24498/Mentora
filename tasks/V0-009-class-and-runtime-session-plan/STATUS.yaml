@@ -1,0 +1,9 @@
+id: V0-009
+title: "Class and runtime session plan"
+week: W5
+status: TODO
+depends_on: ["V0-008"]
+started_at: null
+completed_at: null
+commit: null
+blockers: []

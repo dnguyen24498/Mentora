@@ -1,0 +1,144 @@
+baseline: "1.0"
+locked:
+  - id: DEC-CONTENT-001
+    status: LOCKED
+    decision: "Runtime never parses original source documents."
+  - id: DEC-CONTENT-002
+    status: LOCKED
+    decision: "A deterministic Baseline Content Package remains usable without Vision AI or Teaching Graph."
+  - id: DEC-CONTENT-003
+    status: LOCKED
+    decision: "Teaching Graph is optional reviewed enrichment, not a runtime availability dependency."
+  - id: DEC-CONTENT-004
+    status: LOCKED
+    decision: "CTF is an immutable package envelope and does not duplicate every domain model."
+  - id: DEC-CONTENT-005
+    status: LOCKED
+    decision: "Published artifacts are immutable and active sessions pin all compatible versions."
+  - id: DEC-CONTENT-006
+    status: LOCKED
+    decision: "Every scene has explicit render fidelity, renderer identity, warnings, and provenance."
+  - id: DEC-CONTENT-007
+    status: LOCKED
+    decision: "Instructional reveal order is preserved as discrete scene steps; decorative animation may be ignored."
+  - id: DEC-CONTENT-008
+    status: LOCKED
+    decision: "Speaker notes are weighted evidence and conflicts require review."
+  - id: DEC-CONTENT-009
+    status: LOCKED
+    decision: "Vision executes selectively when deterministic analysis is insufficient."
+  - id: DEC-RUNTIME-001
+    status: LOCKED
+    decision: "One logical classroom has one serialized authoritative state owner called Classroom Actor."
+  - id: DEC-RUNTIME-002
+    status: LOCKED
+    decision: "Teacher Orchestrator owns pedagogical decisions but not deterministic classroom truth."
+  - id: DEC-RUNTIME-003
+    status: LOCKED
+    decision: "Commands and externally visible side effects are idempotent."
+  - id: DEC-RUNTIME-004
+    status: LOCKED
+    decision: "Reconnect uses authoritative snapshot plus ordered incremental events."
+  - id: DEC-RUNTIME-005
+    status: LOCKED
+    decision: "Resume creates a new semantic speech segment from a compatible checkpoint."
+  - id: DEC-RUNTIME-006
+    status: LOCKED
+    decision: "Semantic speech markers are preferred to fixed millisecond offsets."
+  - id: DEC-RUNTIME-007
+    status: LOCKED
+    decision: "Actor epochs fence stale owners and state versions fence stale commands."
+  - id: DEC-TURN-001
+    status: LOCKED
+    decision: "Group student microphones are unpublished by default."
+  - id: DEC-TURN-002
+    status: LOCKED
+    decision: "Raise Hand sends only a control command and does not activate audio."
+  - id: DEC-TURN-003
+    status: LOCKED
+    decision: "Only Classroom Actor may grant a short-lived speaking floor."
+  - id: DEC-TURN-004
+    status: LOCKED
+    decision: "At most one student holds the speaking floor unless an explicit future discussion mode is enabled."
+  - id: DEC-TURN-005
+    status: LOCKED
+    decision: "VAD and STT run only during a valid floor."
+  - id: DEC-TURN-006
+    status: LOCKED
+    decision: "STT capacity is reserved before floor grant."
+  - id: DEC-TURN-007
+    status: LOCKED
+    decision: "Teacher audio is cancelled and acknowledged before student enters SPEAKING."
+  - id: DEC-TURN-008
+    status: LOCKED
+    decision: "Floor authorization is fenced by actor epoch and expires/revokes."
+  - id: DEC-TURN-009
+    status: LOCKED
+    decision: "Typed questions remain an accessibility and failure fallback."
+  - id: DEC-DATA-001
+    status: LOCKED
+    decision: "PostgreSQL or equivalent durable relational store owns durable institutional/session truth."
+  - id: DEC-DATA-002
+    status: LOCKED
+    decision: "Redis is limited to cache, projection, routing, revocation, and realtime coordination."
+  - id: DEC-DATA-003
+    status: LOCKED
+    decision: "There is an ordered command/event mechanism per class_id."
+  - id: DEC-DATA-004
+    status: LOCKED
+    decision: "Runtime recovers through durable snapshot plus ordered event replay."
+  - id: DEC-DATA-005
+    status: LOCKED
+    decision: "Knowledge retrieval is tenant/course/version filtered and index-version pinned."
+  - id: DEC-RELIABILITY-001
+    status: LOCKED
+    decision: "Every external capability has deadline, bounded retry, circuit breaker, admission control, and fallback."
+  - id: DEC-RELIABILITY-002
+    status: LOCKED
+    decision: "The system targets bounded failure and state integrity, not impossible zero failure."
+  - id: DEC-DEPLOY-001
+    status: LOCKED
+    decision: "V1 control plane is a modular monolith; compiler, media, search, and GPU voice scale independently."
+  - id: DEC-DEPLOY-002
+    status: LOCKED
+    decision: "Each class has a home region for latency-sensitive services."
+  - id: DEC-PERSONAL-001
+    status: LOCKED
+    decision: "Group adaptation and individual adaptation are separate."
+  - id: DEC-SCORM-001
+    status: LOCKED
+    decision: "SCORM is either structurally imported or executed in a restricted sandbox, not assumed universally convertible."
+open:
+  - id: DEC-TECH-001
+    status: OPEN
+    decision: "Ordered command/event technology"
+  - id: DEC-TECH-002
+    status: OPEN
+    decision: "Actor runtime/framework or custom consumer"
+  - id: DEC-TECH-003
+    status: OPEN
+    decision: "Durable workflow technology"
+  - id: DEC-TECH-004
+    status: OPEN
+    decision: "Managed or self-hosted SFU implementation"
+  - id: DEC-TECH-005
+    status: OPEN
+    decision: "Native PowerPoint rendering deployment and licensing"
+  - id: DEC-TECH-006
+    status: OPEN
+    decision: "STT provider after Vietnamese benchmark"
+  - id: DEC-TECH-007
+    status: OPEN
+    decision: "TTS/OmniVoice deployment and GPU capacity"
+  - id: DEC-TECH-008
+    status: OPEN
+    decision: "Search/vector technology"
+  - id: DEC-TECH-009
+    status: OPEN
+    decision: "Primary cloud/regions and residency"
+  - id: DEC-POLICY-001
+    status: OPEN
+    decision: "Transcript and recording retention by institution"
+  - id: DEC-POLICY-002
+    status: OPEN
+    decision: "Maximum class size and moderator policy"

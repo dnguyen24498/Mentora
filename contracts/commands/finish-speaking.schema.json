@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Finish Speaking",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command_id",
+    "tenant_id",
+    "class_id",
+    "principal_id",
+    "client_sequence",
+    "expected_actor_epoch",
+    "expected_state_version",
+    "type",
+    "issued_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "command_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "class_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "principal_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "client_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expected_actor_epoch": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "expected_state_version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "type": {
+      "const": "FINISH_SPEAKING"
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "floor_id"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "floor_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  }
+}
