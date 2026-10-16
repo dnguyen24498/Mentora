@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-006"]
 started_at: "2026-10-16"
 completed_at: "2026-10-16"
-commit: null   # filled in with the milestone commit hash
+commit: "228a34d"
 blockers: []
 notes:
   - "Delivered the whole task: Teacher Studio course-version page (frontend/src/components/TeacherStudio.tsx), side-by-side slide render + extracted information, warnings/fidelity and blocking status, approve/reject, and scene-order/script draft edits."

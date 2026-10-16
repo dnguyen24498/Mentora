@@ -69,8 +69,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 side-by-side render + extracted information, warnings/fidelity and blocking status,
 approve/reject, and simple scene-order/script edits.
 
-- Link to commit/PR: _filled in below after the milestone commit_ (the read-only
-  projection slice was `b3580a6`; this commit completes the task).
+- Link to commit/PR: `228a34d` (the read-only projection slice was `b3580a6`)
 - Test command and result:
   - `cd backend && env -u PYTHONPATH .venv/bin/python -m pytest -q` -> **234 passed**
     (was 204; **+30** for the review write path in
