@@ -93,6 +93,19 @@ def lesson_plan_version_for(content_version: str) -> str:
     return f"lp-{digest[:16]}"
 
 
+def package_id_for(content_version: str) -> str:
+    """Deterministic package id.
+
+    The identity of an immutable content package *is* its content version, so a
+    retried or repeated build targets the same storage prefix: an interrupted
+    build is completed by re-running it, and unchanged content never accumulates
+    duplicate packages. It also lets a read-only consumer (teacher review,
+    publication) address a package without keeping server state.
+    """
+
+    return f"pkg-{content_version.removeprefix('cpv-')}"
+
+
 def build_steps(scene: SlideScene) -> tuple[SceneStep, ...]:
     """Reveal steps for one scene.
 
@@ -334,6 +347,7 @@ __all__ = [
     "build_steps",
     "content_package_version",
     "lesson_plan_version_for",
+    "package_id_for",
     "resolve_assets",
     "scene_payload",
     "section_type_for",

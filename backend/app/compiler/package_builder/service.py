@@ -19,15 +19,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional
-from uuid import uuid4
 
 from app.compiler.models.ir import EXTRACTOR_VERSION
 from app.compiler.package_builder.builder import (
     PackageBuilder,
     content_package_version,
     lesson_plan_version_for,
+    package_id_for,
     resolve_assets,
 )
+from app.compiler.package_builder.layout import package_prefix
 from app.compiler.package_builder.models import BaselinePackage, PackageMetadata
 from app.compiler.validators.fidelity import ValidationReport, assert_publishable
 from app.compiler.validators.package import (
@@ -132,7 +133,9 @@ class PackageBuildService:
             content_package_version=content_version,
             lesson_plan_version=lesson_plan_version_for(content_version),
             lesson_id=f"baseline:{artifact.course_id}",
-            package_id=package_id or str(uuid4()),
+            # Deterministic by default: identical content rebuilds into the same
+            # package (idempotent, no duplicates). Injectable for tests.
+            package_id=package_id or package_id_for(content_version),
             created_at=created_at or self._clock().isoformat(),
             # Indexing is V0-014; a baseline package is usable without it
             # (DEC-CONTENT-002), so it declares itself unindexed.
@@ -177,6 +180,22 @@ class PackageBuildService:
             validation=validation,
             prefix=prefix,
         )
+
+    def package_prefix_for(self, institution_id: str, artifact_id: str) -> str:
+        """Storage prefix the package for this artifact *would* live at.
+
+        Derived from the same cache key as :meth:`build` (source checksum +
+        compiler version + renderer config hash), so a read-only consumer can
+        address an already-built package without rendering anything.
+        """
+
+        artifact = self._repository.get_artifact(institution_id, artifact_id)
+        content_version = content_package_version(
+            artifact.sha256,
+            config_hash=self._rendering.renderer.identity().config_hash,
+            compiler_version=EXTRACTOR_VERSION,
+        )
+        return package_prefix(package_id_for(content_version))
 
     @property
     def _telemetry(self):

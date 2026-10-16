@@ -63,7 +63,8 @@ First V0 slice: secure PPTX upload + SQLite persistence + deterministic structur
 - `courses/` — course/version/source-artifact/compiler-job models, tenant-scoped `CourseRepository`, `UploadService` (idempotent dedupe by SHA-256 or `Idempotency-Key`).
 - `compiler/` — internal Content IR (mirrors `contracts/ctf/scene.schema.json`) + dependency-free OOXML `.pptx` extractor (stdlib `zipfile` + `xml.etree`, zip-bomb bounds) + `ExtractionService`.
 - `compiler/renderers/` + `compiler/render_service.py` — provider-neutral `DocumentRenderer` + deterministic local structural SVG renderer + per-slide fidelity gate (V0-005; **no renderer technology accepted** — `DEC-TECH-005` is `OPEN`). Endpoints `POST /artifacts/{id}/compile`, `GET /artifacts/{id}/renders/{order}`, `GET /renderer`.
-- `compiler/package_builder/` + `compiler/validators/package.py` — baseline Content Package builder (V0-006): IR + renders → scene documents, copied content-addressed assets, fallback lesson plan with safe markers, and a checksummed manifest (written last = commit point). Contract: `contracts/ctf/PACKAGE_LAYOUT.md`. **Library/stage only — no HTTP endpoint yet.**
+- `compiler/package_builder/` + `compiler/validators/package.py` — baseline Content Package builder (V0-006): IR + renders → scene documents, copied content-addressed assets, fallback lesson plan with safe markers, and a checksummed manifest (written last = commit point). Contract: `contracts/ctf/PACKAGE_LAYOUT.md`. **Library/stage only — it has no endpoint of its own; `publication/` serves it read-only.**
+- `publication/` — **read-only** teacher review projection of a built package (V0-007 preview slice): `POST/GET /artifacts/{id}/review-package` (+ `/renders/{order}`). No approve/reject or edits (V0-008 owns publication state).
 - `db/` — SQLite connection handling + `app/db/schema.sql`.
 - `api/` — FastAPI app factory (`create_app`).
 
@@ -71,7 +72,7 @@ Not yet implemented (reserved in the spec only): LLM, voice/OmniVoice, knowledge
 
 ## Implemented frontend (`frontend/`)
 
-Minimal Vite + React + TypeScript + Tailwind upload UI (the spec's frontend stack), served by the backend at `/`. It sets the `X-Institution-Id` tenant header, lists/creates courses, uploads or drag-and-drops a `.pptx`, and renders the extracted Content IR. Source under `frontend/src/` (`App.tsx`, `api/client.ts`); `frontend/dist/` is a build artifact and is git-ignored. The rest of the spec's `frontend/src/{audio,classroom,presentation,quiz}/` module layout is for later feature work, not this slice. See `frontend/README.md`.
+Minimal Vite + React + TypeScript + Tailwind upload UI (the spec's frontend stack), served by the backend at `/`. It sets the `X-Institution-Id` tenant header, lists/creates courses, uploads or drag-and-drops a `.pptx`, and renders the extracted Content IR. `src/components/ReviewPreview.tsx` adds the V0-007 **preview slice**: per-slide render, extracted text, notes, fidelity/warnings and the lesson order, read-only (no approve/reject; publication is V0-008). Source under `frontend/src/` (`App.tsx`, `api/client.ts`); `frontend/dist/` is a build artifact and is git-ignored. The rest of the spec's `frontend/src/{audio,classroom,presentation,quiz}/` module layout is for later feature work, not this slice. See `frontend/README.md`.
 
 ## Backend persistence note
 

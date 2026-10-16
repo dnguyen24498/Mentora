@@ -50,6 +50,63 @@ paths:
               schema: {type: string}
         '503':
           description: 'Scene has no render (stable code RENDERER_UNAVAILABLE)'
+  /artifacts/{artifactId}/review-package:
+    post:
+      operationId: buildReviewPackage
+      description: >-
+        Teacher review preview (V0-007). Builds the Baseline Content Package for
+        the artifact (V0-006, idempotent: source checksum + compiler version +
+        renderer config hash determine the package identity) and returns the
+        read-only review view of it: per-slide render reference, extracted text,
+        speaker notes, warnings/fidelity, and the fallback lesson order with its
+        safe markers. A package is only built when the V0-005 fidelity gate
+        passed, so a document with a FAILED/CANCELLED/missing render answers 409
+        and is never offered for review. Nothing here mutates the package.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: The review view of the built package
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewPackage'}
+        '403':
+          description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '409':
+          description: 'Fidelity gate failed, so no package was built (stable code PUBLICATION_BLOCKED)'
+    get:
+      operationId: getReviewPackage
+      description: >-
+        The review view of the package already stored for this artifact. Cheap:
+        it reads the package and never re-renders. 404 when the package has not
+        been built yet.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: The review view of the stored package
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewPackage'}
+        '404':
+          description: 'No package has been built for this artifact (stable code NOT_FOUND)'
+  /artifacts/{artifactId}/review-package/renders/{order}:
+    get:
+      operationId: getReviewRender
+      description: >-
+        One slide's packaged fallback render (SVG), served from the package
+        itself so no re-rendering happens and no unauthenticated asset URL is
+        needed. The artifact is only served after the package manifest confirms
+        it lists the scene's fallback asset.
+      parameters:
+        - {in: path, name: artifactId, required: true, schema: {type: string}}
+        - {in: path, name: order, required: true, schema: {type: integer, minimum: 0}}
+      responses:
+        '200':
+          description: The packaged slide render
+          content:
+            image/svg+xml:
+              schema: {type: string}
+        '404':
+          description: 'No built package, or no such scene (stable code NOT_FOUND)'
   /course-versions/{versionId}/publish:
     post:
       operationId: publishVersion
@@ -175,3 +232,70 @@ components:
         render: {$ref: '#/components/schemas/RenderReport'}
         validation: {$ref: '#/components/schemas/ValidationReport'}
         job_status: {type: string, enum: [PENDING, EXTRACTED, FAILED]}
+    ReviewScene:
+      description: >-
+        One slide exactly as it appears in the package under review
+        (DEC-CONTENT-006: explicit fidelity, renderer identity, warnings).
+      type: object
+      required: [order, scene_id, fidelity, render_status, render_url, requires_review, missing_fonts, warnings, text, object_count, step_count]
+      properties:
+        order: {type: integer, minimum: 0}
+        scene_id: {type: string}
+        fidelity:
+          type: [string, 'null']
+          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, DEGRADED_RENDERED, null]
+        render_status: {type: string, enum: [RENDERED, FAILED]}
+        fallback_asset: {type: [string, 'null'], description: 'Path of the render inside the package'}
+        render_url: {type: string, description: 'Endpoint serving this slide, tenant-scoped'}
+        requires_review: {type: boolean, description: 'Degraded fidelity or a missing font'}
+        missing_fonts: {type: array, items: {type: string}}
+        warnings: {type: array, items: {type: string}}
+        notes: {type: [string, 'null'], description: 'Speaker notes, verbatim (DEC-CONTENT-008)'}
+        text: {type: array, items: {type: string}}
+        object_count: {type: integer, minimum: 0}
+        step_count: {type: integer, minimum: 0}
+        renderer: {oneOf: [{$ref: '#/components/schemas/RendererIdentity'}, {type: 'null'}]}
+        source_ref: {type: object}
+    ReviewSection:
+      description: One entry of the fallback lesson order (DEC-CONTENT-007).
+      type: object
+      required: [order, section_id, type, safe_markers]
+      properties:
+        order: {type: integer, minimum: 0}
+        section_id: {type: string}
+        type: {type: string, enum: [EXPLANATION, EXAMPLE, MEDIA, QUIZ, DISCUSSION]}
+        scene_id: {type: [string, 'null']}
+        scene_step_id: {type: [string, 'null']}
+        safe_markers: {type: array, items: {type: string}}
+        script: {type: [string, 'null']}
+        scene_fidelity: {type: [string, 'null']}
+        requires_review: {type: boolean}
+    ReviewPackage:
+      description: >-
+        Read-only teacher review view of a built Baseline Content Package.
+        READY/REVIEW_REQUIRED describe review state; nothing here is writable
+        (approve/reject and the publication transition are V0-008).
+      type: object
+      required: [artifact_id, package_id, prefix, course_id, course_version, content_package_version, knowledge_index_version, created_at, state, publishable, requires_review, scene_count, file_count, placeholder_notice, lesson_order, scenes]
+      properties:
+        artifact_id: {type: string}
+        package_id: {type: string, description: 'Deterministic: identical content resolves to the same package'}
+        prefix: {type: string}
+        course_id: {type: string}
+        course_version: {type: string}
+        content_package_version: {type: string}
+        lesson_plan_version: {type: [string, 'null']}
+        knowledge_index_version: {type: string, description: '"unindexed" until V0-014'}
+        teaching_graph_version: {type: [string, 'null']}
+        created_at: {type: string}
+        state: {type: string, enum: [READY, REVIEW_REQUIRED, BLOCKED]}
+        publishable: {type: boolean}
+        requires_review: {type: boolean}
+        scene_count: {type: integer, minimum: 0}
+        file_count: {type: integer, minimum: 0}
+        renderer: {oneOf: [{$ref: '#/components/schemas/RendererIdentity'}, {type: 'null'}]}
+        placeholder_notice:
+          type: string
+          description: 'States that the render is a placeholder, not a native render (DEC-TECH-005 is OPEN)'
+        lesson_order: {type: array, items: {$ref: '#/components/schemas/ReviewSection'}}
+        scenes: {type: array, items: {$ref: '#/components/schemas/ReviewScene'}}

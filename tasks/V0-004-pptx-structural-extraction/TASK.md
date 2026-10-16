@@ -66,7 +66,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-- Link to commit/PR: _(uncommitted working tree)_
+- Link to commit/PR: `d91b07f`
 - Test command and result: `cd backend && env -u PYTHONPATH .venv/bin/python -m pytest -q` -> **78 passed** (24 of them added by this task).
 - Demo recording/screenshot: `POST /artifacts/{id}/extract` on the real 16.7 MB class deck returns `schema_version=content-ir/1.1.0`, 28/28 slides, 386 paragraphs, 512 text runs, 78 pictures, 3 tables (65 cells), notes on slides 4/7/28, fonts `["Arial", "Be Vietnam Pro"]`, contiguous `reading_order`, **0 warnings**.
 - Metrics observed: corpus `evaluation/manifests/pptx-corpus.json` v0.2 -> 11 executable items, all matching (`tests/test_extraction_corpus.py`). Movies/`smartart`, `equation`, `semantic_reveal`, `scan` are declared `not_yet_covered`.

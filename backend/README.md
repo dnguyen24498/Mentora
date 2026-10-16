@@ -42,8 +42,9 @@ For normal development the frontend runs on its own server at `:8000` — see
 | `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + deterministic local structural SVG renderer + required test double (V0-005). |
 | `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005) plus CTF package validation (V0-006). |
 | `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render -> gate. |
-| `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest. |
+| `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
+| `app/publication/` | Read-only teacher review projection of a built package (V0-007). Publication state transitions are V0-008. |
 | `app/db/` | SQLite connection + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present. |
 | `app/common/` | Base errors and stable error codes. |
@@ -57,6 +58,9 @@ For normal development the frontend runs on its own server at `:8000` — see
 - `POST /artifacts/{artifactId}/extract` — runs structural extraction and returns the Content IR.
 - `POST /artifacts/{artifactId}/compile` — extraction + a fallback render for every slide + the fidelity gate; returns `content_ir`, `render`, `validation`, `job_status`. Idempotent.
 - `GET /artifacts/{artifactId}/renders/{order}` — the deterministic fallback visual (SVG) for one slide, re-derived from the stored artifact and tenant-scoped.
+- `POST /artifacts/{artifactId}/review-package` — **V0-007 preview** (read-only): builds the Baseline Content Package (V0-006, idempotent) and returns the teacher review view — per-slide render reference, extracted text, notes, warnings/fidelity and the fallback lesson order with safe markers. `409 PUBLICATION_BLOCKED` when the fidelity gate failed, so a blocking failure is never reviewable.
+- `GET /artifacts/{artifactId}/review-package` — the review view of the **stored** package; never re-renders (~20 ms for a 28-slide deck vs ~4 s to build). `404` when nothing is built yet.
+- `GET /artifacts/{artifactId}/review-package/renders/{order}` — one slide's packaged fallback render, served from the package (no re-render) after the manifest confirms it lists the asset.
 - `GET /renderer` — renderer identity, capability, and circuit-breaker health.
 - `GET /artifacts/{artifactId}` — artifact metadata.
 - `GET /health`.
@@ -117,3 +121,13 @@ For normal development the frontend runs on its own server at `:8000` — see
   covered by `tests/test_package_builder.py`. There is deliberately **no HTTP
   endpoint** yet (the task's writable area is the compiler library); the
   teacher-facing preview is V0-007, publication is V0-008.
+- **Teacher review preview (V0-007).** `app/publication/review.py` projects the
+  *stored* package into the review view, so what the teacher sees is exactly what
+  the runtime would receive, and browsing costs no rendering. The package id is
+  derived from the same cache key as `content_package_version`
+  (`pkg-<digest16>`), so identical content always resolves to one package prefix:
+  a retried build completes the same package instead of duplicating it, and a
+  read-only consumer can address a package without any server state. The preview
+  is read-only by construction — there is no approve/reject path — and a document
+  that failed the fidelity gate answers `409 PUBLICATION_BLOCKED` instead of being
+  offered for review.

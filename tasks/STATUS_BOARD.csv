@@ -8,7 +8,7 @@ V0-003,W3,TODO,Compiler job runner and checkpoints,V0-002,tasks/V0-003-compiler-
 V0-004,W3,DONE,PPTX structural extraction,V0-003,tasks/V0-004-pptx-structural-extraction
 V0-005,W3,DONE,Slide rendering and fidelity,V0-003;FND-002,tasks/V0-005-slide-rendering-and-fidelity
 V0-006,W4,DONE,Baseline scene and CTF builder,V0-004;V0-005,tasks/V0-006-baseline-scene-and-ctf-builder
-V0-007,W4,TODO,Teacher review preview,V0-006,tasks/V0-007-teacher-review-preview
+V0-007,W4,IN_PROGRESS,Teacher review preview,V0-006,tasks/V0-007-teacher-review-preview
 V0-008,W4,TODO,Atomic publication and index version,V0-006;V0-007,tasks/V0-008-atomic-publication-and-index-version
 V0-009,W5,TODO,Class and runtime session plan,V0-008,tasks/V0-009-class-and-runtime-session-plan
 V0-010,W5,TODO,In-process Classroom Aggregate,V0-009,tasks/V0-010-in-process-classroom-aggregate

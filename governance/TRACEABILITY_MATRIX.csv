@@ -28,6 +28,7 @@ DEC-CONTENT-004,contracts/ctf/PACKAGE_LAYOUT.md,SPEC
 DEC-CONTENT-004,backend/app/compiler/package_builder/layout.py,CODE
 DEC-CONTENT-004,backend/app/compiler/package_builder/models.py,CODE
 DEC-CONTENT-004,backend/app/compiler/validators/package.py,CODE
+DEC-CONTENT-004,backend/app/compiler/package_builder/loader.py,CODE
 DEC-CONTENT-005,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-005,docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md,ARCH
 DEC-CONTENT-005,docs/architecture/07_PUBLICATION_AND_REVIEW.md,ARCH
@@ -35,6 +36,7 @@ DEC-CONTENT-005,docs/product/V0_SCOPE.md,SPEC
 DEC-CONTENT-005,contracts/ctf/PACKAGE_LAYOUT.md,SPEC
 DEC-CONTENT-005,backend/app/compiler/package_builder/layout.py,CODE
 DEC-CONTENT-005,backend/app/compiler/package_builder/service.py,CODE
+DEC-CONTENT-005,backend/app/compiler/package_builder/loader.py,CODE
 DEC-CONTENT-006,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-006,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-CONTENT-006,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
@@ -46,6 +48,9 @@ DEC-CONTENT-006,backend/app/compiler/validators/fidelity.py,CODE
 DEC-CONTENT-006,backend/app/compiler/render_service.py,CODE
 DEC-CONTENT-006,evaluation/manifests/render-fidelity.json,SPEC
 DEC-CONTENT-006,backend/tests/test_render_corpus.py,CODE
+DEC-CONTENT-006,backend/app/publication/review.py,CODE
+DEC-CONTENT-006,backend/tests/test_publication_review.py,CODE
+DEC-CONTENT-006,frontend/src/components/ReviewPreview.tsx,CODE
 DEC-CONTENT-007,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-007,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
 DEC-CONTENT-007,docs/testing/CONTENT_AND_AI_EVALUATION.md,SPEC
@@ -57,6 +62,9 @@ DEC-CONTENT-008,docs/architecture/06_CTF_TEACHING_GRAPH_AND_LESSON.md,ARCH
 DEC-CONTENT-008,docs/architecture/07_PUBLICATION_AND_REVIEW.md,ARCH
 DEC-CONTENT-008,backend/app/compiler/extractors/pptx.py,CODE
 DEC-CONTENT-008,backend/tests/test_pptx_extractor.py,CODE
+DEC-CONTENT-008,backend/app/publication/review.py,CODE
+DEC-CONTENT-008,backend/tests/test_publication_review.py,CODE
+DEC-CONTENT-008,frontend/src/components/ReviewPreview.tsx,CODE
 DEC-CONTENT-009,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-009,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-DATA-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH

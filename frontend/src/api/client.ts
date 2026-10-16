@@ -77,7 +77,8 @@ export interface ContentIR {
 const UNREACHABLE_HINT =
   'The backend is not running. Start the whole stack with ./run.sh (frontend :8000, API :8001).'
 
-async function request<T>(path: string, institutionId: string, init?: RequestInit): Promise<T> {
+/** Perform a request and turn every failure mode into a stable `ApiError`. */
+async function send(path: string, institutionId: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Institution-Id', institutionId)
 
@@ -92,6 +93,8 @@ async function request<T>(path: string, institutionId: string, init?: RequestIni
     )
   }
 
+  if (response.ok) return response
+
   const text = await response.text()
   let body: unknown = null
   if (text) {
@@ -102,19 +105,35 @@ async function request<T>(path: string, institutionId: string, init?: RequestIni
     }
   }
 
-  if (!response.ok) {
-    const error =
-      body && typeof body === 'object' ? (body as { error?: { code?: string; message?: string } }).error : undefined
-    if (error?.code) {
-      throw new ApiError(error.code, error.message ?? response.statusText)
-    }
-    if (response.status >= 500 && !text.trim()) {
-      // A 5xx with an empty body means the request never reached the API.
-      throw new ApiError('BACKEND_UNAVAILABLE', `${UNREACHABLE_HINT} (HTTP ${response.status})`)
-    }
-    throw new ApiError(String(response.status), response.statusText || `HTTP ${response.status}`)
+  const error =
+    body && typeof body === 'object'
+      ? (body as { error?: { code?: string; message?: string } }).error
+      : undefined
+  if (error?.code) {
+    throw new ApiError(error.code, error.message ?? response.statusText)
   }
-  return body as T
+  if (response.status >= 500 && !text.trim()) {
+    // A 5xx with an empty body means the request never reached the API.
+    throw new ApiError('BACKEND_UNAVAILABLE', `${UNREACHABLE_HINT} (HTTP ${response.status})`)
+  }
+  throw new ApiError(String(response.status), response.statusText || `HTTP ${response.status}`)
+}
+
+async function request<T>(path: string, institutionId: string, init?: RequestInit): Promise<T> {
+  const response = await send(path, institutionId, init)
+  const text = await response.text()
+  if (!text) return null as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return text as unknown as T
+  }
+}
+
+/** Fetch a binary endpoint (a slide render) and expose it as an object URL. */
+export async function fetchObjectUrl(institutionId: string, path: string): Promise<string> {
+  const response = await send(path, institutionId)
+  return URL.createObjectURL(await response.blob())
 }
 
 export const listCourses = (institutionId: string) => request<Course[]>('/courses', institutionId)
@@ -140,3 +159,83 @@ export const uploadMaterial = (institutionId: string, courseId: string, file: Fi
 
 export const extractArtifact = (institutionId: string, artifactId: string) =>
   request<ContentIR>(`/artifacts/${artifactId}/extract`, institutionId, { method: 'POST' })
+
+// -- teacher review preview (V0-007) --------------------------------------------
+export interface RendererIdentity {
+  name: string
+  version: string
+  engine: string
+  config_hash: string
+  data_region: string
+}
+
+/** One slide exactly as it appears in the package under review (DEC-CONTENT-006). */
+export interface ReviewScene {
+  order: number
+  scene_id: string
+  fidelity: string | null
+  render_status: 'RENDERED' | 'FAILED'
+  fallback_asset: string | null
+  render_url: string | null
+  requires_review: boolean
+  missing_fonts: string[]
+  warnings: string[]
+  notes: string | null
+  text: string[]
+  object_count: number
+  step_count: number
+  renderer: RendererIdentity | null
+  source_ref: Record<string, unknown>
+}
+
+/** One entry of the fallback lesson order (DEC-CONTENT-007). */
+export interface ReviewSection {
+  order: number
+  section_id: string
+  type: string
+  scene_id: string | null
+  scene_step_id: string | null
+  safe_markers: string[]
+  script: string | null
+  scene_fidelity: string | null
+  requires_review: boolean
+}
+
+/**
+ * Read-only review view of a built Baseline Content Package.
+ *
+ * `READY`/`REVIEW_REQUIRED` describe review state. Nothing here is writable:
+ * approve/reject and the publication transition are V0-008, so this screen has
+ * no approval action and cannot approve a failing document.
+ */
+export interface ReviewPackage {
+  artifact_id: string
+  package_id: string
+  prefix: string
+  course_id: string
+  course_version: string
+  content_package_version: string
+  lesson_plan_version: string | null
+  knowledge_index_version: string
+  teaching_graph_version: string | null
+  created_at: string
+  state: 'READY' | 'REVIEW_REQUIRED' | 'BLOCKED'
+  publishable: boolean
+  requires_review: boolean
+  scene_count: number
+  file_count: number
+  renderer: RendererIdentity | null
+  placeholder_notice: string
+  lesson_order: ReviewSection[]
+  scenes: ReviewScene[]
+}
+
+/** Build (or rebuild) the package and return its review view. Slow: it renders. */
+export const buildReviewPackage = (institutionId: string, artifactId: string) =>
+  request<ReviewPackage>(`/artifacts/${artifactId}/review-package`, institutionId, {
+    method: 'POST',
+  })
+
+/** Read the review view of the already-stored package. Fast: it never renders. */
+export const loadReviewPackage = (institutionId: string, artifactId: string) =>
+  request<ReviewPackage>(`/artifacts/${artifactId}/review-package`, institutionId)

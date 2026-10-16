@@ -59,6 +59,23 @@ origin (point the browser at the backend port, e.g. `:8001`).
   content in the IR viewer (`src/components/ContentIrView.tsx`): every object per
   slide, all paragraphs, tables as tables, images with their media reference,
   group nesting, and slide notes.
+- **Preview slides** (V0-007 preview slice, `src/components/ReviewPreview.tsx`)
+  shows the teacher review view of the built Content Package: the rendered fallback
+  for each slide, the extracted text, the speaker notes, the fidelity/warnings
+  (including missing fonts) and the fallback **lesson order** with its safe
+  markers. It reads the package already built for the file
+  (`GET /artifacts/{id}/review-package`, no re-render); the first preview of a file
+  builds it (`POST` the same path) and later previews are instant.
+
+  Notes:
+  - The slide SVG is fetched by the client and displayed from an object URL,
+    because `<img src>` cannot send the `X-Institution-Id` header.
+  - The screen is **read-only**: approving/rejecting, script edits and the
+    publication transition are V0-008, so there is no approve action — and a
+    document that fails the fidelity gate answers with `PUBLICATION_BLOCKED`
+    instead of a review.
+  - The render is a **structural placeholder**, not a native PowerPoint render;
+    the UI says so (`DEC-TECH-005` is still `OPEN`).
 
 Only `.pptx` (OOXML) is accepted; legacy `.ppt` is rejected by the backend with
 `UNSUPPORTED_LEGACY_FORMAT`.

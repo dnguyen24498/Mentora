@@ -23,9 +23,11 @@ from app.compiler.package_builder.builder import (
     PackageBuilder,
     content_package_version,
     lesson_plan_version_for,
+    package_id_for,
     resolve_assets,
 )
 from app.compiler.package_builder.layout import MANIFEST_FILENAME, package_prefix
+from app.compiler.package_builder.loader import LoadedPackage, read_package
 from app.compiler.package_builder.models import (
     BaselinePackage,
     LessonPlan,
@@ -54,6 +56,7 @@ __all__ = [
     "BaselinePackage",
     "LessonPlan",
     "LessonSection",
+    "LoadedPackage",
     "PackageBuildError",
     "PackageBuildResult",
     "PackageBuildService",
@@ -63,7 +66,9 @@ __all__ = [
     "SceneStep",
     "content_package_version",
     "lesson_plan_version_for",
+    "package_id_for",
     "package_prefix",
+    "read_package",
     "resolve_assets",
 ]
 

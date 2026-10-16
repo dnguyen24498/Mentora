@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ContentIrView from './components/ContentIrView'
+import ReviewPreview from './components/ReviewPreview'
 import {
   ApiError,
+  buildReviewPackage,
   createCourse,
   extractArtifact,
   listCourses,
   listMaterials,
+  loadReviewPackage,
   uploadMaterial,
   type ContentIR,
   type Course,
   type Material,
+  type ReviewPackage,
 } from './api/client'
 
 const DEFAULT_INSTITUTION = 'university-001'
@@ -53,6 +57,9 @@ export default function App() {
   const [materials, setMaterials] = useState<Material[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [ir, setIr] = useState<ContentIR | null>(null)
+  const [review, setReview] = useState<ReviewPackage | null>(null)
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null)
+  const [previewing, setPreviewing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const selected = materials.find((material) => material.artifact_id === selectedId) ?? null
@@ -108,6 +115,8 @@ export default function App() {
   useEffect(() => {
     setSelectedId(null)
     setIr(null)
+    setReview(null)
+    setReviewNotice(null)
     setNotice(null)
     void refreshMaterials(institution, courseId)
   }, [institution, courseId, refreshMaterials])
@@ -116,6 +125,8 @@ export default function App() {
     if (!candidate) return
     setError(null)
     setIr(null)
+    setReview(null)
+    setReviewNotice(null)
     setNotice(null)
     setFile(candidate)
     if (!candidate.name.toLowerCase().endsWith('.pptx')) {
@@ -165,8 +176,51 @@ export default function App() {
     setSelectedId(material.artifact_id)
     setNotice(null)
     setIr(null)
+    setReview(null)
+    setReviewNotice(null)
     setError(null)
     await runExtract(material.artifact_id)
+  }
+
+  /**
+   * Preview slides (V0-007). The stored package is preferred, because building
+   * one re-renders every slide (~seconds for a real deck); the first preview of a
+   * file therefore builds it and later previews are instant.
+   */
+  async function onPreview(artifactId: string) {
+    setPreviewing(true)
+    setError(null)
+    setReviewNotice(null)
+    try {
+      try {
+        const stored = await loadReviewPackage(institution, artifactId)
+        setReview(stored)
+        setReviewNotice('Loaded the package already built for this file (no re-render).')
+      } catch (cause) {
+        if (!(cause instanceof ApiError) || cause.code !== 'NOT_FOUND') throw cause
+        setReview(await buildReviewPackage(institution, artifactId))
+        setReviewNotice('Built a new package: every slide was rendered and validated.')
+      }
+    } catch (cause) {
+      fail(cause)
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  /** Force a rebuild (re-render + revalidate + rewrite the package). */
+  async function onRebuildReview(artifactId: string) {
+    setPreviewing(true)
+    setError(null)
+    setReviewNotice(null)
+    try {
+      setReview(await buildReviewPackage(institution, artifactId))
+      setReviewNotice('Rebuilt the package: every slide was rendered and validated again.')
+    } catch (cause) {
+      fail(cause)
+    } finally {
+      setPreviewing(false)
+    }
   }
 
   async function onUpload() {
@@ -174,6 +228,8 @@ export default function App() {
     setBusy(true)
     setError(null)
     setIr(null)
+    setReview(null)
+    setReviewNotice(null)
     setNotice(null)
     try {
       const uploaded = await uploadMaterial(institution, courseId, file)
@@ -399,14 +455,46 @@ export default function App() {
                 <dt className="text-slate-500">Uploaded</dt>
                 <dd className="text-xs">{formatWhen(selected.created_at)}</dd>
               </dl>
-              <button
-                type="button"
-                onClick={() => void runExtract(selected.artifact_id)}
-                disabled={extracting}
-                className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
-              >
-                {extracting ? 'Extracting…' : 'Extract structure again'}
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runExtract(selected.artifact_id)}
+                  disabled={extracting}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
+                >
+                  {extracting ? 'Extracting…' : 'Extract structure again'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onPreview(selected.artifact_id)}
+                  disabled={previewing}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  {previewing ? 'Rendering…' : 'Preview slides'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {reviewNotice && (
+            <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+              {reviewNotice}
+            </p>
+          )}
+
+          {review && (
+            <div className="border-t border-slate-100 pt-3">
+              <div className="mb-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => review && void onRebuildReview(review.artifact_id)}
+                  disabled={previewing}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Rebuild package
+                </button>
+              </div>
+              <ReviewPreview institutionId={institution} review={review} />
             </div>
           )}
 

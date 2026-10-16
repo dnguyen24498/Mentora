@@ -9,6 +9,9 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``POST /artifacts/{artifactId}/extract`` — deterministic structural extraction (V0-004)
 * ``POST /artifacts/{artifactId}/compile`` — extraction + per-slide render + fidelity gate (V0-005)
 * ``GET  /artifacts/{artifactId}/renders/{order}`` — the fallback visual for one slide
+* ``POST /artifacts/{artifactId}/review-package`` — build + read-only teacher review view (V0-007)
+* ``GET  /artifacts/{artifactId}/review-package`` — the stored package's review view
+* ``GET  /artifacts/{artifactId}/review-package/renders/{order}`` — one packaged slide render
 * ``GET  /renderer`` — renderer capability and health
 * ``GET  /health``
 
@@ -28,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.common.errors import AppError
 from app.compiler.extractors.pptx import PptxExtractor
+from app.compiler.package_builder.service import PackageBuildService
 from app.compiler.render_service import RenderingService
 from app.compiler.renderers.base import RenderConfig
 from app.compiler.renderers.structural import StructuralSvgRenderer
@@ -36,6 +40,8 @@ from app.config import Settings
 from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
 from app.db.database import connect, init_db
+from app.publication.review import ReviewService
+from app.publication.router import build_review_router
 from app.storage.object_store import LocalObjectStore
 
 
@@ -68,6 +74,8 @@ def create_app(
     rendering_service = RenderingService(
         repository, object_store, extractor, renderer, config=render_config
     )
+    package_build_service = PackageBuildService(repository, object_store, rendering_service)
+    review_service = ReviewService(repository, object_store, package_build_service)
 
     app = FastAPI(title="Mentora API", version="1.0.0")
     app.state.settings = settings
@@ -76,6 +84,8 @@ def create_app(
     app.state.extraction_service = extraction_service
     app.state.renderer = renderer
     app.state.rendering_service = rendering_service
+    app.state.package_build_service = package_build_service
+    app.state.review_service = review_service
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_request, exc: AppError) -> JSONResponse:
@@ -86,6 +96,9 @@ def create_app(
 
     def tenant(institution_id: str = Header(..., alias="X-Institution-Id")) -> str:
         return institution_id
+
+    # Teacher review preview (V0-007): read-only projection of a built package.
+    app.include_router(build_review_router(review_service, tenant))
 
     @app.get("/health")
     def health() -> dict[str, str]:

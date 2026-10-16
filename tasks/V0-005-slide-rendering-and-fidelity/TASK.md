@@ -62,7 +62,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-- Link to commit/PR: _(uncommitted working tree)_
+- Link to commit/PR: `d91b07f`
 - Test command and result: `cd backend && env -u PYTHONPATH .venv/bin/python -m pytest -q` -> **145 passed** (67 added by this task: `test_renderers.py` 19, `test_fidelity_validator.py` 17, `test_render_service.py` 19, `test_render_corpus.py` 12). Required tests covered: timeout (`RENDER_TIMEOUT`, retryable, bounded), missing font (`MISSING_FONT:`, `DEGRADED_RENDERED`, `requires_review`), unsupported object (`UNSUPPORTED_OBJECT:`), corrupted document (corrupt relationships/packages degrade or fail with a stable code), cancellation (`CANCELLED` distinct from `FAILED`).
 - Demo recording/screenshot: `POST /artifacts/1e4c06bc-.../compile` on the real 16.7 MB / 28-slide class deck -> 28/28 slides `RENDERED`, one content-addressed SVG each (`asset_bytes` 138 704, ~1.8 s), fidelity `DEGRADED_RENDERED` because `Be Vietnam Pro` is not in the renderer's declared font set, `publishable: true`, `requires_review: true`, `job_status: EXTRACTED`. `GET /artifacts/{id}/renders/0` -> `200 image/svg+xml` (2 444 B).
 - Metrics observed: `evaluation/manifests/render-fidelity.json` v0.1 -> 8 executable items matching exactly (fidelity, missing fonts, publishability, review flag); `render_similarity`, `font_issue_count`, `review_seconds_per_slide` declared for the evaluation stage. Structured telemetry (`compiler.render.started|completed|unavailable`, `compiler.renderer.health`) emits counts/durations/fidelity/font names only — never slide text.
