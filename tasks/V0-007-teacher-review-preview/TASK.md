@@ -270,5 +270,7 @@ Newly explicit ones:
   (e.g. jsdom, some embedded webviews) rather than being a button that does
   nothing.
 
+Follow-on commit: `d9ac763`.
+
 
 
