@@ -28,8 +28,12 @@ env -u PYTHONPATH .venv/bin/uvicorn app.api.app:create_app --factory --reload --
 
 The server also serves the built frontend at `/` when `frontend/dist/` exists
 (optional single-origin mode; override the location with `MENTORA_FRONTEND_DIST`).
-For normal development the frontend runs on its own server at `:8000` — see
-`frontend/README.md`.
+It is mounted through `app/api/spa.py` (`SpaStaticFiles`), which answers the
+frontend's client-side routes — `/studio/{artifactId}` included — with the app
+shell, so a deep link or a refresh works there too; a real asset is still served
+as itself and a **missing** asset still 404s (rewriting it to HTML would only
+break the browser). For normal development the frontend runs on its own server at
+`:8000` — see `frontend/README.md`.
 
 ## Layout
 
@@ -47,7 +51,7 @@ For normal development the frontend runs on its own server at `:8000` — see
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007): the read-only projection (`review.py`) plus the write path (`workflow.py`, `repository.py`, `draft.py`) — approve/reject and draft lesson-order revisions. Publication state transitions are V0-008. |
 | `app/db/` | SQLite connection + schema/migration application. |
-| `app/api/` | FastAPI app factory; serves the built frontend at `/` when present. |
+| `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
 
 ## Endpoints
@@ -67,9 +71,12 @@ For normal development the frontend runs on its own server at `:8000` — see
 - `POST /artifacts/{artifactId}/review-package/drafts` — **append a draft revision** of the lesson order. The body's array order is the proposed order and every entry must name a section that already exists in the package, so a draft can only reorder and re-script; structural fields are inherited from the package. `400` with an `issue_code` (`EMPTY_DRAFT`, `UNKNOWN_SECTION`, `DUPLICATE_SECTION`, `MISSING_SECTION`, `INVALID_SCRIPT`) when it is not a rearrangement, `409 REVISION_CONFLICT` when a concurrent save won the revision.
 - `GET /artifacts/{artifactId}/review-package/drafts` — draft revision history, newest first.
 - `GET /renderer` — renderer identity, capability, and circuit-breaker health.
-- `GET /artifacts/{artifactId}` — artifact metadata.
+- `GET /artifacts/{artifactId}` — artifact metadata (the Teacher Studio uses `filename` for its page title).
 - `GET /health`.
-- `GET /` — the built upload UI (when `frontend/dist/` exists).
+- `GET /` — the built frontend (when `frontend/dist/` exists). Any other
+  extension-less path returns the same app shell, because the frontend routes
+  client-side (`/studio/{artifactId}`); unknown JSON API paths keep their own
+  error responses.
 
 ## Design notes / deliberate deviations
 

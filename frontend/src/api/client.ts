@@ -160,6 +160,22 @@ export const uploadMaterial = (institutionId: string, courseId: string, file: Fi
 export const extractArtifact = (institutionId: string, artifactId: string) =>
   request<ContentIR>(`/artifacts/${artifactId}/extract`, institutionId, { method: 'POST' })
 
+/** Stored artifact metadata. The Teacher Studio shows the filename as its title. */
+export interface ArtifactSummary {
+  artifact_id: string
+  course_id: string
+  version_id: string
+  filename: string
+  media_type: string
+  sha256: string
+  byte_size: number
+  object_key: string
+  created_at: string
+}
+
+export const loadArtifact = (institutionId: string, artifactId: string) =>
+  request<ArtifactSummary>(`/artifacts/${artifactId}`, institutionId)
+
 // -- teacher review preview (V0-007) --------------------------------------------
 export interface RendererIdentity {
   name: string

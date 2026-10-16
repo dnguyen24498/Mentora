@@ -43,6 +43,8 @@ DEC-CONTENT-005,backend/app/publication/workflow.py,CODE
 DEC-CONTENT-005,backend/tests/test_publication_review_decisions.py,CODE
 DEC-CONTENT-005,backend/tests/test_publication_review_flow.py,CODE
 DEC-CONTENT-005,frontend/src/components/TeacherStudio.test.tsx,CODE
+DEC-CONTENT-005,frontend/src/pages/StudioPage.tsx,CODE
+DEC-CONTENT-005,frontend/src/pages/StudioPage.test.tsx,CODE
 DEC-CONTENT-006,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-006,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-CONTENT-006,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
@@ -58,6 +60,8 @@ DEC-CONTENT-006,backend/app/publication/review.py,CODE
 DEC-CONTENT-006,backend/tests/test_publication_review.py,CODE
 DEC-CONTENT-006,frontend/src/components/TeacherStudio.tsx,CODE
 DEC-CONTENT-006,frontend/src/components/TeacherStudio.test.tsx,CODE
+DEC-CONTENT-006,frontend/src/pages/StudioPage.tsx,CODE
+DEC-CONTENT-006,frontend/src/pages/UploadPage.tsx,CODE
 DEC-CONTENT-007,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-007,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
 DEC-CONTENT-007,docs/testing/CONTENT_AND_AI_EVALUATION.md,SPEC
@@ -80,6 +84,7 @@ DEC-CONTENT-008,backend/app/publication/workflow.py,CODE
 DEC-CONTENT-008,backend/app/publication/telemetry.py,CODE
 DEC-CONTENT-008,backend/tests/test_publication_review_decisions.py,CODE
 DEC-CONTENT-008,backend/tests/test_publication_review_flow.py,CODE
+DEC-CONTENT-008,frontend/src/pages/StudioPage.tsx,CODE
 DEC-CONTENT-009,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-009,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-DATA-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH

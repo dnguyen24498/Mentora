@@ -32,8 +32,8 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Header, UploadFile
 from fastapi.responses import JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
 
+from app.api.spa import SpaStaticFiles
 from app.common.errors import AppError
 from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.package_builder.service import PackageBuildService
@@ -238,8 +238,14 @@ def create_app(
         }
 
     # Serve the built frontend at "/" so the whole app runs on one origin
-    # (localhost:8000). Mounted last so API routes above take precedence.
+    # (localhost:8000). Mounted last so API routes above take precedence, and it
+    # answers the SPA shell for client-side routes (/studio/{artifactId}) so a
+    # deep link or a refresh works.
     if Path(settings.frontend_dist).is_dir():
-        app.mount("/", StaticFiles(directory=str(settings.frontend_dist), html=True), name="frontend")
+        app.mount(
+            "/",
+            SpaStaticFiles(directory=str(settings.frontend_dist), html=True),
+            name="frontend",
+        )
 
     return app

@@ -202,4 +202,73 @@ Also touched (required to keep the tree consistent):
 `contracts/openapi/openapi.yaml`, `governance/TRACEABILITY_MATRIX.csv`,
 `tasks/STATUS_BOARD.csv`, this task folder, `AGENTS.md`, `backend/README.md`.
 
+## Follow-on refinement: the Teacher Studio is a page
+
+Requested after the task was marked DONE: *"put the preview slide on a separate
+page so it can be seen on a large screen."* The review flow was rendered inline
+in a card on the upload page, so the slide got one column of a two-column card.
+No acceptance criterion changed; the same V0-007 behaviour moved to a page of its
+own, and the whole task's tests still cover it.
+
+**Delivered**
+
+- **Two real pages**, routed by a dependency-free module (no router dependency:
+  two static pages do not justify one, and no production dependency is added
+  without an accepted decision):
+  - `/` — the material library, `frontend/src/pages/UploadPage.tsx` (courses,
+    upload, extracted Content IR);
+  - `/studio/{artifactId}` — the Teacher Studio, `frontend/src/pages/StudioPage.tsx`
+    (full width, its own document title from `GET /artifacts/{id}`, opened in its
+    own tab from the library, survives a deep link and a refresh);
+  - anything else — the app's own not-found view (`frontend/src/App.tsx`).
+- `frontend/src/router.tsx` — `parseRoute` (pure, unit-tested), `useRoute`
+  (popstate-aware), `navigate`, and `Link`, which renders a real `<a href>` so
+  middle-click / ctrl-cmd-click / "open in new tab" stay native.
+- `frontend/src/institution.ts` — the tenant is read from and written to
+  `localStorage` (kept in step across tabs) instead of living in one page's state,
+  because a studio tab is a *separate* page instance.
+- `frontend/src/pages/StudioPage.tsx` owns only resource loading (build on first
+  open with a visible "rendering every slide" phase, read thereafter; rebuild on
+  request; unloadable package → `role="alert"`), and passes the same props to
+  `TeacherStudio`. `TeacherStudio` gained a **Focus slide** toggle (the editor is
+  hidden from the accessibility tree, not unmounted, so unsaved edits survive) and
+  browser **Full screen** for the slide region (offered only where the browser
+  implements it).
+- `backend/app/api/spa.py` (`SpaStaticFiles`) + `backend/tests/test_spa_fallback.py`
+  — single-origin mode must answer the client-side route: an extension-less 404
+  returns the app shell (with `Cache-Control: no-cache`), a real asset is still
+  served as itself, a **missing** asset still 404s, and the JSON API keeps its own
+  responses. This is what makes the page work when the browser only talks to the
+  backend port.
+- `contracts/openapi/openapi.yaml` — `GET /artifacts/{artifactId}` (+ the
+  `Artifact` schema) is now recorded, since the studio page depends on it
+  (`frontend/src/api/client.ts` `loadArtifact`).
+
+**Tests (all still passing)**
+
+- `frontend/src/router.test.tsx` — route parsing (trailing slash, query,
+  fragment, escaped id, unknown paths) and `Link`/`navigate`.
+- `frontend/src/pages/StudioPage.test.tsx` — load vs build, the visible rendering
+  phase, an unloadable package, the server's `PUBLICATION_BLOCKED` refusal, draft
+  saves (with the API client mocked: server behaviour is the backend tests' job).
+- `frontend/src/App.test.tsx` — the library at `/`, a deep link to
+  `/studio/{id}`, and the not-found view.
+- `frontend/src/components/TeacherStudio.test.tsx` — focus mode (the editor leaves
+  the reading order, unsaved edits survive) added to the existing cases.
+- `backend/tests/test_spa_fallback.py` — shell vs asset vs API precedence.
+- Totals after this refinement: backend **241 passed**, frontend **38 passed**,
+  `tsc --noEmit` clean, `npm run build` succeeds.
+
+**Unchanged limitations**: everything listed above still holds (reviewer identity,
+approving ≠ publishing, the structural placeholder render, `DEC-TECH-005` OPEN).
+Newly explicit ones:
+
+- Routing is client-side only; a static file server in front of the SPA must be
+  configured to serve the shell for unknown paths (Vite does; the backend does via
+  `SpaStaticFiles`).
+- The fullscreen control is absent where `document.fullscreenEnabled` is false
+  (e.g. jsdom, some embedded webviews) rather than being a button that does
+  nothing.
+
+
 

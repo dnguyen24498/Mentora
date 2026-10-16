@@ -19,3 +19,4 @@ notes:
   - "frontend/apps/teacher-studio/ does not exist: there is one Vite app under frontend/, so the page was added to frontend/src/ (same nominal-path mapping precedent as V0-004..V0-006). tests/e2e/ maps to backend/tests/."
   - "Reviewer identity is not implemented (no auth/roles yet): reviewer/edited_by are client-supplied attribution defaulting to the tenant id, NOT an authorization control. Role enforcement needs docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md."
   - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."
+  - "Follow-on refinement (same task, same acceptance): the Teacher Studio is now its own page, /studio/{artifactId} — see 'Follow-on refinement: the Teacher Studio is a page' in TASK.md. Frontend tests are now 38."

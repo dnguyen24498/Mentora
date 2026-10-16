@@ -16,6 +16,21 @@ paths:
       parameters: [{in: path, name: courseId, required: true, schema: {type: string}}]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
       responses: {'202': {description: Accepted}}
+  /artifacts/{artifactId}:
+    get:
+      operationId: getArtifact
+      description: >-
+        Stored metadata for one uploaded artifact, tenant-scoped. The Teacher
+        Studio reads it for the file name it shows as its page title.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: Artifact metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Artifact'}
+        '404':
+          description: 'Unknown artifact for this tenant (stable code NOT_FOUND)'
   /artifacts/{artifactId}/compile:
     post:
       operationId: compileArtifact
@@ -239,6 +254,20 @@ paths:
       responses: {'200': {description: Short-lived token}}
 components:
   schemas:
+    Artifact:
+      description: Stored source presentation metadata (one immutable upload).
+      type: object
+      required: [artifact_id, course_id, version_id, filename, media_type, sha256, byte_size, object_key, created_at]
+      properties:
+        artifact_id: {type: string}
+        course_id: {type: string}
+        version_id: {type: string}
+        filename: {type: string}
+        media_type: {type: string}
+        sha256: {type: string}
+        byte_size: {type: integer}
+        object_key: {type: string}
+        created_at: {type: string}
     Material:
       description: An uploaded source presentation with its version and compiler-job status.
       type: object

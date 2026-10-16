@@ -356,6 +356,39 @@ describe('TeacherStudio — lesson-order edits', async () => {
   })
 })
 
+describe('TeacherStudio — large-screen focus', async () => {
+  it('gives the slide the full width and takes the editor out of the reading order', async () => {
+    const user = userEvent.setup()
+    await setup()
+
+    // Default: the editor and the slide sit side by side.
+    expect(screen.getByRole('heading', { name: 'Lesson order' })).toBeTruthy()
+    const toggle = screen.getByRole('button', { name: 'Focus slide' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+
+    await user.click(toggle)
+
+    const back = screen.getByRole('button', { name: 'Show lesson order' })
+    expect(back.getAttribute('aria-pressed')).toBe('true')
+    // The editor is gone from the accessibility tree, so the slide is the content.
+    expect(screen.queryByRole('heading', { name: 'Lesson order' })).toBeNull()
+    expect(screen.getByRole('region', { name: 'Slide review' })).toBeTruthy()
+  })
+
+  it('keeps unsaved edits through a focus toggle', async () => {
+    const user = userEvent.setup()
+    await setup()
+
+    await user.click(screen.getByRole('button', { name: 'Move section 1 (explanation) down' }))
+    await user.click(screen.getByRole('button', { name: 'Focus slide' }))
+    await user.click(screen.getByRole('button', { name: 'Show lesson order' }))
+
+    const items = within(screen.getByTestId('lesson-order')).getAllByRole('listitem')
+    expect(items[0].textContent).toContain('slide2.xml')
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
 describe('TeacherStudio — keyboard and screen-reader basics', async () => {
   it('names every control and groups the lesson order as a list', async () => {
     await setup()

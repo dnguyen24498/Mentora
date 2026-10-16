@@ -138,15 +138,54 @@ function KeyValue({ term, children }: { term: string; children: ReactNode }) {
   )
 }
 
+/**
+ * Fullscreen for the slide region, where the browser implements it.
+ *
+ * jsdom (component tests) has no Fullscreen API, so `supported` stays false and
+ * the control is simply not offered rather than being a button that does
+ * nothing.
+ */
+function useSlideFullscreen() {
+  const ref = useRef<HTMLElement>(null)
+  const [active, setActive] = useState(false)
+  const [supported, setSupported] = useState(false)
+
+  useEffect(() => {
+    setSupported(typeof document !== 'undefined' && document.fullscreenEnabled === true)
+    function onChange() {
+      setActive(document.fullscreenElement === ref.current)
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const toggle = useCallback(() => {
+    const element = ref.current
+    if (!element) return
+    // A rejected request (e.g. denied by the browser) is not an app error: the
+    // page is exactly as it was before the click.
+    const request =
+      document.fullscreenElement === element
+        ? document.exitFullscreen()
+        : element.requestFullscreen()
+    request.catch(() => {})
+  }, [])
+
+  return { ref, active, supported, toggle }
+}
+
 /** The rendered slide, loaded through the tenant-scoped API and shown as a blob URL. */
 function SlideFrame({
   institutionId,
   scene,
   loadRender,
+  large = false,
 }: {
   institutionId: string
   scene: ReviewScene
   loadRender: (institutionId: string, path: string) => Promise<string>
+  /** Give the slide the viewport (the standalone Teacher Studio page). */
+  large?: boolean
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -198,7 +237,7 @@ function SlideFrame({
           <img
             src={url}
             alt={`Fallback render of slide ${scene.order + 1} (structural placeholder)`}
-            className="max-h-[60vh] w-full object-contain"
+            className={`w-full object-contain ${large ? 'max-h-[85vh]' : 'max-h-[60vh]'}`}
           />
         )}
       </div>
@@ -261,6 +300,10 @@ export default function TeacherStudio({
   const [reviewer, setReviewer] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState<string | null>(null)
+  // Presentation comfort: this page can be opened on its own, large, so the
+  // slide can be given the full width and the whole monitor.
+  const [focus, setFocus] = useState(false)
+  const fullscreen = useSlideFullscreen()
   const appliedSource = useRef(sourceKey)
 
   // Reload the editor only when the *saved* source changes (a new revision, a new
@@ -549,10 +592,12 @@ export default function TeacherStudio({
         )}
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        {/* Lesson-order editor. */}
+      <div className={`grid gap-4 ${focus ? '' : 'lg:grid-cols-[320px_minmax(0,1fr)]'}`}>
+        {/* Lesson-order editor. Hidden in focus mode, where the slide comes first;
+            kept mounted so unsaved edits survive toggling. */}
         <section
           aria-labelledby="lesson-order-heading"
+          hidden={focus}
           className="space-y-2 self-start rounded-xl border border-slate-200 bg-white p-3"
         >
           <div className="flex flex-wrap items-baseline gap-2">
@@ -676,7 +721,13 @@ export default function TeacherStudio({
         </section>
 
         {/* Side-by-side: rendered scene and the extracted information. */}
-        <section className="space-y-3" onKeyDown={onKeyDown} tabIndex={-1} aria-label="Slide review">
+        <section
+          ref={fullscreen.ref}
+          className={`space-y-3 ${fullscreen.active ? 'overflow-auto bg-slate-100 p-4' : ''}`}
+          onKeyDown={onKeyDown}
+          tabIndex={-1}
+          aria-label="Slide review"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -706,11 +757,38 @@ export default function TeacherStudio({
               </>
             )}
             <span className="ml-auto text-[11px] text-slate-400">Use ← / → to move between slides</span>
+            <button
+              type="button"
+              onClick={() => setFocus((previous) => !previous)}
+              aria-pressed={focus}
+              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {focus ? 'Show lesson order' : 'Focus slide'}
+            </button>
+            {fullscreen.supported && (
+              <button
+                type="button"
+                onClick={fullscreen.toggle}
+                className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              >
+                {fullscreen.active ? 'Exit full screen' : 'Full screen'}
+              </button>
+            )}
           </div>
 
           {scene ? (
-            <div className="grid gap-3 md:grid-cols-2" data-testid="scene-side-by-side">
-              <SlideFrame institutionId={institutionId} scene={scene} loadRender={renderLoader} />
+            <div
+              className={`grid gap-3 ${
+                focus ? 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'md:grid-cols-2'
+              }`}
+              data-testid="scene-side-by-side"
+            >
+              <SlideFrame
+                institutionId={institutionId}
+                scene={scene}
+                loadRender={renderLoader}
+                large={focus || fullscreen.active}
+              />
 
               <div className="space-y-3">
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
