@@ -1,9 +1,17 @@
 id: V0-006
 title: "Baseline scene and CTF builder"
 week: W4
-status: TODO
+status: DONE
 depends_on: ["V0-004", "V0-005"]
-started_at: null
-completed_at: null
+started_at: "2026-10-16"
+completed_at: "2026-10-16"
 commit: null
-blockers: []
+blockers:
+  - "FND-002 is still TODO, so no technology choice is presented as accepted. The builder is provider-neutral and deterministic; the only renderer it can see is the placeholder behind DocumentRenderer (DEC-TECH-005 stays OPEN)."
+  - "V0-003 (job runner) is still TODO: the baseline builder is a pure, re-runnable stage function. Claiming/leases/checkpoints and a BUILDING_BASELINE job status are not implemented (CompilerJobStatus has no such member and app/courses/ is outside this task's writable area)."
+  - "V0-004 extracts no animation or timing data, so the baseline emits exactly one ALL_VISIBLE step per scene. Multi-step reveal semantics need animation extraction."
+  - "knowledge_index_version is the explicit sentinel \"unindexed\": knowledge indexing is V0-014 and DEC-CONTENT-002 requires a usable package without it."
+notes:
+  - "Legacy .ppt remains unsupported (UNSUPPORTED_LEGACY_FORMAT); no converter is installed."
+  - "Packages are written under packages/<package_id>/ in the existing LocalObjectStore. No new DB table was added; publication state (READY/REVIEW_REQUIRED) belongs to the job/version rows (V0-008), and manifest.schema.json sets additionalProperties: false."
+  - "No HTTP surface was added: the task's in-scope files are the compiler library only, so the stage is exercised through PackageBuildService from tests."

@@ -4,10 +4,17 @@ Layout:
 * ``models/``      internal Content IR (never served raw to clients)
 * ``extractors/``  source format -> Content IR
 * ``renderers/``   Content IR -> fallback render + fidelity (V0-005)
-* ``validators/``  scene/package invariants and publication gate (V0-005)
+* ``package_builder/`` Content IR + renders -> validated CTF package (V0-006)
+* ``validators/``  scene/package invariants and publication gate (V0-005/V0-006)
 """
 
 from app.compiler.extractors import PptxExtractor
+from app.compiler.package_builder.service import (
+    BUILDING_BASELINE_STAGE,
+    PackageBuildResult,
+    PackageBuildService,
+)
+from app.compiler.package_builder import PackageBuilder, PackageMetadata
 from app.compiler.models import (
     Bounds,
     CONTENT_IR_SCHEMA_VERSION,
@@ -35,9 +42,17 @@ from app.compiler.renderers import (
     StructuralSvgRenderer,
 )
 from app.compiler.service import ExtractionService
-from app.compiler.validators import ValidationReport, assert_publishable, validate_render
+from app.compiler.validators import (
+    PackageValidationReport,
+    ValidationReport,
+    assert_package_ok,
+    assert_publishable,
+    validate_package,
+    validate_render,
+)
 
 __all__ = [
+    "BUILDING_BASELINE_STAGE",
     "Bounds",
     "CONTENT_IR_SCHEMA_VERSION",
     "CancelToken",
@@ -53,6 +68,11 @@ __all__ = [
     "FIDELITY_REQUIRES_REVIEW",
     "FIDELITY_STRUCTURAL",
     "FIDELITY_VALUES",
+    "PackageBuildResult",
+    "PackageBuildService",
+    "PackageBuilder",
+    "PackageMetadata",
+    "PackageValidationReport",
     "PptxExtractor",
     "RenderConfig",
     "RenderErrorCode",
@@ -64,6 +84,8 @@ __all__ = [
     "TextParagraph",
     "TextRun",
     "ValidationReport",
+    "assert_package_ok",
     "assert_publishable",
+    "validate_package",
     "validate_render",
 ]

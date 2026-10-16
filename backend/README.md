@@ -40,8 +40,9 @@ For normal development the frontend runs on its own server at `:8000` — see
 | `app/compiler/models/` | Internal Content IR (`content-ir/1.1.0`): scenes, objects, text runs, normalized bounds, fidelity, provenance. |
 | `app/compiler/extractors/` | Dependency-free PPTX (OOXML) structural extractor (`PptxExtractor`). |
 | `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + deterministic local structural SVG renderer + required test double (V0-005). |
-| `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005). |
+| `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005) plus CTF package validation (V0-006). |
 | `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render -> gate. |
+| `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/db/` | SQLite connection + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present. |
@@ -103,3 +104,16 @@ For normal development the frontend runs on its own server at `:8000` — see
   renderer identity/config produce byte-identical SVG, so recompiles reuse one
   asset. Job claiming, leases, checkpoints, and stage persistence are V0-003 and
   are not implemented here; `RenderingService` is a re-runnable stage function.
+- **Baseline Content Package (V0-006).** `PackageBuildService.build()` runs the
+  *baseline builder* stage: it renders (V0-005), enforces the fidelity gate, then
+  maps the Content IR into the package described by `contracts/ctf/*.schema.json`
+  — one scene document per slide, the fallback render copied in as a
+  content-addressed asset, a fallback lesson plan (one section per scene, speaker
+  notes verbatim, safe markers `<scene_id>#step-<n>`), and a manifest with
+  checksums. The manifest is written **last** and is the commit point; all
+  references inside the package are package-relative, so no consumer needs the
+  compiler's asset store or an OOXML parser. `contracts/ctf/PACKAGE_LAYOUT.md` is
+  the layout/reference contract; determinism, integrity, and negative cases are
+  covered by `tests/test_package_builder.py`. There is deliberately **no HTTP
+  endpoint** yet (the task's writable area is the compiler library); the
+  teacher-facing preview is V0-007, publication is V0-008.

@@ -62,6 +62,8 @@ First V0 slice: secure PPTX upload + SQLite persistence + deterministic structur
 - `storage/` — `ObjectStore` ABC + atomic, content-addressed `LocalObjectStore`.
 - `courses/` — course/version/source-artifact/compiler-job models, tenant-scoped `CourseRepository`, `UploadService` (idempotent dedupe by SHA-256 or `Idempotency-Key`).
 - `compiler/` — internal Content IR (mirrors `contracts/ctf/scene.schema.json`) + dependency-free OOXML `.pptx` extractor (stdlib `zipfile` + `xml.etree`, zip-bomb bounds) + `ExtractionService`.
+- `compiler/renderers/` + `compiler/render_service.py` — provider-neutral `DocumentRenderer` + deterministic local structural SVG renderer + per-slide fidelity gate (V0-005; **no renderer technology accepted** — `DEC-TECH-005` is `OPEN`). Endpoints `POST /artifacts/{id}/compile`, `GET /artifacts/{id}/renders/{order}`, `GET /renderer`.
+- `compiler/package_builder/` + `compiler/validators/package.py` — baseline Content Package builder (V0-006): IR + renders → scene documents, copied content-addressed assets, fallback lesson plan with safe markers, and a checksummed manifest (written last = commit point). Contract: `contracts/ctf/PACKAGE_LAYOUT.md`. **Library/stage only — no HTTP endpoint yet.**
 - `db/` — SQLite connection handling + `app/db/schema.sql`.
 - `api/` — FastAPI app factory (`create_app`).
 
