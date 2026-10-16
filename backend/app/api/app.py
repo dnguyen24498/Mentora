@@ -9,9 +9,14 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``POST /artifacts/{artifactId}/extract`` — deterministic structural extraction (V0-004)
 * ``POST /artifacts/{artifactId}/compile`` — extraction + per-slide render + fidelity gate (V0-005)
 * ``GET  /artifacts/{artifactId}/renders/{order}`` — the fallback visual for one slide
-* ``POST /artifacts/{artifactId}/review-package`` — build + read-only teacher review view (V0-007)
+* ``POST /artifacts/{artifactId}/review-package`` — build the package (V0-006) and project the
+  teacher review view of it (V0-007)
 * ``GET  /artifacts/{artifactId}/review-package`` — the stored package's review view
 * ``GET  /artifacts/{artifactId}/review-package/renders/{order}`` — one packaged slide render
+* ``POST /artifacts/{artifactId}/review-package/decision`` — approve or reject (V0-007)
+* ``GET  /artifacts/{artifactId}/review-package/review-state`` — decision, draft, blocking status
+* ``POST /artifacts/{artifactId}/review-package/drafts`` — append a draft lesson-order revision
+* ``GET  /artifacts/{artifactId}/review-package/drafts`` — draft revision history
 * ``GET  /renderer`` — renderer capability and health
 * ``GET  /health``
 
@@ -40,8 +45,10 @@ from app.config import Settings
 from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
 from app.db.database import connect, init_db
+from app.publication.repository import ReviewRepository
 from app.publication.review import ReviewService
 from app.publication.router import build_review_router
+from app.publication.workflow import ReviewWorkflow
 from app.storage.object_store import LocalObjectStore
 
 
@@ -76,6 +83,11 @@ def create_app(
     )
     package_build_service = PackageBuildService(repository, object_store, rendering_service)
     review_service = ReviewService(repository, object_store, package_build_service)
+    # Review decisions and draft revisions are durable *state*, so they live in
+    # the relational store — never in the immutable object store (DEC-DATA-001).
+    review_workflow = ReviewWorkflow(
+        review_service, ReviewRepository(conn), repository
+    )
 
     app = FastAPI(title="Mentora API", version="1.0.0")
     app.state.settings = settings
@@ -86,19 +98,25 @@ def create_app(
     app.state.rendering_service = rendering_service
     app.state.package_build_service = package_build_service
     app.state.review_service = review_service
+    app.state.review_workflow = review_workflow
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_request, exc: AppError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.http_status,
-            content={"error": {"code": exc.code.value, "message": exc.message}},
-        )
+        body: dict = {"code": exc.code.value, "message": exc.message}
+        # Validators carry their precise classification in `issue_code`
+        # (package/fidelity/draft errors); expose it so clients can branch
+        # without parsing prose.
+        issue_code = getattr(exc, "issue_code", None)
+        if issue_code:
+            body["issue_code"] = issue_code
+        return JSONResponse(status_code=exc.http_status, content={"error": body})
 
     def tenant(institution_id: str = Header(..., alias="X-Institution-Id")) -> str:
         return institution_id
 
-    # Teacher review preview (V0-007): read-only projection of a built package.
-    app.include_router(build_review_router(review_service, tenant))
+    # Teacher review (V0-007): read-only projection of a built package plus the
+    # approve/reject decision and draft lesson-order revisions.
+    app.include_router(build_review_router(review_service, review_workflow, tenant))
 
     @app.get("/health")
     def health() -> dict[str, str]:

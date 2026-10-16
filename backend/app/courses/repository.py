@@ -103,6 +103,30 @@ class CourseRepository:
             raise TenantAccessError("course version belongs to another institution")
         return CourseVersion.from_row(row)
 
+    def set_version_status(
+        self, institution_id: str, version_id: str, status: CourseVersionStatus
+    ) -> CourseVersion:
+        """Set a course version's lifecycle status, tenant-scoped.
+
+        Only the **review** states are set through here: the teacher review
+        workflow moves a version to ``APPROVED`` or back to
+        ``REVIEW_REQUIRED`` (V0-007). Publication
+        (``APPROVED`` -> ``SEALING`` -> … -> ``PUBLISHED``) is V0-008 and owns
+        its own transition.
+        """
+
+        # Authorize the tenant before writing (another institution's version raises).
+        self.get_version(institution_id, version_id)
+        with transaction(self._conn):
+            cur = self._conn.execute(
+                "UPDATE course_versions SET status = ? "
+                "WHERE version_id = ? AND institution_id = ?",
+                (status.value, version_id, institution_id),
+            )
+            if cur.rowcount == 0:
+                raise NotFoundError(f"course version {version_id!r} not found")
+        return self.get_version(institution_id, version_id)
+
     # -- source artifacts / jobs ------------------------------------------------
     def find_artifact_by_sha(
         self, institution_id: str, course_id: str, sha256: str

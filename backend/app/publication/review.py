@@ -12,9 +12,12 @@ consequences that matter:
 * browsing a deck costs no rendering (the expensive stage ran once at build time);
 * the projection is a pure function of the stored bytes, so it is deterministic.
 
-Nothing in this module writes. Reviews are read-only; approve/reject, draft edits
-and the publication transition are V0-008 and must never mutate a built package
-(``DEC-CONTENT-004``).
+Nothing in this module writes, and it must stay that way: it is the *projection*
+half of the teacher review. The write half — the approve/reject decision and
+draft lesson-order revisions — is :mod:`app.publication.workflow`, and it records
+state *about* a package, never content of it. The package under review is
+byte-identical before and after any review action (``DEC-CONTENT-004``), and the
+publication transition (``APPROVED`` → … → ``PUBLISHED``) is V0-008.
 """
 
 from __future__ import annotations

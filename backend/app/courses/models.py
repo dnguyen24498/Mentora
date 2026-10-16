@@ -15,6 +15,11 @@ class CourseVersionStatus(str, Enum):
     DRAFT = "DRAFT"
     PROCESSING = "PROCESSING"
     REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    #: A teacher reviewed the built package and accepted it
+    #: (``docs/state-machines/PUBLICATION_STATE_MACHINE.md``:
+    #: ``REVIEW_REQUIRED -> APPROVED``). The publication transition itself
+    #: (``APPROVED -> SEALING -> … -> PUBLISHED``) is V0-008.
+    APPROVED = "APPROVED"
     PUBLISHED = "PUBLISHED"
     ARCHIVED = "ARCHIVED"
 

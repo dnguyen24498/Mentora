@@ -202,11 +202,12 @@ export interface ReviewSection {
 }
 
 /**
- * Read-only review view of a built Baseline Content Package.
+ * Review projection of a built Baseline Content Package.
  *
- * `READY`/`REVIEW_REQUIRED` describe review state. Nothing here is writable:
- * approve/reject and the publication transition are V0-008, so this screen has
- * no approval action and cannot approve a failing document.
+ * `READY`/`REVIEW_REQUIRED` describe the *content*: whether a human must look at
+ * it. The mutable overlay — the decision and the draft revisions — is
+ * `ReviewState`. Nothing here is writable: a review action records state about
+ * the package, and the publication transition is V0-008.
  */
 export interface ReviewPackage {
   artifact_id: string
@@ -239,3 +240,116 @@ export const buildReviewPackage = (institutionId: string, artifactId: string) =>
 /** Read the review view of the already-stored package. Fast: it never renders. */
 export const loadReviewPackage = (institutionId: string, artifactId: string) =>
   request<ReviewPackage>(`/artifacts/${artifactId}/review-package`, institutionId)
+
+// -- review actions (V0-007) -----------------------------------------------------
+export type ReviewDecisionKind = 'APPROVE' | 'REJECT'
+
+/** One recorded review outcome for one content version. */
+export interface ReviewDecision {
+  decision_id: string
+  artifact_id: string
+  version_id: string
+  package_id: string
+  content_package_version: string
+  decision: ReviewDecisionKind
+  reason: string | null
+  reviewer: string
+  created_at: string
+}
+
+/** One resolved entry of a draft revision; structure is inherited from the package. */
+export interface ReviewDraftSection {
+  order: number
+  section_id: string
+  type: string
+  scene_id: string | null
+  scene_step_id: string | null
+  safe_markers: string[]
+  script: string | null
+}
+
+/** One immutable revision of a proposed lesson order (append-only). */
+export interface ReviewDraft {
+  draft_id: string
+  artifact_id: string
+  version_id: string
+  package_id: string
+  content_package_version: string
+  lesson_plan_version: string | null
+  revision: number
+  sections: ReviewDraftSection[]
+  edited_by: string
+  created_at: string
+}
+
+/**
+ * The mutable review overlay: the current decision, the newest draft revision
+ * and the blocking picture. `stale` means the decision no longer covers the
+ * stored content version, so it must not be read as a current approval.
+ */
+export interface ReviewState {
+  artifact_id: string
+  version_id: string
+  version_status: 'DRAFT' | 'PROCESSING' | 'REVIEW_REQUIRED' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED'
+  package_id: string
+  content_package_version: string
+  state: 'READY' | 'REVIEW_REQUIRED' | 'BLOCKED'
+  publishable: boolean
+  requires_review: boolean
+  stale: boolean
+  blocking_scene_orders: number[]
+  decision: ReviewDecision | null
+  draft: ReviewDraft | null
+  draft_count: number
+}
+
+export interface ReviewDecisionInput {
+  decision: ReviewDecisionKind
+  reason?: string | null
+  reviewer?: string | null
+}
+
+export interface ReviewDraftInput {
+  /** Array position *is* the proposed order. */
+  sections: { section_id: string; script?: string | null }[]
+  edited_by?: string | null
+}
+
+const JSON_POST = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+export const loadReviewState = (institutionId: string, artifactId: string) =>
+  request<ReviewState>(`/artifacts/${artifactId}/review-package/review-state`, institutionId)
+
+/** Approve or reject. A blocked document answers `PUBLICATION_BLOCKED`. */
+export const postReviewDecision = (
+  institutionId: string,
+  artifactId: string,
+  input: ReviewDecisionInput,
+) =>
+  request<ReviewState>(
+    `/artifacts/${artifactId}/review-package/decision`,
+    institutionId,
+    JSON_POST(input),
+  )
+
+/** Append a draft revision. Never mutates the package. */
+export const saveReviewDraft = (
+  institutionId: string,
+  artifactId: string,
+  input: ReviewDraftInput,
+) =>
+  request<ReviewDraft>(
+    `/artifacts/${artifactId}/review-package/drafts`,
+    institutionId,
+    JSON_POST(input),
+  )
+
+export const listReviewDrafts = (institutionId: string, artifactId: string) =>
+  request<{ artifact_id: string; revisions: ReviewDraft[] }>(
+    `/artifacts/${artifactId}/review-package/drafts`,
+    institutionId,
+  )

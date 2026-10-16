@@ -107,6 +107,109 @@ paths:
               schema: {type: string}
         '404':
           description: 'No built package, or no such scene (stable code NOT_FOUND)'
+  /artifacts/{artifactId}/review-package/decision:
+    post:
+      operationId: recordReviewDecision
+      description: >-
+        Teacher review action (V0-007): approve or reject the built package.
+        Approving a document that is not publishable answers 409
+        PUBLICATION_BLOCKED, so a blocking fidelity failure can never be
+        approved. A rejection must record a reason. Approving moves the course
+        version to APPROVED; the publication transition (APPROVED -> SEALING ->
+        INDEXING -> COMMITTING -> PUBLISHED) is V0-008. The decision binds to the
+        content version it reviewed (see ReviewState.stale) and is idempotent for
+        a repeated identical action. Nothing here mutates the package.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviewDecisionRequest'}
+      responses:
+        '200':
+          description: The review state after the action
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewState'}
+        '400':
+          description: 'A rejection without a reason (stable code INVALID_REQUEST)'
+        '403':
+          description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'No package has been built for this artifact (stable code NOT_FOUND)'
+        '409':
+          description: 'Not publishable; approve refused (stable code PUBLICATION_BLOCKED)'
+  /artifacts/{artifactId}/review-package/review-state:
+    get:
+      operationId: getReviewState
+      description: >-
+        The review *state* of the artifact's built package: the current decision
+        (or null), the newest draft revision, how many revisions exist, the
+        course-version status, and whether the decision still covers the current
+        content version. Distinct from the ReviewPackage projection, which
+        describes the package itself. 404 when no package has been built.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: The review state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewState'}
+        '403':
+          description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'No package has been built for this artifact (stable code NOT_FOUND)'
+  /artifacts/{artifactId}/review-package/drafts:
+    post:
+      operationId: saveReviewDraft
+      description: >-
+        Append a draft revision of the lesson order (V0-007). The body's array
+        order *is* the proposed order; each entry names a section that must
+        already exist in the package's lesson order, so a draft can only reorder
+        and re-script. Every structural field (scene_id, scene_step_id,
+        safe_markers, type) is inherited from the package, and an omitted script
+        keeps the package's script. Refused with 400 when the submitted sections
+        are not a rearrangement (issue codes EMPTY_DRAFT, UNKNOWN_SECTION,
+        DUPLICATE_SECTION, MISSING_SECTION, INVALID_SCRIPT) and with 409
+        REVISION_CONFLICT when a concurrent save won the revision. The immutable
+        package is never written: corrections create new versions
+        (DEC-CONTENT-005), and the draft is consumed by a later publication step.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviewDraftRequest'}
+      responses:
+        '200':
+          description: The appended draft revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewDraft'}
+        '400':
+          description: 'The sections are not a rearrangement of the lesson order (stable code INVALID_REQUEST)'
+        '403':
+          description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'No package has been built for this artifact (stable code NOT_FOUND)'
+        '409':
+          description: 'A concurrent save took the revision (issue code REVISION_CONFLICT)'
+    get:
+      operationId: listReviewDrafts
+      description: >-
+        Draft revision history for the artifact, newest first. Empty when the
+        lesson order was never edited.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: The draft revisions
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewDraftList'}
+        '403':
+          description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'No package has been built for this artifact (stable code NOT_FOUND)'
   /course-versions/{versionId}/publish:
     post:
       operationId: publishVersion
@@ -272,9 +375,11 @@ components:
         requires_review: {type: boolean}
     ReviewPackage:
       description: >-
-        Read-only teacher review view of a built Baseline Content Package.
-        READY/REVIEW_REQUIRED describe review state; nothing here is writable
-        (approve/reject and the publication transition are V0-008).
+        Read-only review projection of a built Baseline Content Package: it
+        describes the content itself (render, text, notes, fidelity, lesson
+        order) and is a pure function of the stored bytes. The mutable review
+        overlay — the decision and the draft revisions — is ReviewState.
+        Nothing here is writable, and the publication transition is V0-008.
       type: object
       required: [artifact_id, package_id, prefix, course_id, course_version, content_package_version, knowledge_index_version, created_at, state, publishable, requires_review, scene_count, file_count, placeholder_notice, lesson_order, scenes]
       properties:
@@ -299,3 +404,126 @@ components:
           description: 'States that the render is a placeholder, not a native render (DEC-TECH-005 is OPEN)'
         lesson_order: {type: array, items: {$ref: '#/components/schemas/ReviewSection'}}
         scenes: {type: array, items: {$ref: '#/components/schemas/ReviewScene'}}
+    ReviewDecisionRequest:
+      description: An approve/reject action on the built package (V0-007).
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision: {type: string, enum: [APPROVE, REJECT]}
+        reason:
+          type: [string, 'null']
+          maxLength: 4000
+          description: 'Required for REJECT; the audit trail for why the content was refused'
+        reviewer:
+          type: [string, 'null']
+          maxLength: 256
+          description: >-
+            Attribution only. Identity and roles are not implemented yet, so
+            this is not an authorization control; it defaults to the tenant id.
+    ReviewDecision:
+      description: One recorded review outcome for one content version.
+      type: object
+      required: [decision_id, artifact_id, version_id, package_id, content_package_version, decision, reviewer, created_at]
+      properties:
+        decision_id: {type: string}
+        artifact_id: {type: string}
+        version_id: {type: string}
+        package_id: {type: string}
+        content_package_version:
+          type: string
+          description: 'The content the decision covers; a mismatch makes the decision stale'
+        decision: {type: string, enum: [APPROVE, REJECT]}
+        reason: {type: [string, 'null']}
+        reviewer: {type: string}
+        created_at: {type: string}
+    ReviewDraftSectionRequest:
+      description: One entry of a proposed lesson order; array position is the order.
+      type: object
+      required: [section_id]
+      additionalProperties: false
+      properties:
+        section_id:
+          type: string
+          minLength: 1
+          description: 'Must already exist in the package lesson order'
+        script:
+          type: [string, 'null']
+          maxLength: 20000
+          description: 'Omitted/null keeps the package script; empty string means no script'
+    ReviewDraftRequest:
+      type: object
+      required: [sections]
+      additionalProperties: false
+      properties:
+        sections: {type: array, items: {$ref: '#/components/schemas/ReviewDraftSectionRequest'}}
+        edited_by:
+          type: [string, 'null']
+          maxLength: 256
+          description: 'Attribution only; defaults to the tenant id'
+    ReviewDraftSection:
+      description: >-
+        One resolved entry of a draft revision. Every structural field is
+        inherited from the package under review, so a draft cannot forge or drop
+        a scene reference.
+      type: object
+      required: [order, section_id, type, safe_markers]
+      properties:
+        order: {type: integer, minimum: 0}
+        section_id: {type: string}
+        type: {type: string, enum: [EXPLANATION, EXAMPLE, MEDIA, QUIZ, DISCUSSION]}
+        scene_id: {type: [string, 'null']}
+        scene_step_id: {type: [string, 'null']}
+        safe_markers: {type: array, items: {type: string}}
+        script: {type: [string, 'null']}
+    ReviewDraft:
+      description: One immutable revision of a proposed lesson order (append-only).
+      type: object
+      required: [draft_id, artifact_id, version_id, package_id, content_package_version, revision, sections, edited_by, created_at]
+      properties:
+        draft_id: {type: string}
+        artifact_id: {type: string}
+        version_id: {type: string}
+        package_id: {type: string}
+        content_package_version: {type: string}
+        lesson_plan_version: {type: [string, 'null'], description: 'The lesson plan version this draft revises'}
+        revision: {type: integer, minimum: 1}
+        sections: {type: array, items: {$ref: '#/components/schemas/ReviewDraftSection'}}
+        edited_by: {type: string}
+        created_at: {type: string}
+    ReviewDraftList:
+      type: object
+      required: [artifact_id, revisions]
+      properties:
+        artifact_id: {type: string}
+        revisions:
+          type: array
+          description: Newest revision first
+          items: {$ref: '#/components/schemas/ReviewDraft'}
+    ReviewState:
+      description: >-
+        The mutable review overlay of one built package: the current decision,
+        the newest draft revision, and the blocking picture. `stale` is true when
+        the decision covered a different content version than the one now stored,
+        so a stale approval is never mistaken for a current one.
+      type: object
+      required: [artifact_id, version_id, version_status, package_id, content_package_version, state, publishable, requires_review, stale, blocking_scene_orders, draft_count]
+      properties:
+        artifact_id: {type: string}
+        version_id: {type: string}
+        version_status:
+          type: string
+          enum: [DRAFT, PROCESSING, REVIEW_REQUIRED, APPROVED, PUBLISHED, ARCHIVED]
+        package_id: {type: string}
+        content_package_version: {type: string}
+        state: {type: string, enum: [READY, REVIEW_REQUIRED, BLOCKED]}
+        publishable: {type: boolean, description: 'False means a blocking failure; approval is refused'}
+        requires_review: {type: boolean}
+        stale: {type: boolean, description: 'The decision no longer covers the stored content'}
+        blocking_scene_orders:
+          type: array
+          items: {type: integer}
+          description: 'Slide orders that failed to render and block approval'
+        decision: {oneOf: [{$ref: '#/components/schemas/ReviewDecision'}, {type: 'null'}]}
+        draft: {oneOf: [{$ref: '#/components/schemas/ReviewDraft'}, {type: 'null'}]}
+        draft_count: {type: integer, minimum: 0}

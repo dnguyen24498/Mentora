@@ -1,18 +1,21 @@
 id: V0-007
 title: "Teacher review preview"
 week: W4
-status: IN_PROGRESS
+status: DONE
 depends_on: ["V0-006"]
 started_at: "2026-10-16"
-completed_at: null
-commit: null
-blockers:
-  - "Approve/reject and script/scene-order edits need the publication state transitions (READY/REVIEW_REQUIRED -> PUBLISHED) and draft storage, which are V0-008 (docs/state-machines/PUBLICATION_STATE_MACHINE.md). Delivered as the read-only PREVIEW slice per the agreed scope; the task stays IN_PROGRESS until approve/reject + edits land."
-  - "frontend/apps/teacher-studio/ does not exist in this repo: there is one Vite app under frontend/. The preview component was added to frontend/src/ instead (same nominal-path mapping precedent as V0-004/V0-005)."
-  - "No browser test harness (vitest/playwright) is installed, and adding one is a new dependency. UI component tests, the blocking-warning E2E, and a full keyboard/screen-reader audit are therefore NOT verified; only backend authorization/blocking tests exist."
-  - "No HTTP cancellation token exists (V0-003 owns the job runner), so a running package build cannot be cancelled from the UI."
+completed_at: "2026-10-16"
+commit: null   # filled in with the milestone commit hash
+blockers: []
 notes:
-  - "Delivered: read-only review projection (backend/app/publication/) + preview UI (frontend/src/components/ReviewPreview.tsx), covering render, extracted text, notes, warnings/fidelity and lesson order."
-  - "The review reads the STORED package and never re-renders: ~22 ms to read vs ~4 s to build the real 28-slide deck. The first preview of a file builds it."
-  - "The package builder now derives package_id from the same cache key as content_package_version (pkg-<digest16>), so identical content resolves to one package prefix and a read-only consumer needs no server state."
+  - "Delivered the whole task: Teacher Studio course-version page (frontend/src/components/TeacherStudio.tsx), side-by-side slide render + extracted information, warnings/fidelity and blocking status, approve/reject, and scene-order/script draft edits."
+  - "Review write path: backend/app/publication/{models,repository,draft,workflow,telemetry}.py + router routes POST /artifacts/{id}/review-package/decision, GET .../review-state, POST/GET .../drafts. Approve -> CourseVersionStatus.APPROVED, reject -> REVIEW_REQUIRED; SEALING/INDEXING/COMMITTING/PUBLISHED remain V0-008 (docs/state-machines/PUBLICATION_STATE_MACHINE.md)."
+  - "Edits never mutate the package: a draft is an append-only revision (UNIQUE(artifact_id, revision)) stored in review_drafts, with structural fields (scene_id, scene_step_id, safe_markers, type) inherited from the package. Verified live: the package manifest digest was byte-identical before and after an edit + a decision."
+  - "A decision binds to the content_package_version it reviewed, so a rebuild under different content/config reports it as stale instead of passing as a current approval."
+  - "Review state is durable relational state: review_decisions + review_drafts in backend/app/db/schema.sql (CREATE TABLE IF NOT EXISTS, applied by init_db) with the PostgreSQL reference database/migrations/0002_review_decisions_and_drafts.sql."
+  - "Telemetry: publication.review.decided / approval_blocked / draft_saved, with counts and lengths only - a review reason or an edited script is never logged (asserted in test_review_telemetry_redacts_authored_text)."
+  - "Tests: backend 234 passed (+30 in test_publication_review_decisions.py + test_publication_review_flow.py); frontend 17 passed (TeacherStudio.test.tsx, vitest + Testing Library, dev-only deps); tsc --noEmit clean; npm run build succeeds."
   - "DEC-TECH-005 stays OPEN: the UI states the render is a structural placeholder, not a native PowerPoint render."
+  - "frontend/apps/teacher-studio/ does not exist: there is one Vite app under frontend/, so the page was added to frontend/src/ (same nominal-path mapping precedent as V0-004..V0-006). tests/e2e/ maps to backend/tests/."
+  - "Reviewer identity is not implemented (no auth/roles yet): reviewer/edited_by are client-supplied attribution defaulting to the tenant id, NOT an authorization control. Role enforcement needs docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md."
+  - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."

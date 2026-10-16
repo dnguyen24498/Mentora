@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ContentIrView from './components/ContentIrView'
-import ReviewPreview from './components/ReviewPreview'
+import TeacherStudio from './components/TeacherStudio'
 import {
   ApiError,
   buildReviewPackage,
@@ -9,11 +9,16 @@ import {
   listCourses,
   listMaterials,
   loadReviewPackage,
+  loadReviewState,
+  postReviewDecision,
+  saveReviewDraft,
   uploadMaterial,
   type ContentIR,
   type Course,
   type Material,
+  type ReviewDecisionInput,
   type ReviewPackage,
+  type ReviewState,
 } from './api/client'
 
 const DEFAULT_INSTITUTION = 'university-001'
@@ -58,7 +63,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [ir, setIr] = useState<ContentIR | null>(null)
   const [review, setReview] = useState<ReviewPackage | null>(null)
+  const [reviewState, setReviewState] = useState<ReviewState | null>(null)
   const [reviewNotice, setReviewNotice] = useState<string | null>(null)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [reviewBusy, setReviewBusy] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -71,6 +79,14 @@ export default function App() {
   const fail = useCallback((cause: unknown) => {
     if (cause instanceof ApiError) setError({ code: cause.code, message: cause.message })
     else setError({ code: 'ERROR', message: cause instanceof Error ? cause.message : String(cause) })
+  }, [])
+
+  /** Turn a failed review action into a local message (with the stable code). */
+  const describe = useCallback((cause: unknown): string => {
+    if (cause instanceof ApiError) {
+      return cause.message ? `${cause.code}: ${cause.message}` : cause.code
+    }
+    return cause instanceof Error ? cause.message : String(cause)
   }, [])
 
   const refreshCourses = useCallback(
@@ -116,7 +132,9 @@ export default function App() {
     setSelectedId(null)
     setIr(null)
     setReview(null)
+    setReviewState(null)
     setReviewNotice(null)
+    setReviewError(null)
     setNotice(null)
     void refreshMaterials(institution, courseId)
   }, [institution, courseId, refreshMaterials])
@@ -126,7 +144,9 @@ export default function App() {
     setError(null)
     setIr(null)
     setReview(null)
+    setReviewState(null)
     setReviewNotice(null)
+    setReviewError(null)
     setNotice(null)
     setFile(candidate)
     if (!candidate.name.toLowerCase().endsWith('.pptx')) {
@@ -177,7 +197,9 @@ export default function App() {
     setNotice(null)
     setIr(null)
     setReview(null)
+    setReviewState(null)
     setReviewNotice(null)
+    setReviewError(null)
     setError(null)
     await runExtract(material.artifact_id)
   }
@@ -191,6 +213,7 @@ export default function App() {
     setPreviewing(true)
     setError(null)
     setReviewNotice(null)
+    setReviewError(null)
     try {
       try {
         const stored = await loadReviewPackage(institution, artifactId)
@@ -201,6 +224,8 @@ export default function App() {
         setReview(await buildReviewPackage(institution, artifactId))
         setReviewNotice('Built a new package: every slide was rendered and validated.')
       }
+      // The review *state* is a separate resource (decision + draft revisions).
+      setReviewState(await loadReviewState(institution, artifactId))
     } catch (cause) {
       fail(cause)
     } finally {
@@ -213,13 +238,61 @@ export default function App() {
     setPreviewing(true)
     setError(null)
     setReviewNotice(null)
+    setReviewError(null)
     try {
       setReview(await buildReviewPackage(institution, artifactId))
+      setReviewState(await loadReviewState(institution, artifactId))
       setReviewNotice('Rebuilt the package: every slide was rendered and validated again.')
     } catch (cause) {
       fail(cause)
     } finally {
       setPreviewing(false)
+    }
+  }
+
+  /**
+   * Approve or reject the built package (V0-007). The server refuses to approve
+   * a non-publishable document (`PUBLICATION_BLOCKED`); this never mutates the
+   * package, it records state about it.
+   */
+  async function onDecide(input: ReviewDecisionInput) {
+    if (!review) return
+    setReviewBusy(true)
+    setReviewError(null)
+    setReviewNotice(null)
+    try {
+      setReviewState(await postReviewDecision(institution, review.artifact_id, input))
+      setReviewNotice(
+        input.decision === 'APPROVE'
+          ? 'Approved. The course version is now APPROVED; sealing, indexing and publication are the next task (V0-008).'
+          : 'Rejected. The course version is back in REVIEW_REQUIRED, with the reason recorded.',
+      )
+    } catch (cause) {
+      setReviewError(describe(cause))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  /**
+   * Save a draft revision of the lesson order. Drafts are appended to the
+   * relational store; the immutable package under review is left untouched.
+   */
+  async function onSaveDraft(sections: { section_id: string; script: string }[]) {
+    if (!review) return
+    setReviewBusy(true)
+    setReviewError(null)
+    setReviewNotice(null)
+    try {
+      const draft = await saveReviewDraft(institution, review.artifact_id, { sections })
+      setReviewState(await loadReviewState(institution, review.artifact_id))
+      setReviewNotice(
+        `Saved draft revision ${draft.revision}. The built package is unchanged — the draft is data for a future version.`,
+      )
+    } catch (cause) {
+      setReviewError(describe(cause))
+    } finally {
+      setReviewBusy(false)
     }
   }
 
@@ -229,7 +302,9 @@ export default function App() {
     setError(null)
     setIr(null)
     setReview(null)
+    setReviewState(null)
     setReviewNotice(null)
+    setReviewError(null)
     setNotice(null)
     try {
       const uploaded = await uploadMaterial(institution, courseId, file)
@@ -470,7 +545,7 @@ export default function App() {
                   disabled={previewing}
                   className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
                 >
-                  {previewing ? 'Rendering…' : 'Preview slides'}
+                  {previewing ? 'Rendering…' : 'Open Teacher Studio'}
                 </button>
               </div>
             </div>
@@ -488,13 +563,22 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => review && void onRebuildReview(review.artifact_id)}
-                  disabled={previewing}
+                  disabled={previewing || reviewBusy}
                   className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
                 >
                   Rebuild package
                 </button>
               </div>
-              <ReviewPreview institutionId={institution} review={review} />
+              <TeacherStudio
+                institutionId={institution}
+                review={review}
+                reviewState={reviewState}
+                busy={reviewBusy}
+                notice={reviewNotice}
+                error={reviewError}
+                onDecide={onDecide}
+                onSaveDraft={onSaveDraft}
+              />
             </div>
           )}
 

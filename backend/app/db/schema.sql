@@ -67,3 +67,45 @@ CREATE TABLE IF NOT EXISTS idempotency_records (
     created_at      TEXT NOT NULL,
     PRIMARY KEY (institution_id, scope, idempotency_key)
 );
+
+-- V0-007: teacher review. A decision and a draft are *state about* a package,
+-- never content of it: the immutable package is untouched by either
+-- (DEC-CONTENT-005) and drafts are append-only revisions, so a proposed edit
+-- can never overwrite anything (docs/architecture/07_PUBLICATION_AND_REVIEW.md:
+-- "Corrections create new versions").
+
+CREATE TABLE IF NOT EXISTS review_decisions (
+    decision_id    TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    artifact_id    TEXT NOT NULL REFERENCES source_artifacts(artifact_id),
+    version_id     TEXT NOT NULL REFERENCES course_versions(version_id),
+    package_id     TEXT NOT NULL,
+    -- A decision binds to the content it reviewed, so a rebuild under different
+    -- content/compiler/renderer configuration makes it stale rather than current.
+    content_package_version TEXT NOT NULL,
+    decision       TEXT NOT NULL,
+    reason         TEXT,
+    reviewer       TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_decisions_tenant
+    ON review_decisions(institution_id, artifact_id, created_at);
+
+CREATE TABLE IF NOT EXISTS review_drafts (
+    draft_id       TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    artifact_id    TEXT NOT NULL REFERENCES source_artifacts(artifact_id),
+    version_id     TEXT NOT NULL REFERENCES course_versions(version_id),
+    package_id     TEXT NOT NULL,
+    content_package_version TEXT NOT NULL,
+    lesson_plan_version TEXT,
+    revision       INTEGER NOT NULL,
+    sections       TEXT NOT NULL,
+    edited_by      TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    -- Revisions are append-only: the unique key is what makes a concurrent save
+    -- fail loudly instead of silently branching the history.
+    UNIQUE (artifact_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_review_drafts_tenant
+    ON review_drafts(institution_id, artifact_id, revision);
