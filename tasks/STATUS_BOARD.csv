@@ -5,8 +5,8 @@ FND-003,W1,TODO,Contract and generated artifact automation,FND-001,tasks/FND-003
 V0-001,W2,TODO,Course and source artifact persistence,FND-002;FND-003,tasks/V0-001-course-and-source-artifact-persistence
 V0-002,W2,TODO,Secure PPTX upload,V0-001,tasks/V0-002-secure-pptx-upload
 V0-003,W3,TODO,Compiler job runner and checkpoints,V0-002,tasks/V0-003-compiler-job-runner-and-checkpoints
-V0-004,W3,TODO,PPTX structural extraction,V0-003,tasks/V0-004-pptx-structural-extraction
-V0-005,W3,TODO,Slide rendering and fidelity,V0-003;FND-002,tasks/V0-005-slide-rendering-and-fidelity
+V0-004,W3,DONE,PPTX structural extraction,V0-003,tasks/V0-004-pptx-structural-extraction
+V0-005,W3,DONE,Slide rendering and fidelity,V0-003;FND-002,tasks/V0-005-slide-rendering-and-fidelity
 V0-006,W4,TODO,Baseline scene and CTF builder,V0-004;V0-005,tasks/V0-006-baseline-scene-and-ctf-builder
 V0-007,W4,TODO,Teacher review preview,V0-006,tasks/V0-007-teacher-review-preview
 V0-008,W4,TODO,Atomic publication and index version,V0-006;V0-007,tasks/V0-008-atomic-publication-and-index-version

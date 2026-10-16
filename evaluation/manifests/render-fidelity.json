@@ -1,0 +1,126 @@
+{
+  "version": "0.1",
+  "description": "Executable render/fidelity corpus for V0-005. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py. 'engine' is the local structural renderer: native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here.",
+  "engine": {
+    "renderer_id": "local-structural-svg",
+    "renderer_version": "1.0.0",
+    "fidelity_ceiling": "STRUCTURAL_RENDERED",
+    "data_region": "local"
+  },
+  "items": [
+    {
+      "id": "simple",
+      "builder": "simple",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "groups_nested",
+      "builder": "groups_nested",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "table",
+      "builder": "table",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "chart",
+      "builder": "chart",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "media",
+      "builder": "media",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "custom_fonts",
+      "builder": "custom_fonts",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "DEGRADED_RENDERED",
+        "missing_fonts": ["Bree Serif", "Inter Light"],
+        "publishable": true,
+        "requires_review": true
+      }
+    },
+    {
+      "id": "vietnamese_fonts",
+      "builder": "vietnamese_fonts",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "DEGRADED_RENDERED",
+        "missing_fonts": ["VNI-Times"],
+        "publishable": true,
+        "requires_review": true
+      }
+    },
+    {
+      "id": "notes",
+      "builder": "notes",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    },
+    {
+      "id": "broken_relationship",
+      "builder": "broken_relationship",
+      "expect": {
+        "slides": 1,
+        "status": "RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [],
+        "publishable": true,
+        "requires_review": false
+      }
+    }
+  ],
+  "not_yet_covered": ["smartart", "equation", "semantic_reveal", "scan", "video"],
+  "metrics": [
+    "render_similarity",
+    "font_issue_count",
+    "review_seconds_per_slide"
+  ]
+}

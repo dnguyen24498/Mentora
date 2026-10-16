@@ -2,16 +2,66 @@ openapi: 3.1.0
 info: {title: Mentora API, version: 1.0.0}
 paths:
   /courses/{courseId}/materials:
+    get:
+      operationId: listMaterials
+      parameters: [{in: path, name: courseId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: Tenant-scoped materials of a course, newest first
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Material'}}
     post:
       operationId: uploadMaterial
       parameters: [{in: path, name: courseId, required: true, schema: {type: string}}]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
       responses: {'202': {description: Accepted}}
+  /artifacts/{artifactId}/compile:
+    post:
+      operationId: compileArtifact
+      description: >-
+        Deterministic compile stage (V0-005): structural extraction, a fallback
+        render for every slide with explicit fidelity, and the fidelity
+        publication gate. Idempotent and re-runnable; renders are
+        content-addressed.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: Rendered Content IR plus render and validation reports
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CompileResult'}
+        '503':
+          description: 'Renderer capability unavailable (stable code RENDERER_UNAVAILABLE)'
+  /artifacts/{artifactId}/renders/{order}:
+    get:
+      operationId: getSceneRender
+      description: >-
+        Deterministic fallback visual for one slide (SVG), re-derived from the
+        stored artifact. Tenant-scoped; never serves another tenant's render.
+      parameters:
+        - {in: path, name: artifactId, required: true, schema: {type: string}}
+        - {in: path, name: order, required: true, schema: {type: integer, minimum: 0}}
+      responses:
+        '200':
+          description: Rendered slide
+          content:
+            image/svg+xml:
+              schema: {type: string}
+        '503':
+          description: 'Scene has no render (stable code RENDERER_UNAVAILABLE)'
   /course-versions/{versionId}/publish:
     post:
       operationId: publishVersion
+      description: >-
+        A version may only be published when the fidelity gate reports
+        publishable (no FAILED/CANCELLED/missing render). Otherwise 409
+        PUBLICATION_BLOCKED.
       parameters: [{in: path, name: versionId, required: true, schema: {type: string}}]
-      responses: {'202': {description: Accepted}}
+      responses:
+        '202': {description: Accepted}
+        '409':
+          description: 'Publication blocked by a failed render (stable code PUBLICATION_BLOCKED)'
   /classes/{classId}/start:
     post:
       operationId: startClass
@@ -27,3 +77,101 @@ paths:
       operationId: issueBootstrapToken
       parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
       responses: {'200': {description: Short-lived token}}
+components:
+  schemas:
+    Material:
+      description: An uploaded source presentation with its version and compiler-job status.
+      type: object
+      required: [artifact_id, version_id, version, filename, media_type, sha256, byte_size, created_at, job_id, job_status]
+      properties:
+        artifact_id: {type: string}
+        version_id: {type: string}
+        version: {type: integer, description: Course version number the artifact belongs to}
+        filename: {type: string}
+        media_type: {type: string}
+        sha256: {type: string}
+        byte_size: {type: integer}
+        created_at: {type: string}
+        job_id: {type: string}
+        job_status: {type: string, enum: [PENDING, EXTRACTED, FAILED]}
+    RendererIdentity:
+      description: Who rendered what, with which config (DEC-CONTENT-006 provenance).
+      type: object
+      required: [name, version, engine, config_hash, data_region]
+      properties:
+        name: {type: string}
+        version: {type: string}
+        engine: {type: string, description: 'Local/dev engine until DEC-TECH-005 is accepted'}
+        config_hash: {type: string}
+        data_region: {type: string}
+    SceneRender:
+      description: Render outcome for one slide. Every slide has a render or an explicit FAILED.
+      type: object
+      required: [order, scene_id, status]
+      properties:
+        order: {type: integer, minimum: 0}
+        scene_id: {type: string}
+        status: {type: string, enum: [RENDERED, FAILED, CANCELLED]}
+        fidelity:
+          type: [string, 'null']
+          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, DEGRADED_RENDERED, null]
+        asset_ref: {type: [string, 'null'], description: Content-addressed fallback asset key}
+        asset_bytes: {type: integer}
+        renderer: {oneOf: [{$ref: '#/components/schemas/RendererIdentity'}, {type: 'null'}]}
+        fonts_used: {type: array, items: {type: string}}
+        missing_fonts: {type: array, items: {type: string}}
+        warnings: {type: array, items: {type: string}}
+        error:
+          type: [object, 'null']
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
+        attempts: {type: integer, minimum: 1}
+        duration_ms: {type: integer, minimum: 0}
+    RenderUsage:
+      type: object
+      required: [slides_rendered, slides_failed, slides_cancelled, asset_bytes, duration_ms, cost_units, data_region]
+      properties:
+        slides_rendered: {type: integer}
+        slides_failed: {type: integer}
+        slides_cancelled: {type: integer}
+        asset_bytes: {type: integer}
+        duration_ms: {type: integer}
+        cost_units: {type: number}
+        data_region: {type: string}
+    RenderReport:
+      type: object
+      required: [cancelled, warnings, usage, scenes]
+      properties:
+        renderer: {oneOf: [{$ref: '#/components/schemas/RendererIdentity'}, {type: 'null'}]}
+        cancelled: {type: boolean}
+        warnings: {type: array, items: {type: string}}
+        usage: {$ref: '#/components/schemas/RenderUsage'}
+        scenes: {type: array, items: {$ref: '#/components/schemas/SceneRender'}}
+    ValidationIssue:
+      type: object
+      required: [code, message, severity]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        severity: {type: string, enum: [error, review, warning]}
+        scene_order: {type: [integer, 'null']}
+    ValidationReport:
+      description: Fidelity gate. A failed render blocks publication (V0-005 acceptance).
+      type: object
+      required: [ok, publishable, requires_review, scene_count, issues]
+      properties:
+        ok: {type: boolean}
+        publishable: {type: boolean}
+        requires_review: {type: boolean}
+        scene_count: {type: integer}
+        issues: {type: array, items: {$ref: '#/components/schemas/ValidationIssue'}}
+    CompileResult:
+      type: object
+      required: [content_ir, render, validation, job_status]
+      properties:
+        content_ir: {type: object, description: 'Internal Content IR (never served to classroom clients)'}
+        render: {$ref: '#/components/schemas/RenderReport'}
+        validation: {$ref: '#/components/schemas/ValidationReport'}
+        job_status: {type: string, enum: [PENDING, EXTRACTED, FAILED]}

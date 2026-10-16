@@ -41,3 +41,9 @@ Thumbs.db
 *.tfstate.*
 .terraform/
 *.retry
+
+# --- Local runtime data (SQLite + local object store) ---
+backend/var/
+*.db
+*.sqlite
+*.sqlite3

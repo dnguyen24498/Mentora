@@ -1,9 +1,10 @@
 id: V0-004
 title: "PPTX structural extraction"
 week: W3
-status: TODO
+status: DONE
 depends_on: ["V0-003"]
-started_at: null
-completed_at: null
+started_at: "2026-10-16"
+completed_at: "2026-10-16"
 commit: null
-blockers: []
+blockers:
+  - "V0-003 (job runner) is still TODO: the extractor is a pure module and is not yet wired into claimed/retried stage execution. Not required by this task's acceptance criteria."

@@ -1,6 +1,108 @@
 {
-  "version": "0.1",
-  "items": [],
+  "version": "0.2",
+  "description": "Executable extraction corpus. Each item names a deterministic package builder in backend/tests/corpus.py and the observable results the extractor must produce. Run by backend/tests/test_extraction_corpus.py; metrics are declared for the fidelity/evaluation stage.",
+  "items": [
+    {
+      "id": "simple",
+      "category": "simple",
+      "builder": "simple",
+      "expect": {"slide_count": 1, "texts": ["Hello world", "Body line"], "min_objects": 2}
+    },
+    {
+      "id": "notes",
+      "category": "notes",
+      "builder": "notes",
+      "expect": {
+        "slide_count": 1,
+        "texts": ["Attention"],
+        "notes_contains": "Remember query/key/value"
+      }
+    },
+    {
+      "id": "table",
+      "category": "table",
+      "builder": "table",
+      "expect": {
+        "slide_count": 1,
+        "kinds": ["table"],
+        "tables": [[["Model", "BLEU"], ["Baseline", "24.1"]]]
+      }
+    },
+    {
+      "id": "chart",
+      "category": "chart",
+      "builder": "chart",
+      "expect": {
+        "slide_count": 1,
+        "kinds": ["chart"],
+        "media_refs": ["ppt/charts/chart1.xml"]
+      }
+    },
+    {
+      "id": "custom_fonts",
+      "category": "custom_fonts",
+      "builder": "custom_fonts",
+      "expect": {
+        "slide_count": 1,
+        "texts": ["Brand deck", "Body copy"],
+        "fonts": ["Bree Serif", "Inter Light"]
+      }
+    },
+    {
+      "id": "vietnamese_fonts",
+      "category": "vietnamese_fonts",
+      "builder": "vietnamese_fonts",
+      "expect": {
+        "slide_count": 1,
+        "texts": ["Bài giảng: Trí tuệ nhân tạo và học máy", "Câu hỏi kiểm tra: định nghĩa là gì?"],
+        "fonts": ["VNI-Times"]
+      }
+    },
+    {
+      "id": "media",
+      "category": "media",
+      "builder": "media",
+      "expect": {"slide_count": 1, "kinds": ["picture"], "media_refs": ["ppt/media/image1.png"]}
+    },
+    {
+      "id": "groups_nested",
+      "category": "simple",
+      "builder": "groups_nested",
+      "expect": {
+        "slide_count": 1,
+        "texts": ["top-text", "mid-text", "deep-text"],
+        "kinds": ["group", "text"]
+      }
+    },
+    {
+      "id": "broken_relationship",
+      "category": "media",
+      "builder": "broken_relationship",
+      "expect": {
+        "slide_count": 1,
+        "warnings_contain": ["unresolved relationship 'rIdMissing'"]
+      }
+    },
+    {
+      "id": "image_part_absent",
+      "category": "media",
+      "builder": "image_part_absent",
+      "expect": {
+        "slide_count": 1,
+        "warnings_contain": ["'ppt/media/missing.png' is absent"]
+      }
+    },
+    {
+      "id": "malformed_relationship_part",
+      "category": "simple",
+      "builder": "malformed_relationship_part",
+      "expect": {
+        "slide_count": 1,
+        "texts": ["still-extracted"],
+        "warnings_contain": ["malformed relationships part"]
+      }
+    }
+  ],
   "categories": [
     "simple",
     "vietnamese_fonts",
@@ -14,9 +116,13 @@
     "media",
     "scan"
   ],
+  "not_yet_covered": ["smartart", "equation", "semantic_reveal", "scan"],
   "metrics": [
     "text_accuracy",
+    "reading_order_accuracy",
+    "object_bounds_accuracy",
     "render_similarity",
+    "font_issue_count",
     "review_seconds_per_slide"
   ]
 }

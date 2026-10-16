@@ -1,9 +1,11 @@
 id: V0-005
 title: "Slide rendering and fidelity"
 week: W3
-status: TODO
+status: DONE
 depends_on: ["V0-003", "FND-002"]
-started_at: null
-completed_at: null
+started_at: "2026-10-16"
+completed_at: "2026-10-16"
 commit: null
-blockers: []
+blockers:
+  - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. Per ADR-P005 the task was implemented as a provider-neutral DocumentRenderer interface plus a dependency-free local structural renderer (and the required test double); no renderer technology is presented as accepted."
+  - "V0-003 (job runner) is still TODO: rendering is a pure, re-runnable stage function. Claiming/leases/checkpoints and the RENDERING job stage are not implemented."
