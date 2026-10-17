@@ -7,8 +7,10 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``POST /courses/{courseId}/materials`` — secure PPTX upload (V0-002)
 * ``GET  /artifacts/{artifactId}`` — artifact metadata
 * ``POST /artifacts/{artifactId}/extract`` — deterministic structural extraction (V0-004)
-* ``POST /artifacts/{artifactId}/compile`` — extraction + per-slide render + fidelity gate (V0-005)
+* ``POST /artifacts/{artifactId}/compile`` — extraction + per-slide render + fidelity gate (V0-005);
+  ``?mode=themed|faithful`` selects the render mode (V0-019 default: ``themed``)
 * ``GET  /artifacts/{artifactId}/renders/{order}`` — the fallback visual for one slide
+  (``?mode=`` as above)
 * ``POST /artifacts/{artifactId}/review-package`` — build the package (V0-006) and project the
   teacher review view of it (V0-007)
 * ``GET  /artifacts/{artifactId}/review-package`` — the stored package's review view
@@ -39,7 +41,12 @@ from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.package_builder.service import PackageBuildService
 from app.compiler.render_service import RenderingService
 from app.compiler.renderers.base import RenderConfig
-from app.compiler.renderers.structural import StructuralSvgRenderer
+from app.compiler.renderers.factory import (
+    DEFAULT_RENDER_MODE,
+    RENDER_MODE_LABELS,
+    RENDER_MODES,
+    build_renderers,
+)
 from app.compiler.service import ExtractionService
 from app.config import Settings
 from app.courses.repository import CourseRepository
@@ -70,16 +77,25 @@ def create_app(
     )
     extraction_service = ExtractionService(repository, object_store, extractor)
     # The renderer is replaceable infrastructure: DEC-TECH-005 (native
-    # PowerPoint rendering) is OPEN, so the local structural renderer is used
-    # behind the DocumentRenderer interface. Tests inject their own factory.
+    # PowerPoint rendering) is OPEN, so local implementations sit behind the
+    # DocumentRenderer interface. V0-019 makes ``themed`` (re-author the content
+    # in the platform theme) the default and keeps ``faithful`` (reproduce the
+    # source slide's own styling) as an explicit mode. Tests inject their own
+    # factory, which then serves every mode.
     render_config = RenderConfig()
-    renderer = (
-        renderer_factory(object_store, render_config)
-        if renderer_factory
-        else StructuralSvgRenderer(object_store, render_config)
-    )
+    if renderer_factory:
+        renderers = {mode: renderer_factory(object_store, render_config) for mode in RENDER_MODES}
+    else:
+        renderers = build_renderers(object_store, render_config)
+    renderer = renderers[DEFAULT_RENDER_MODE]
     rendering_service = RenderingService(
-        repository, object_store, extractor, renderer, config=render_config
+        repository,
+        object_store,
+        extractor,
+        renderer,
+        renderers=renderers,
+        default_mode=DEFAULT_RENDER_MODE,
+        config=render_config,
     )
     package_build_service = PackageBuildService(repository, object_store, rendering_service)
     review_service = ReviewService(repository, object_store, package_build_service)
@@ -209,17 +225,29 @@ def create_app(
         return document.to_dict()
 
     @app.post("/artifacts/{artifact_id}/compile")
-    def compile_artifact(artifact_id: str, institution_id: str = Depends(tenant)) -> dict:
-        """Extract, render every slide, and run the fidelity gate (V0-005)."""
+    def compile_artifact(
+        artifact_id: str,
+        institution_id: str = Depends(tenant),
+        mode: Optional[str] = None,
+    ) -> dict:
+        """Extract, render every slide, and run the fidelity gate (V0-005).
 
-        return rendering_service.compile(institution_id, artifact_id).to_dict()
+        ``mode`` selects the render mode (V0-019): ``themed`` (default) re-authors
+        the content in the platform theme, ``faithful`` reproduces the source
+        slide's own styling.
+        """
+
+        return rendering_service.compile(institution_id, artifact_id, mode=mode).to_dict()
 
     @app.get("/artifacts/{artifact_id}/renders/{order}")
     def get_artifact_render(
-        artifact_id: str, order: int, institution_id: str = Depends(tenant)
+        artifact_id: str,
+        order: int,
+        institution_id: str = Depends(tenant),
+        mode: Optional[str] = None,
     ) -> Response:
         payload, _scene = rendering_service.render_scene_svg(
-            institution_id, artifact_id, order
+            institution_id, artifact_id, order, mode=mode
         )
         return Response(
             content=payload,
@@ -228,13 +256,28 @@ def create_app(
         )
 
     @app.get("/renderer")
-    def renderer_status(institution_id: str = Depends(tenant)) -> dict:
-        """Capability and circuit-breaker state; drives admission decisions."""
+    def renderer_status(
+        institution_id: str = Depends(tenant), mode: Optional[str] = None
+    ) -> dict:
+        """Capability and circuit-breaker state; drives admission decisions.
 
+        Reports the *default* render mode, the available modes, and the
+        capability of the requested one (``themed`` unless asked otherwise).
+        """
+
+        target = rendering_service.renderer_for(mode)
+        theme = getattr(target, "theme", None)
         return {
-            "identity": renderer.identity().to_dict(),
-            "support": renderer.inspect_support().to_dict(),
-            "health": renderer.health().to_dict(),
+            "default_mode": rendering_service.default_mode,
+            "mode": mode or rendering_service.default_mode,
+            "modes": [
+                {"mode": name, "label": RENDER_MODE_LABELS.get(name, name)}
+                for name in rendering_service.modes
+            ],
+            "identity": target.identity().to_dict(),
+            "support": target.inspect_support().to_dict(),
+            "health": target.health().to_dict(),
+            "theme": theme.to_dict() if theme is not None else None,
         }
 
     # Serve the built frontend at "/" so the whole app runs on one origin

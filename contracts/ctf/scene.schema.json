@@ -45,10 +45,12 @@
       "type": "string"
     },
     "fidelity": {
+      "description": "How the fallback asset relates to the source slide. NATIVE/COMPATIBLE/STRUCTURAL measure fidelity *to the source*; THEMED_RENDERED is a re-authoring of the content in the platform theme (there is nothing to be faithful to, so it is not ranked against the others); DEGRADED_RENDERED means a check of meaning is required.",
       "enum": [
         "NATIVE_RENDERED",
         "COMPATIBLE_RENDERED",
         "STRUCTURAL_RENDERED",
+        "THEMED_RENDERED",
         "DEGRADED_RENDERED"
       ]
     },

@@ -1,10 +1,10 @@
 {
-  "version": "0.1",
-  "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-018. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py. 'engine' is the local structural renderer: it reproduces theme colours/fonts, fills, pictures and text formatting, but native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here.",
+  "version": "0.2",
+  "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-019 for the default render mode. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py against the DEFAULT renderer: 'mentora-themed-svg' re-authors the extracted content in the platform theme, so it owns its typefaces and unavailable source fonts no longer degrade a scene. Native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here; the faithful structural mode's outcomes are asserted by test_renderer_fidelity.py.",
   "engine": {
-    "renderer_id": "local-structural-svg",
-    "renderer_version": "2.0.0",
-    "fidelity_ceiling": "STRUCTURAL_RENDERED",
+    "renderer_id": "mentora-themed-svg",
+    "renderer_version": "1.0.0",
+    "fidelity_ceiling": "THEMED_RENDERED",
     "data_region": "local"
   },
   "items": [
@@ -14,7 +14,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -26,7 +26,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -38,7 +38,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -50,10 +50,10 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "DEGRADED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
-        "requires_review": false
+        "requires_review": true
       }
     },
     {
@@ -62,7 +62,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -74,10 +74,10 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "DEGRADED_RENDERED",
-        "missing_fonts": ["Bree Serif", "Inter Light"],
+        "fidelity": "THEMED_RENDERED",
+        "missing_fonts": [],
         "publishable": true,
-        "requires_review": true
+        "requires_review": false
       }
     },
     {
@@ -86,10 +86,10 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "DEGRADED_RENDERED",
-        "missing_fonts": ["VNI-Times"],
+        "fidelity": "THEMED_RENDERED",
+        "missing_fonts": [],
         "publishable": true,
-        "requires_review": true
+        "requires_review": false
       }
     },
     {
@@ -98,7 +98,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -110,7 +110,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "STRUCTURAL_RENDERED",
+        "fidelity": "THEMED_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false

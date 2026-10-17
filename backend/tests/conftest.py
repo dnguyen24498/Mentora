@@ -5,7 +5,9 @@ import pytest
 from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.render_service import RenderingService
 from app.compiler.renderers.base import RenderConfig
+from app.compiler.renderers.factory import MODE_FAITHFUL, MODE_THEMED
 from app.compiler.renderers.structural import StructuralSvgRenderer
+from app.compiler.renderers.themed import ThemedSvgRenderer
 from app.compiler.service import ExtractionService
 from app.config import Settings
 from app.courses.repository import CourseRepository
@@ -63,7 +65,32 @@ def render_config() -> RenderConfig:
 
 @pytest.fixture
 def renderer(object_store, render_config) -> StructuralSvgRenderer:
+    """The *faithful* (structural) renderer.
+
+    Kept as the default fixture because ``tests/test_renderers.py`` and
+    ``tests/test_renderer_fidelity.py`` assert structural-renderer behaviour
+    (font degradation, the structural ceiling). The renderer the application uses
+    by default is :func:`default_renderer` (V0-019: themed).
+    """
+
     return StructuralSvgRenderer(object_store, render_config)
+
+
+@pytest.fixture
+def faithful_renderer(renderer) -> StructuralSvgRenderer:
+    return renderer
+
+
+@pytest.fixture
+def themed_renderer(object_store, render_config) -> ThemedSvgRenderer:
+    return ThemedSvgRenderer(object_store, render_config)
+
+
+@pytest.fixture
+def default_renderer(themed_renderer) -> ThemedSvgRenderer:
+    """The renderer the application uses by default (V0-019: themed mode)."""
+
+    return themed_renderer
 
 
 @pytest.fixture
@@ -72,6 +99,26 @@ def rendering_service(
 ) -> RenderingService:
     return RenderingService(
         repository, object_store, extractor, renderer, config=render_config
+    )
+
+
+@pytest.fixture
+def default_rendering_service(
+    repository, object_store, extractor, themed_renderer, render_config
+) -> RenderingService:
+    """A rendering service wired like ``create_app``: themed by default."""
+
+    return RenderingService(
+        repository,
+        object_store,
+        extractor,
+        themed_renderer,
+        renderers={
+            MODE_THEMED: themed_renderer,
+            MODE_FAITHFUL: StructuralSvgRenderer(object_store, render_config),
+        },
+        default_mode=MODE_THEMED,
+        config=render_config,
     )
 
 

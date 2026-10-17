@@ -668,10 +668,23 @@ def test_content_version_binds_source_and_renderer_config(service, stored_artifa
     identity = result.render.renderer
 
     expected = content_package_version(
-        artifact.sha256, config_hash=identity.config_hash
+        artifact.sha256,
+        config_hash=identity.config_hash,
+        renderer=f"{identity.name}@{identity.version}",
     )
     assert result.package.manifest["content_package_version"] == expected
     assert result.package.manifest["lesson_plan_versions"] == [lesson_plan_version_for(expected)]
     plan = json.loads(object_store.get(f"{result.prefix}/{LESSON_PLAN_PATH}"))
     assert plan["lesson_plan_version"] == lesson_plan_version_for(expected)
     assert datetime.datetime.fromisoformat(result.package.manifest["created_at"])
+
+    # V0-019: two renderers can share one RenderConfig (and therefore one config
+    # hash) while producing different slides, so the renderer identity is bound
+    # into the key too — otherwise a themed package could collide with a faithful
+    # one for the same source bytes.
+    other = content_package_version(
+        artifact.sha256,
+        config_hash=identity.config_hash,
+        renderer="other-renderer@9.9.9",
+    )
+    assert other != expected

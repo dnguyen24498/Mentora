@@ -44,9 +44,9 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/courses/` | Course/version/source-artifact/compiler-job models, tenant-scoped repository, `UploadService`. |
 | `app/compiler/models/` | Internal Content IR (`content-ir/1.2.0`): scenes, objects, effective style (fill/line/geometry/text), text runs, media refs, normalized bounds, fidelity, provenance. |
 | `app/compiler/extractors/` | Dependency-free PPTX (OOXML) structural extractor (`PptxExtractor`): theme/master/layout resolution (`theme.py`, `style.py`) + `ooxml.py` part/name helpers. |
-| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + deterministic local structural SVG renderer that reproduces the extracted style (V0-005, V0-018) + required test double. |
+| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + two deterministic local SVG renderers behind a mode factory — themed (default, V0-019) and faithful/structural (V0-005, V0-018) — plus the theme (`mentora_theme.py`) and a required test double. |
 | `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005) plus CTF package validation (V0-006). |
-| `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render -> gate. |
+| `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render (mode-selected) -> gate. |
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007): the read-only projection (`review.py`) plus the write path (`workflow.py`, `repository.py`, `draft.py`) — approve/reject and draft lesson-order revisions. Publication state transitions are V0-008. |
@@ -61,8 +61,8 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /courses/{courseId}/materials` — list the course's uploaded presentations, newest first, each with its version number and compiler-job status (used by the frontend file list).
 - `POST /courses/{courseId}/materials` — multipart `file`; returns `202` with artifact/job/version ids. Duplicate bytes (or a repeated `Idempotency-Key`) return the existing record with `created: false`.
 - `POST /artifacts/{artifactId}/extract` — runs structural extraction and returns the Content IR.
-- `POST /artifacts/{artifactId}/compile` — extraction + a fallback render for every slide + the fidelity gate; returns `content_ir`, `render`, `validation`, `job_status`. Idempotent.
-- `GET /artifacts/{artifactId}/renders/{order}` — the deterministic fallback visual (SVG) for one slide, re-derived from the stored artifact and tenant-scoped.
+- `POST /artifacts/{artifactId}/compile` — extraction + a fallback render for every slide + the fidelity gate; returns `content_ir`, `render`, `validation`, `job_status`. Idempotent. `?mode=themed|faithful` picks the render mode (V0-019, default `themed`); an unknown mode is `400 INVALID_REQUEST` (`UNKNOWN_RENDER_MODE`).
+- `GET /artifacts/{artifactId}/renders/{order}` — the deterministic fallback visual (SVG) for one slide, re-derived from the stored artifact and tenant-scoped. `?mode=` as above.
 - `POST /artifacts/{artifactId}/review-package` — **V0-007**: builds the Baseline Content Package (V0-006, idempotent) and returns the teacher review view — per-slide render reference, extracted text, notes, warnings/fidelity and the fallback lesson order with safe markers. `409 PUBLICATION_BLOCKED` when the fidelity gate failed, so a blocking failure is never reviewable.
 - `GET /artifacts/{artifactId}/review-package` — the review view of the **stored** package; never re-renders (~20 ms for a 28-slide deck vs ~4 s to build). `404` when nothing is built yet.
 - `GET /artifacts/{artifactId}/review-package/renders/{order}` — one slide's packaged fallback render, served from the package (no re-render) after the manifest confirms it lists the asset.
@@ -70,7 +70,7 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /artifacts/{artifactId}/review-package/review-state` — the current decision, the newest draft revision, the draft count, the course-version status, and whether the decision is `stale` (recorded for a different content version).
 - `POST /artifacts/{artifactId}/review-package/drafts` — **append a draft revision** of the lesson order. The body's array order is the proposed order and every entry must name a section that already exists in the package, so a draft can only reorder and re-script; structural fields are inherited from the package. `400` with an `issue_code` (`EMPTY_DRAFT`, `UNKNOWN_SECTION`, `DUPLICATE_SECTION`, `MISSING_SECTION`, `INVALID_SCRIPT`) when it is not a rearrangement, `409 REVISION_CONFLICT` when a concurrent save won the revision.
 - `GET /artifacts/{artifactId}/review-package/drafts` — draft revision history, newest first.
-- `GET /renderer` — renderer identity, capability, and circuit-breaker health.
+- `GET /renderer` — the default render mode, every available mode, the active theme, and the requested mode's identity/capability/circuit-breaker health (`?mode=`, V0-019).
 - `GET /artifacts/{artifactId}` — artifact metadata (the Teacher Studio uses `filename` for its page title).
 - `GET /health`.
 - `GET /` — the built frontend (when `frontend/dist/` exists). Any other
@@ -106,11 +106,30 @@ break the browser). For normal development the frontend runs on its own server a
   PowerPoint rendering deployment and licensing") is `OPEN`, so
   `docs/adr/proposed/ADR-P005_RENDERER.md` applies: *"Until accepted,
   provider-neutral interfaces and mocks are used."* `app/compiler/renderers/`
-  therefore defines the `DocumentRenderer` interface plus a dependency-free local
-  implementation (`StructuralSvgRenderer`, reported as `STRUCTURAL_RENDERED` —
-  never as native/compatible) and a required test double. No renderer choice is
-  presented as accepted; replace it behind the interface once FND-002 records the
-  decision.
+  therefore defines the `DocumentRenderer` interface, a required test double, and
+  two dependency-free local implementations behind it (`renderers/factory.py`
+  selects by mode) — neither is ever reported as native/compatible:
+  - **`themed` (default, V0-019)** — `ThemedSvgRenderer` **re-authors** the
+    extracted content in a platform-controlled theme (`renderers/mentora_theme.py`:
+    palette, type scale, grid, footer) and reports `THEMED_RENDERED`. The theme
+    owns its typefaces, so an unavailable source font can never degrade a scene;
+    the source deck's own layout is deliberately *not* reproduced. Because it is a
+    re-authoring, the gate is re-scoped from visual fidelity to **content
+    completeness**: every text paragraph, picture, and table cell is placed, and
+    `CONTENT_DROPPED:`/`TEXT_OVERFLOW:` degrade the scene instead of content being
+    silently lost. An object that cannot be re-authored (chart, SmartArt) also
+    degrades (`UNSUPPORTED_OBJECT:`), so it asks for review rather than being
+    flattened. The theme is versioned and folded into the renderer's config hash,
+    so a theme change is a new content-package version.
+  - **`faithful` (V0-018)** — `StructuralSvgRenderer` reproduces the source
+    slide's own styling and reports `STRUCTURAL_RENDERED`.
+  - `?mode=themed|faithful` selects the mode on `POST /artifacts/{id}/compile` and
+    `GET /artifacts/{id}/renders/{order}`; `GET /renderer` reports the default, all
+    modes, the active theme, and the requested capability (an unknown mode is a
+    `400 INVALID_REQUEST`/`UNKNOWN_RENDER_MODE`). The package cache key binds the
+    renderer identity (`name@version`), so a themed package can never be mistaken
+    for a faithful one. Replace these behind the interface once FND-002 records the
+    decision.
 - **Fidelity gate**: every slide gets a render or an explicit `FAILED`;
   `FAILED`/`CANCELLED`/missing renders make the document non-publishable
   (`PUBLICATION_BLOCKED`, wired into `POST /course-versions/{id}/publish`'s
@@ -143,6 +162,20 @@ break the browser). For normal development the frontend runs on its own server a
   - The renderer identity is bumped to `2.0.0` and the IR schema to
     `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
     reused after this change.
+- **Themed slide rendering (V0-019, the default mode).** `ThemedSvgRenderer`
+  classifies each slide into an archetype (`title`/`bullets`/`content`/`table`/
+  `media`/`mixed`/`empty` — `classify_scene` is a pure, tested function of the IR)
+  and re-flows its content: a heading block (a title slide is a *hero*: larger and
+  vertically centred), a body flow of paragraphs with theme bullets and preserved
+  emphasis/alignment, pictures framed to their **own aspect ratio** (read from the
+  image header by `compiler/imaging.py`, no image library) and capped so a picture
+  can never overflow on its own, and tables with a themed header row. It
+  **re-flows, never re-selects**: decorative geometry is re-themed away on purpose
+  while every text paragraph, picture, and table cell is placed — no LLM rewrites
+  slide text, because that would change meaning. If content still does not fit, the
+  flow shrinks to a readable floor and then reports `TEXT_OVERFLOW:` and degrades;
+  content is never silently dropped, and `CONTENT_DROPPED:` is the completeness
+  gate's alarm if it ever were.
 - Rendering is deterministic and content-addressed: identical bytes + identical
   renderer identity/config produce byte-identical SVG, so recompiles reuse one
   asset. Job claiming, leases, checkpoints, and stage persistence are V0-003 and

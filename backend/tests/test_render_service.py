@@ -212,7 +212,9 @@ def test_compile_endpoint_returns_reports(client):
     assert body["job_status"] == "EXTRACTED"
     assert body["validation"]["publishable"] is True
     assert body["render"]["scenes"][0]["asset_ref"]
-    assert body["render"]["scenes"][0]["renderer"]["engine"] == "stdlib-svg"
+    # V0-019: the default render mode re-authors the content in the platform theme.
+    assert body["render"]["scenes"][0]["renderer"]["engine"] == "mentora-theme-svg"
+    assert body["render"]["scenes"][0]["fidelity"] == "THEMED_RENDERED"
     assert body["content_ir"]["slides"][0]["fallback_asset"]
 
 
@@ -233,10 +235,63 @@ def test_render_endpoint_unknown_slide_is_503(client):
 def test_renderer_endpoint_reports_capability_and_health(client):
     body = client.get("/renderer", headers=HEADERS).json()
 
-    assert body["identity"]["name"] == "local-structural-svg"
+    # V0-019: the default mode is ``themed``; ``faithful`` is still offered, and
+    # neither claims a native render (DEC-TECH-005 stays OPEN).
+    assert body["default_mode"] == "themed"
+    assert body["mode"] == "themed"
+    assert {m["mode"] for m in body["modes"]} == {"themed", "faithful"}
+    assert body["identity"]["name"] == "mentora-themed-svg"
     assert body["identity"]["data_region"] == "local"
-    assert body["support"]["fidelity_ceiling"] == "STRUCTURAL_RENDERED"
+    assert body["support"]["fidelity_ceiling"] == "THEMED_RENDERED"
+    assert body["theme"]["name"] == "mentora-default"
     assert body["health"]["state"] == "closed"
+
+
+def test_renderer_endpoint_can_inspect_the_faithful_mode(client):
+    body = client.get("/renderer", params={"mode": "faithful"}, headers=HEADERS).json()
+
+    assert body["mode"] == "faithful"
+    assert body["identity"]["name"] == "local-structural-svg"
+    assert body["support"]["fidelity_ceiling"] == "STRUCTURAL_RENDERED"
+
+
+def test_renderer_endpoint_rejects_an_unknown_mode(client):
+    response = client.get("/renderer", params={"mode": "nope"}, headers=HEADERS)
+
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == "INVALID_REQUEST"
+    assert error["issue_code"] == "UNKNOWN_RENDER_MODE"
+
+
+def test_compile_rejects_an_unknown_mode(client):
+    artifact_id = _upload_simple(client)
+    response = client.post(
+        f"/artifacts/{artifact_id}/compile", params={"mode": "nope"}, headers=HEADERS
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_faithful_mode_is_still_available_and_differs_from_themed(client):
+    artifact_id = _upload_simple(client)
+
+    themed = client.post(
+        f"/artifacts/{artifact_id}/compile", params={"mode": "themed"}, headers=HEADERS
+    ).json()
+    faithful = client.post(
+        f"/artifacts/{artifact_id}/compile", params={"mode": "faithful"}, headers=HEADERS
+    ).json()
+
+    themed_scene = themed["render"]["scenes"][0]
+    faithful_scene = faithful["render"]["scenes"][0]
+    assert themed_scene["fidelity"] == "THEMED_RENDERED"
+    assert faithful_scene["fidelity"] == "STRUCTURAL_RENDERED"
+    assert themed_scene["asset_ref"] != faithful_scene["asset_ref"]
+    # The mode is part of the renderer identity, which is bound into the package
+    # cache key — so the two can never be mistaken for one another.
+    assert themed_scene["renderer"]["name"] != faithful_scene["renderer"]["name"]
 
 
 def test_compile_requires_the_owning_tenant(client):

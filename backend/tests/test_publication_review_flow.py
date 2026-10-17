@@ -26,7 +26,7 @@ from app.compiler.package_builder import read_package
 from app.compiler.renderers.base import RenderConfig
 from app.compiler.renderers.testing import FakeRenderer
 from app.courses.models import CourseVersionStatus
-from tests.fixtures import build_pptx, simple_pptx, text_shape
+from tests.fixtures import REL_CHART, build_pptx, chart_shape, simple_pptx, text_shape
 
 HEADERS = {"X-Institution-Id": "university-001"}
 
@@ -176,10 +176,18 @@ def test_a_blocking_render_failure_never_becomes_approvable(blocked_client):
 
 
 def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(client):
-    """DEGRADED_RENDERED is human-required, not blocked (DEC-CONTENT-006/008)."""
+    """DEGRADED_RENDERED is human-required, not blocked (DEC-CONTENT-006/008).
 
-    deck = build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]], notes={1: "Say hi."})
-    artifact_id = _upload(client, deck, "brand.pptx")
+    V0-019: the degradation is an object the themed renderer cannot re-author
+    (a chart), not a font — the theme owns its typefaces.
+    """
+
+    deck = build_pptx(
+        [[chart_shape(6, "Scores")]],
+        extra_slide_rels={1: [("rIdChart", REL_CHART, "../charts/chart1.xml")]},
+        extra_entries={"ppt/charts/chart1.xml": b"<c:chartSpace/>"},
+    )
+    artifact_id = _upload(client, deck, "chart.pptx")
     built = client.post(f"/artifacts/{artifact_id}/review-package", headers=HEADERS).json()
 
     assert built["state"] == "REVIEW_REQUIRED"
@@ -188,11 +196,11 @@ def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(client):
 
     decision = client.post(
         f"/artifacts/{artifact_id}/review-package/decision",
-        json={"decision": "APPROVE", "reason": "Font fallback is acceptable", "reviewer": "t"},
+        json={"decision": "APPROVE", "reason": "Chart image to follow", "reviewer": "t"},
         headers=HEADERS,
     )
     assert decision.status_code == 200, decision.text
-    assert decision.json()["decision"]["reason"] == "Font fallback is acceptable"
+    assert decision.json()["decision"]["reason"] == "Chart image to follow"
 
 
 def test_review_telemetry_redacts_authored_text(client):

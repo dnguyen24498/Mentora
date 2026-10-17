@@ -16,7 +16,7 @@ export function makeScene(order: number, overrides: Partial<ReviewScene> = {}): 
   return {
     order,
     scene_id: sceneId,
-    fidelity: 'STRUCTURAL_RENDERED',
+    fidelity: 'THEMED_RENDERED',
     render_status: 'RENDERED',
     fallback_asset: `assets/${order}.svg`,
     render_url: `/artifacts/${ARTIFACT}/review-package/renders/${order}`,
@@ -47,7 +47,7 @@ export function makeSection(
     scene_step_id: `${sceneId}#step-0`,
     safe_markers: [`${sceneId}#step-0`],
     script,
-    scene_fidelity: 'STRUCTURAL_RENDERED',
+    scene_fidelity: 'THEMED_RENDERED',
     requires_review: false,
   }
 }
@@ -70,14 +70,14 @@ export function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPacka
     scene_count: 2,
     file_count: 5,
     renderer: {
-      name: 'local-structural-svg',
+      name: 'mentora-themed-svg',
       version: '1.0.0',
-      engine: 'stdlib-svg',
+      engine: 'mentora-theme-svg',
       config_hash: 'hash',
       data_region: 'local',
     },
     placeholder_notice:
-      "Structural SVG render reproduced from the slide's own styling — not a native PowerPoint render. A production renderer technology is still an open decision (DEC-TECH-005).",
+      "Slides are re-authored in the Mentora theme: the extracted content (text, images, tables) is preserved and restyled, so the appearance is the platform's, not the source deck's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       makeSection(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       makeSection(1, 'sec-2', 'ppt/slides/slide2.xml', null),

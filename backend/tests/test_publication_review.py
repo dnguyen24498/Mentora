@@ -20,19 +20,33 @@ from app.common.errors import PublicationBlockedError
 from app.compiler.package_builder import read_package
 from app.compiler.package_builder.service import PackageBuildService
 from app.compiler.renderers.base import RenderConfig
-from app.compiler.renderers.structural import StructuralSvgRenderer
 from app.compiler.renderers.testing import FakeRenderer
 from app.publication.review import (
-    RENDER_PLACEHOLDER_NOTICE,
     STATE_READY,
     STATE_REVIEW_REQUIRED,
+    THEMED_RENDER_NOTICE,
     ReviewService,
 )
-from tests.fixtures import build_pptx, simple_pptx, text_shape
+from tests.fixtures import (
+    REL_CHART,
+    build_pptx,
+    chart_shape,
+    simple_pptx,
+    text_shape,
+)
 
 HEADERS = {"X-Institution-Id": "inst-1"}
 ALT_HEADERS = {"X-Institution-Id": "inst-2"}
-MISSING_FONT = "Be Vietnam Pro"
+
+
+def _chart_deck() -> bytes:
+    """A deck whose only object is one the themed renderer cannot re-author."""
+
+    return build_pptx(
+        [[chart_shape(6, "Scores")]],
+        extra_slide_rels={1: [("rIdChart", REL_CHART, "../charts/chart1.xml")]},
+        extra_entries={"ppt/charts/chart1.xml": b"<c:chartSpace/>"},
+    )
 
 
 @pytest.fixture
@@ -83,7 +97,7 @@ def test_review_scene_carries_render_text_notes_and_fidelity(client):
 
     assert scene["order"] == 0
     assert scene["scene_id"] == "ppt/slides/slide1.xml"
-    assert scene["fidelity"] == "STRUCTURAL_RENDERED"
+    assert scene["fidelity"] == "THEMED_RENDERED"
     assert scene["render_status"] == "RENDERED"
     assert scene["text"] == ["Hello world"]
     assert scene["notes"] == "Say hi."
@@ -91,7 +105,7 @@ def test_review_scene_carries_render_text_notes_and_fidelity(client):
     assert scene["missing_fonts"] == []
     assert scene["object_count"] == 1
     assert scene["step_count"] == 1
-    assert scene["renderer"]["name"] == "local-structural-svg"
+    assert scene["renderer"]["name"] == "mentora-themed-svg"
     assert scene["render_url"] == f"/artifacts/{artifact_id}/review-package/renders/0"
 
 
@@ -128,14 +142,14 @@ def test_review_reports_no_teaching_graph_and_no_index(client):
     assert body["content_package_version"].startswith("cpv-")
 
 
-def test_review_declares_the_renderer_is_a_placeholder(client):
+def test_review_declares_how_the_slides_were_rendered(client):
     body = _review(client, _upload(client))
 
     # DEC-TECH-005 is OPEN: the UI must never imply a native render.
-    assert body["placeholder_notice"] == RENDER_PLACEHOLDER_NOTICE
+    assert body["placeholder_notice"] == THEMED_RENDER_NOTICE
     assert "DEC-TECH-005" in body["placeholder_notice"]
-    assert "not a native" in body["placeholder_notice"]
-    assert body["renderer"]["engine"] == "stdlib-svg"
+    assert "re-authored" in body["placeholder_notice"]
+    assert body["renderer"]["engine"] == "mentora-theme-svg"
 
 
 def test_review_is_deterministic_apart_from_the_build_timestamp(client):
@@ -149,12 +163,28 @@ def test_review_is_deterministic_apart_from_the_build_timestamp(client):
 
 
 # -- degraded fidelity drives the review state -------------------------------------
-def test_missing_font_marks_the_scene_and_the_package_for_review(client):
+def test_an_unavailable_font_does_not_degrade_a_themed_scene(client):
+    """V0-019: the theme owns its typefaces, so a source font cannot degrade it."""
+
     artifact_id = _upload(
         client,
-        build_pptx([[text_shape(2, "T", text="hi", font=MISSING_FONT)]]),
+        build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]]),
         "brand.pptx",
     )
+    body = _review(client, artifact_id)
+
+    assert body["state"] == STATE_READY
+    assert body["requires_review"] is False
+    scene = body["scenes"][0]
+    assert scene["fidelity"] == "THEMED_RENDERED"
+    assert scene["missing_fonts"] == []
+    assert not [w for w in scene["warnings"] if w.startswith("MISSING_FONT:")]
+
+
+def test_an_unmappable_object_marks_the_scene_and_the_package_for_review(client):
+    """A chart cannot be re-authored into the theme, so it degrades (V0-019)."""
+
+    artifact_id = _upload(client, _chart_deck(), "chart.pptx")
     body = _review(client, artifact_id)
 
     assert body["state"] == STATE_REVIEW_REQUIRED
@@ -163,8 +193,8 @@ def test_missing_font_marks_the_scene_and_the_package_for_review(client):
     scene = body["scenes"][0]
     assert scene["requires_review"] is True
     assert scene["fidelity"] == "DEGRADED_RENDERED"
-    assert scene["missing_fonts"] == [MISSING_FONT]
-    assert f"MISSING_FONT:{MISSING_FONT}" in scene["warnings"]
+    assert scene["missing_fonts"] == []
+    assert "UNSUPPORTED_OBJECT:chart" in scene["warnings"]
     assert body["lesson_order"][0]["requires_review"] is True
 
 

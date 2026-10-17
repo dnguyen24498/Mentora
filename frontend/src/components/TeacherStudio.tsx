@@ -26,6 +26,9 @@ const FIDELITY_STYLE: Record<string, string> = {
   NATIVE_RENDERED: 'bg-emerald-100 text-emerald-700',
   COMPATIBLE_RENDERED: 'bg-sky-100 text-sky-700',
   STRUCTURAL_RENDERED: 'bg-slate-100 text-slate-600',
+  // V0-019: the default mode re-authors the content in the platform theme. It is
+  // not a rank on the fidelity-to-source ladder, so it gets its own colour.
+  THEMED_RENDERED: 'bg-indigo-100 text-indigo-700',
   DEGRADED_RENDERED: 'bg-amber-100 text-amber-700',
 }
 
@@ -430,8 +433,9 @@ export default function TeacherStudio({
           </span>
         </div>
 
-        {/* DEC-TECH-005 is OPEN: this is a structural SVG render of the slide's
-            own styling, never presented as a native PowerPoint render. */}
+        {/* DEC-TECH-005 is OPEN: the notice (from the server) says exactly how the
+            slides were produced — re-authored in the platform theme, or a
+            structural render of the source — and never implies a native render. */}
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
           {review.placeholder_notice}
           {review.renderer && (
@@ -477,7 +481,7 @@ export default function TeacherStudio({
         ) : (
           <p className="mt-2 text-sm text-slate-700" role="status">
             No blocking failure. {reviewNotices.length === 0
-              ? 'Every slide rendered within the structural renderer’s capabilities.'
+              ? 'Every slide rendered within the renderer’s capabilities.'
               : `${reviewNotices.length} of ${review.scene_count} slide(s) need a human look before this lesson is delivered.`}
           </p>
         )}

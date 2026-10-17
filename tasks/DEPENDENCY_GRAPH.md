@@ -52,6 +52,10 @@ graph TD
   V0_018["V0-018 Faithful slide rendering fidelity"]
   V0_005 --> V0_018
   V0_006 --> V0_018
+  V0_019["V0-019 Themed slide rendering"]
+  V0_005 --> V0_019
+  V0_006 --> V0_019
+  V0_018 --> V0_019
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

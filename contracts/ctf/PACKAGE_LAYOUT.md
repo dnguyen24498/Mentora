@@ -100,9 +100,13 @@ would couple the runtime to the compiler's storage and break
   `ALL_VISIBLE`, listing every object id in the extractor's `reading_order`.
   Objects are never dropped or reordered. (Multi-step reveals require animation
   extraction and are not part of V0-004/V0-006.)
-* `fidelity` is carried from the render stage (`DEC-CONTENT-006`); only the four
-  schema values may appear. A failed render is a `FAILED` *status*, not a
-  fidelity, and blocks packaging instead of entering one.
+* `fidelity` is carried from the render stage (`DEC-CONTENT-006`); only the
+  schema's values may appear. `STRUCTURAL_RENDERED` reproduces the source slide's
+  own styling (faithful mode); `THEMED_RENDERED` re-authors the content in the
+  platform theme (default mode, V0-019) and so is not ranked against the
+  source-fidelity values; `DEGRADED_RENDERED` requires a human check of meaning.
+  A failed render is a `FAILED` *status*, not a fidelity, and blocks packaging
+  instead of entering one.
 
 ## 5. Lesson plan and safe markers
 

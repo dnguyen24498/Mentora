@@ -1,0 +1,16 @@
+id: V0-019
+title: "Themed slide rendering (re-author in the platform theme)"
+week: W4
+status: DONE
+depends_on: ["V0-005", "V0-006", "V0-018"]
+started_at: "2026-10-17"
+completed_at: "2026-10-17"
+commit: null
+blockers:
+  - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task adds a platform-themed renderer behind the DocumentRenderer interface; it does not accept a renderer technology and never claims a native/compatible render."
+notes:
+  - "Product decision: the default fallback render is a *re-authoring* of the extracted content in the platform theme, not a reproduction of the source deck. The faithful structural renderer (V0-018) remains available as mode=faithful."
+  - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning moves from visual fidelity to content completeness (CONTENT_DROPPED:/TEXT_OVERFLOW:)."
+  - "Charts/SmartArt cannot be re-authored: they degrade with UNSUPPORTED_OBJECT:<kind> and require review rather than being silently flattened."
+  - "The package cache key now binds the renderer identity (name@version) in addition to the render config hash, so a themed package can never collide with a faithful one."
+  - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."

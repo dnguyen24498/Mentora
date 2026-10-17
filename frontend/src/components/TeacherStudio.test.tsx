@@ -20,7 +20,7 @@ function scene(order: number, overrides: Partial<ReviewScene> = {}): ReviewScene
   return {
     order,
     scene_id: sceneId,
-    fidelity: 'STRUCTURAL_RENDERED',
+    fidelity: 'THEMED_RENDERED',
     render_status: 'RENDERED',
     fallback_asset: `assets/${order}.svg`,
     render_url: `/artifacts/${ARTIFACT}/review-package/renders/${order}`,
@@ -46,7 +46,7 @@ function section(order: number, sectionId: string, sceneId: string, script: stri
     scene_step_id: `${sceneId}#step-0`,
     safe_markers: [`${sceneId}#step-0`],
     script,
-    scene_fidelity: 'STRUCTURAL_RENDERED',
+    scene_fidelity: 'THEMED_RENDERED',
     requires_review: false,
   }
 }
@@ -69,14 +69,14 @@ function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPackage {
     scene_count: 2,
     file_count: 5,
     renderer: {
-      name: 'local-structural-svg',
+      name: 'mentora-themed-svg',
       version: '1.0.0',
-      engine: 'stdlib-svg',
+      engine: 'mentora-theme-svg',
       config_hash: 'hash',
       data_region: 'local',
     },
     placeholder_notice:
-      "Structural SVG render reproduced from the slide's own styling — not a native PowerPoint render. A production renderer technology is still an open decision (DEC-TECH-005).",
+      "Slides are re-authored in the Mentora theme: the extracted content (text, images, tables) is preserved and restyled, so the appearance is the platform's, not the source deck's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       section(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       section(1, 'sec-2', 'ppt/slides/slide2.xml', null),
@@ -185,9 +185,10 @@ describe('TeacherStudio — side-by-side review', async () => {
     expect(within(sideBySide).getByRole('heading', { name: /warnings/i })).toBeTruthy()
   })
 
-  it('says the render is a structural render, not a native render', async () => {
+  it('says how the slides were rendered, and never implies a native render', async () => {
     await setup()
-    expect(screen.getByText(/Structural SVG render/)).toBeTruthy()
+    expect(screen.getByText(/re-authored in the Mentora theme/)).toBeTruthy()
+    expect(screen.getByText(/No native PowerPoint render/)).toBeTruthy()
     expect(screen.getByText(/DEC-TECH-005/)).toBeTruthy()
   })
 })

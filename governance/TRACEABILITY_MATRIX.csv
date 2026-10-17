@@ -12,6 +12,8 @@ DEC-CONTENT-001,backend/app/compiler/media.py,CODE
 DEC-CONTENT-001,backend/app/compiler/renderers/base.py,CODE
 DEC-CONTENT-001,backend/app/compiler/render_service.py,CODE
 DEC-CONTENT-001,backend/app/compiler/validators/package.py,CODE
+DEC-CONTENT-001,backend/app/compiler/imaging.py,CODE
+DEC-CONTENT-001,backend/app/compiler/renderers/themed.py,CODE
 DEC-CONTENT-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-002,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
 DEC-CONTENT-002,docs/architecture/04_CONTENT_COMPILER.md,ARCH
@@ -71,6 +73,13 @@ DEC-CONTENT-006,frontend/src/components/TeacherStudio.tsx,CODE
 DEC-CONTENT-006,frontend/src/components/TeacherStudio.test.tsx,CODE
 DEC-CONTENT-006,frontend/src/pages/StudioPage.tsx,CODE
 DEC-CONTENT-006,frontend/src/pages/UploadPage.tsx,CODE
+DEC-CONTENT-006,contracts/ctf/scene.schema.json,SPEC
+DEC-CONTENT-006,contracts/openapi/openapi.yaml,SPEC
+DEC-CONTENT-006,backend/app/compiler/renderers/themed.py,CODE
+DEC-CONTENT-006,backend/app/compiler/renderers/mentora_theme.py,CODE
+DEC-CONTENT-006,backend/app/compiler/renderers/factory.py,CODE
+DEC-CONTENT-006,backend/tests/test_themed_renderer.py,CODE
+DEC-CONTENT-006,backend/tests/test_renderer_factory.py,CODE
 DEC-CONTENT-007,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-007,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
 DEC-CONTENT-007,docs/testing/CONTENT_AND_AI_EVALUATION.md,SPEC

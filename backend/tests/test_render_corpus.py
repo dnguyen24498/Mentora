@@ -4,6 +4,11 @@
 item, the render outcome every slide must produce. This is the executable form of
 "same engine/config gives stable logical output": the classification (fidelity,
 missing fonts, publishability) must be exactly reproducible.
+
+It runs the **default** render mode (V0-019: ``themed``), so the manifest's
+``engine`` block names the renderer the application actually uses. The
+``faithful`` mode's outcomes are asserted by ``tests/test_renderer_fidelity.py``
+and ``tests/test_renderers.py``.
 """
 
 from __future__ import annotations
@@ -37,21 +42,21 @@ def test_every_item_uses_a_known_builder():
     assert not missing, f"render corpus items without a builder: {missing}"
 
 
-def test_manifest_engine_matches_the_local_renderer(renderer):
-    identity = renderer.identity()
+def test_manifest_engine_matches_the_local_renderer(default_renderer):
+    identity = default_renderer.identity()
     declared = MANIFEST["engine"]
     assert identity.name == declared["renderer_id"]
     assert identity.version == declared["renderer_version"]
     assert identity.data_region == declared["data_region"]
-    assert renderer.inspect_support().fidelity_ceiling == declared["fidelity_ceiling"]
+    assert default_renderer.inspect_support().fidelity_ceiling == declared["fidelity_ceiling"]
 
 
 @pytest.mark.parametrize("item", ITEMS, ids=[i["id"] for i in ITEMS])
-def test_render_corpus_item_matches_expected_outcome(extractor, renderer, item):
+def test_render_corpus_item_matches_expected_outcome(extractor, default_renderer, item):
     from app.compiler.renderers.base import RenderStatus
     from app.compiler.validators.fidelity import validate_render
 
-    document, report = _compile_one(extractor, renderer, item)
+    document, report = _compile_one(extractor, default_renderer, item)
     expect = item["expect"]
 
     # Every slide has a render or an explicit FAILED (V0-005 acceptance).
@@ -67,12 +72,12 @@ def test_render_corpus_item_matches_expected_outcome(extractor, renderer, item):
     assert validation.requires_review is expect["requires_review"]
 
 
-def test_classification_is_stable_across_runs(extractor, renderer):
+def test_classification_is_stable_across_runs(extractor, default_renderer):
     """Re-running the same item yields the same asset key and same fidelity."""
 
     item = next(i for i in ITEMS if i["id"] == "custom_fonts")
-    _, first = _compile_one(extractor, renderer, item)
-    _, second = _compile_one(extractor, renderer, item)
+    _, first = _compile_one(extractor, default_renderer, item)
+    _, second = _compile_one(extractor, default_renderer, item)
 
     assert [r.asset_ref for r in first.results] == [r.asset_ref for r in second.results]
     assert [r.fidelity for r in first.results] == [r.fidelity for r in second.results]

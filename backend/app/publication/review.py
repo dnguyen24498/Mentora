@@ -43,15 +43,32 @@ STATE_BLOCKED = "BLOCKED"
 
 MISSING_FONT_PREFIX = "MISSING_FONT:"
 
-#: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. This
-#: structural renderer reproduces the slide's own geometry, colours, fonts, and
-#: images out of the Content IR, but it is not a native PowerPoint raster, so the
-#: UI must say so rather than implying pixel-identical output.
+#: Renderer identity whose output is a *re-authoring* (V0-019) rather than a
+#: reproduction of the source slide.
+THEMED_RENDERER_ID = "mentora-themed-svg"
+
+#: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. The
+#: **default** mode (V0-019) re-authors the content in the platform theme, so the
+#: UI must say plainly that the appearance is the platform's, not the author's.
+THEMED_RENDER_NOTICE = (
+    "Slides are re-authored in the Mentora theme: the extracted content (text, "
+    "images, tables) is preserved and restyled, so the appearance is the "
+    "platform's, not the source deck's. No native PowerPoint render is produced; "
+    "a production renderer technology is still an open decision (DEC-TECH-005)."
+)
+
+#: ``RENDER_PLACEHOLDER_NOTICE`` (V0-018) describes the ``faithful`` mode.
 RENDER_PLACEHOLDER_NOTICE = (
     "Structural SVG render reproduced from the slide's own styling — not a "
     "native PowerPoint render. A production renderer technology is still an "
     "open decision (DEC-TECH-005)."
 )
+
+
+def render_notice(renderer_name: Optional[str]) -> str:
+    """The honest disclosure for the renderer that produced the package."""
+
+    return THEMED_RENDER_NOTICE if renderer_name == THEMED_RENDERER_ID else RENDER_PLACEHOLDER_NOTICE
 
 
 @dataclass(frozen=True)
@@ -258,6 +275,8 @@ class ReviewService:
         else:
             state = STATE_READY
 
+        renderer = self._renderer_identity(scenes)
+
         return ReviewPackage(
             artifact_id=artifact_id,
             package_id=str(manifest.get("package_id", "")),
@@ -274,8 +293,8 @@ class ReviewService:
             requires_review=requires_review,
             scene_count=len(scenes),
             file_count=len(manifest.get("files") or []),
-            renderer=self._renderer_identity(scenes),
-            placeholder_notice=RENDER_PLACEHOLDER_NOTICE,
+            renderer=renderer,
+            placeholder_notice=render_notice(renderer.get("name") if renderer else None),
             lesson_order=self._project_lesson_order(plan, by_scene),
             scenes=tuple(scenes),
         )
@@ -362,8 +381,11 @@ __all__ = [
     "STATE_BLOCKED",
     "STATE_READY",
     "STATE_REVIEW_REQUIRED",
+    "THEMED_RENDERER_ID",
+    "THEMED_RENDER_NOTICE",
     "ReviewPackage",
     "ReviewScene",
     "ReviewSection",
     "ReviewService",
+    "render_notice",
 ]

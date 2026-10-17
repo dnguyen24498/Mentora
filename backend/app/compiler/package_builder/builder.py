@@ -70,18 +70,23 @@ class PackageBuildError(AppError):
 
 
 def content_package_version(
-    source_sha256: str, *, config_hash: str, compiler_version: str = EXTRACTOR_VERSION
+    source_sha256: str,
+    *,
+    config_hash: str,
+    renderer: str = "",
+    compiler_version: str = EXTRACTOR_VERSION,
 ) -> str:
     """Deterministic content-package version.
 
     ``docs/architecture/04_CONTENT_COMPILER.md``: *"Deterministic cache key uses
-    source checksum, compiler version, and config hash."* The same triple always
-    yields the same version string, so rebuilding unchanged content is
-    recognisably identical (and a rebuild with a different renderer config is
-    recognisably different).
+    source checksum, compiler version, and config hash."* The **renderer identity**
+    is part of that key too (V0-019): two renderers can share one ``RenderConfig``
+    (and therefore one config hash) while producing different slides, so binding
+    only the config would let a themed package collide with a faithful one. The
+    same tuple always yields the same version string.
     """
 
-    key = f"{source_sha256}:{compiler_version}:{config_hash}"
+    key = f"{source_sha256}:{compiler_version}:{config_hash}:{renderer}"
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return f"cpv-{digest[:16]}"
 

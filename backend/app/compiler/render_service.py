@@ -14,13 +14,14 @@ written.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Mapping, Optional
 
 from app.common.errors import RendererUnavailableError
 from app.compiler.media import document_media_refs, read_media_parts
 from app.compiler.models.ir import ContentIRDocument, SlideScene
 from app.compiler.renderers.base import (
     CancelToken,
+    DocumentRenderer,
     RenderBudget,
     RenderConfig,
     RenderErrorCode,
@@ -30,6 +31,7 @@ from app.compiler.renderers.base import (
     RendererError,
     SceneRender,
 )
+from app.compiler.renderers.factory import DEFAULT_RENDER_MODE, UnknownRenderModeError
 from app.compiler.renderers.telemetry import RenderTelemetry
 from app.compiler.validators.fidelity import ValidationReport, validate_render
 from app.courses.models import CompilerJobStatus
@@ -97,6 +99,8 @@ class RenderingService:
         extractor: object,
         renderer: object,
         *,
+        renderers: Optional[Mapping[str, DocumentRenderer]] = None,
+        default_mode: str = DEFAULT_RENDER_MODE,
         config: Optional[RenderConfig] = None,
         telemetry: Optional[RenderTelemetry] = None,
     ) -> None:
@@ -104,12 +108,39 @@ class RenderingService:
         self._object_store = object_store
         self._extractor = extractor
         self._renderer = renderer
+        self._renderers: dict[str, DocumentRenderer] = dict(
+            renderers or {default_mode: renderer}
+        )
+        self._default_mode = default_mode
         self._config = config or getattr(renderer, "config", None) or RenderConfig()
         self.telemetry = telemetry or RenderTelemetry()
 
     @property
     def renderer(self):
+        """The default renderer; kept for callers that need one identity."""
+
         return self._renderer
+
+    @property
+    def default_mode(self) -> str:
+        return self._default_mode
+
+    @property
+    def modes(self) -> tuple[str, ...]:
+        return tuple(self._renderers)
+
+    def renderer_for(self, mode: Optional[str] = None) -> DocumentRenderer:
+        """The renderer for ``mode`` (the default when omitted).
+
+        An unknown mode is a client error, not a fallback: silently rendering a
+        different appearance than the caller asked for would be misleading.
+        """
+
+        resolved = mode or self._default_mode
+        try:
+            return self._renderers[resolved]
+        except KeyError:
+            raise UnknownRenderModeError(resolved) from None
 
     def compile(
         self,
@@ -117,8 +148,11 @@ class RenderingService:
         artifact_id: str,
         *,
         cancel: Optional[CancelToken] = None,
+        mode: Optional[str] = None,
     ) -> CompileResult:
         """Extract, render every slide, and validate. Tenant-scoped throughout."""
+
+        renderer = self.renderer_for(mode)
 
         # Tenant-scoped read: raises for another institution's artifact.
         artifact = self._repository.get_artifact(institution_id, artifact_id)
@@ -134,11 +168,11 @@ class RenderingService:
             source_sha256=artifact.sha256,
         )
 
-        identity = self._renderer.identity()
+        identity = renderer.identity()
         self.telemetry.record_render_started(
             artifact_id=artifact_id,
             scene_count=document.slide_count,
-            renderer=identity.to_dict(),
+            renderer={**identity.to_dict(), "mode": mode or self._default_mode},
         )
 
         # Pictures travel with the request: the compiler (which already holds the
@@ -151,7 +185,7 @@ class RenderingService:
             max_attempts=self._config.max_attempts,
         )
         try:
-            report = self._renderer.render(
+            report = renderer.render(
                 RenderRequest(
                     document=document,
                     identity=identity,
@@ -193,7 +227,7 @@ class RenderingService:
         return CompileResult(document=rendered, report=report, validation=validation)
 
     def render_scene_svg(
-        self, institution_id: str, artifact_id: str, order: int
+        self, institution_id: str, artifact_id: str, order: int, *, mode: Optional[str] = None
     ) -> tuple[bytes, SceneRender]:
         """Deterministic per-slide visual, re-derived from the stored artifact.
 
@@ -201,7 +235,7 @@ class RenderingService:
         stateless; content-addressed assets make the repeat write a no-op.
         """
 
-        result = self.compile(institution_id, artifact_id)
+        result = self.compile(institution_id, artifact_id, mode=mode)
         scene = result.report.scene(order)
         if scene is None or scene.asset_ref is None:
             raise RendererUnavailableError(

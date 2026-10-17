@@ -38,14 +38,20 @@ paths:
         Deterministic compile stage (V0-005): structural extraction, a fallback
         render for every slide with explicit fidelity, and the fidelity
         publication gate. Idempotent and re-runnable; renders are
-        content-addressed.
-      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+        content-addressed. V0-019: `mode=themed` (default) re-authors the
+        extracted content in the platform theme; `mode=faithful` reproduces the
+        source slide's own styling. Neither claims a native PowerPoint render.
+      parameters:
+        - {in: path, name: artifactId, required: true, schema: {type: string}}
+        - $ref: '#/components/parameters/RenderMode'
       responses:
         '200':
           description: Rendered Content IR plus render and validation reports
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CompileResult'}
+        '400':
+          description: 'Unknown render mode (stable code INVALID_REQUEST, issue_code UNKNOWN_RENDER_MODE)'
         '503':
           description: 'Renderer capability unavailable (stable code RENDERER_UNAVAILABLE)'
   /artifacts/{artifactId}/renders/{order}:
@@ -54,15 +60,19 @@ paths:
       description: >-
         Deterministic fallback visual for one slide (SVG), re-derived from the
         stored artifact. Tenant-scoped; never serves another tenant's render.
+        `mode` selects the render mode (V0-019, default `themed`).
       parameters:
         - {in: path, name: artifactId, required: true, schema: {type: string}}
         - {in: path, name: order, required: true, schema: {type: integer, minimum: 0}}
+        - $ref: '#/components/parameters/RenderMode'
       responses:
         '200':
           description: Rendered slide
           content:
             image/svg+xml:
               schema: {type: string}
+        '400':
+          description: 'Unknown render mode (stable code INVALID_REQUEST, issue_code UNKNOWN_RENDER_MODE)'
         '503':
           description: 'Scene has no render (stable code RENDERER_UNAVAILABLE)'
   /artifacts/{artifactId}/review-package:
@@ -71,7 +81,8 @@ paths:
       description: >-
         Teacher review preview (V0-007). Builds the Baseline Content Package for
         the artifact (V0-006, idempotent: source checksum + compiler version +
-        renderer config hash determine the package identity) and returns the
+        renderer identity + renderer config hash determine the package identity)
+        and returns the
         read-only review view of it: per-slide render reference, extracted text,
         speaker notes, warnings/fidelity, and the fallback lesson order with its
         safe markers. A package is only built when the V0-005 fidelity gate
@@ -252,7 +263,31 @@ paths:
       operationId: issueBootstrapToken
       parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
       responses: {'200': {description: Short-lived token}}
+  /renderer:
+    get:
+      operationId: getRendererStatus
+      description: >-
+        Renderer capability, identity, health, and the active theme (V0-005,
+        V0-019). Reports the default render mode and every available mode; the
+        `mode` query parameter inspects a specific one.
+      parameters: [$ref: '#/components/parameters/RenderMode']
+      responses:
+        '200':
+          description: Capability report, circuit-breaker state, and mode list
+        '400':
+          description: 'Unknown render mode (stable code INVALID_REQUEST, issue_code UNKNOWN_RENDER_MODE)'
 components:
+  parameters:
+    RenderMode:
+      in: query
+      name: mode
+      required: false
+      description: >-
+        Render mode (V0-019). `themed` (default) re-authors the extracted content
+        in the platform theme; `faithful` reproduces the source slide's own
+        styling. An unknown value is rejected with INVALID_REQUEST
+        (issue_code UNKNOWN_RENDER_MODE).
+      schema: {type: string, enum: [themed, faithful]}
   schemas:
     Artifact:
       description: Stored source presentation metadata (one immutable upload).
@@ -303,7 +338,7 @@ components:
         status: {type: string, enum: [RENDERED, FAILED, CANCELLED]}
         fidelity:
           type: [string, 'null']
-          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, DEGRADED_RENDERED, null]
+          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, THEMED_RENDERED, DEGRADED_RENDERED, null]
         asset_ref: {type: [string, 'null'], description: Content-addressed fallback asset key}
         asset_bytes: {type: integer}
         renderer: {oneOf: [{$ref: '#/components/schemas/RendererIdentity'}, {type: 'null'}]}
@@ -375,7 +410,7 @@ components:
         scene_id: {type: string}
         fidelity:
           type: [string, 'null']
-          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, DEGRADED_RENDERED, null]
+          enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, THEMED_RENDERED, DEGRADED_RENDERED, null]
         render_status: {type: string, enum: [RENDERED, FAILED]}
         fallback_asset: {type: [string, 'null'], description: 'Path of the render inside the package'}
         render_url: {type: string, description: 'Endpoint serving this slide, tenant-scoped'}

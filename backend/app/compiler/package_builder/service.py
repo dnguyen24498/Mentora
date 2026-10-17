@@ -121,9 +121,11 @@ class PackageBuildService:
         version = self._repository.get_version(institution_id, artifact.version_id)
 
         identity = compiled.report.renderer or self._rendering.renderer.identity()
+        renderer_identity = f"{identity.name}@{identity.version}"
         content_version = content_package_version(
             artifact.sha256,
             config_hash=identity.config_hash,
+            renderer=renderer_identity,
             compiler_version=EXTRACTOR_VERSION,
         )
         metadata = PackageMetadata(
@@ -190,9 +192,11 @@ class PackageBuildService:
         """
 
         artifact = self._repository.get_artifact(institution_id, artifact_id)
+        renderer = self._rendering.renderer.identity()
         content_version = content_package_version(
             artifact.sha256,
-            config_hash=self._rendering.renderer.identity().config_hash,
+            config_hash=renderer.config_hash,
+            renderer=f"{renderer.name}@{renderer.version}",
             compiler_version=EXTRACTOR_VERSION,
         )
         return package_prefix(package_id_for(content_version))
