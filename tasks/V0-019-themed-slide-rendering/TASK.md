@@ -275,7 +275,7 @@ stays `OPEN` — this task accepts no renderer technology.
 
 ## Completion Evidence
 
-**Commit:** this revision (v5). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
+**Commit:** `02ca28f` (v5). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
 `ae68632` (v3), `f528425` (v4).
 
 ### v5 — the default (source layout + platform fallback)
