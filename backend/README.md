@@ -125,7 +125,8 @@ break the browser). For normal development the frontend runs on its own server a
     **source slide's own layout and styling** (V0-018) and reports
     `STRUCTURAL_RENDERED`: the effective theme colours and font scheme, backgrounds
     (including a layout's **picture** background — resolved against the layout's own
-    relationships), preset + `custGeom` shapes, fills/strokes/dashes, rotation/flip, real font sizes
+    relationships), the art the slide **inherits** from its layout/master (V0-019 v7),
+    preset + `custGeom` shapes, fills/strokes/dashes, rotation/flip, real font sizes
     with wrap/alignment/bullets, embedded pictures with crop, tables and connectors.
     A component it cannot reproduce is **drawn in the platform look, in place**
     (`renderers/mentora_theme.py`), never dropped and never a review blocker:
@@ -196,6 +197,21 @@ break the browser). For normal development the frontend runs on its own server a
     relationships; an unresolvable picture fails through to the next background up
     with a warning instead of blanking the slide. Missing that turns a dark closing
     slide into white-on-white.
+  - **A slide also draws what its layout and master contribute** (V0-019 v7).
+    Decks keep their shared chrome — the crest, the faculty badge, a rule, a static
+    label — on the **layout**, not on every slide, and PowerPoint paints it *under*
+    the slide's own objects. Extraction collects the **non-placeholder** art of the
+    master and the layout (`inherited_objects`, each part resolved against its own
+    relationships, `showMasterSp` honoured on the slide and on the layout) and the
+    renderer paints it master-first, layout-second, the slide's own objects last. A
+    layout/master placeholder is not art — it is a definition the slide's own
+    placeholder replaces — and inherited objects are not slide content: they never
+    join `objects`, the slide's text, its reading order or its `object_count`.
+    Without this the reference deck's 26 slides lose the top-right logo pair they
+    carry only in the layout. Because the parts are the author's, a high-resolution
+    logo is inlined at its source resolution on every slide that inherits it
+    (reference deck: ~500 KB per slide) — the per-scene budget is what bounds it,
+    and the opt-in `themed` mode does not carry the chrome at all.
   - The IR must stay self-sufficient: a renderer that opened the `.pptx` would
     break `DEC-CONTENT-001`, so image bytes travel separately in
     `RenderRequest.media`, keyed by the IR's `media_ref`.
@@ -230,7 +246,9 @@ break the browser). For normal development the frontend runs on its own server a
     exactly as PowerPoint shows it.
   - The renderer identity is bumped to `3.0.0` and the IR schema to
     `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
-    reused after this change.
+    reused after this change. (V0-019 v7 draws inherited layout/master art, so the
+    identity moves on to `local-structural-svg@3.1.0` and the extractor to `1.4.0`,
+    which retires packages built before it.)
 - **Themed slide rendering (V0-019 v4, opt-in since v5).** `ThemedSvgRenderer`
   re-authors the *look* of each slide while keeping the *grouping* and every word,
   cell and picture the author put on it. It shares only the

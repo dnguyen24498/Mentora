@@ -584,6 +584,13 @@
         }
       }
     },
+    "inherited_objects": {
+      "description": "Art the slide *inherits* from its layout and master (V0-019 v7): the deck's shared chrome (logos, rules, static labels), painted **under** `objects` in master-then-layout order. The same item shape as `objects`, but not the slide's own content: it carries no reading order of its own and is never part of the slide's text or object count. Placeholders are not inherited — a layout/master placeholder is a definition the slide's own placeholder replaces. Omitted when the chain contributes no art.",
+      "type": "array",
+      "items": {
+        "$ref": "#/properties/objects/items"
+      }
+    },
     "steps": {
       "type": "array",
       "items": {

@@ -96,7 +96,7 @@ def media_refs(document: Mapping) -> list[str]:
 
     refs: list[str] = []
     for slide in document.get("slides") or []:
-        for obj in slide.get("objects") or []:
+        for obj in [*(slide.get("objects") or []), *(slide.get("inherited_objects") or [])]:
             ref = obj.get("media_ref")
             if ref and media_type_for_part(ref):
                 refs.append(ref)
@@ -106,8 +106,10 @@ def media_refs(document: Mapping) -> list[str]:
 def document_media_refs(document) -> list[str]:
     """Every image part the render stage needs bytes for, from a Content IR.
 
-    Covers pictures, picture *fills* (``a:blipFill`` on a shape) and a picture
-    slide background, and only parts this build can actually inline.
+    Covers pictures, picture *fills* (``a:blipFill`` on a shape), a picture
+    slide background, and the pictures inherited from the layout/master (V0-019
+    v7: the deck's shared chrome is drawn too), and only parts this build can
+    actually inline.
     """
 
     refs: list[str] = []
@@ -122,7 +124,11 @@ def document_media_refs(document) -> list[str]:
 
     for scene in getattr(document, "slides", ()) or ():
         add_fill(getattr(scene, "background", None))
-        for obj in getattr(scene, "objects", ()) or ():
+        objects = [
+            *(getattr(scene, "inherited_objects", ()) or ()),
+            *(getattr(scene, "objects", ()) or ()),
+        ]
+        for obj in objects:
             add(getattr(obj, "media_ref", None))
             add_fill(getattr(obj, "fill", None))
     return refs

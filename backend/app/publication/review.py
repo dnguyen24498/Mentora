@@ -68,8 +68,10 @@ THEMED_RENDER_NOTICE = (
     "Slides are re-laid out by the platform in the Mentora theme (its layout, "
     "typeface, palette and page number): the deck's grouping and content are the "
     "author's, the arrangement within each group and the appearance are the "
-    "platform's. No native PowerPoint render is produced; a production renderer "
-    "technology is still an open decision (DEC-TECH-005)."
+    "platform's, so the deck's own layout/master décor (logos, rules) is part of "
+    "the appearance and is not carried over. No native PowerPoint render is "
+    "produced; a production renderer technology is still an open decision "
+    "(DEC-TECH-005)."
 )
 
 

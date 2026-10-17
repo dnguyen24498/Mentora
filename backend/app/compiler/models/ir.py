@@ -46,10 +46,12 @@ EXTRACTOR_NAME = "stdlib-ooxml-pptx"
 #: Bumped whenever extraction *behaviour* changes (the IR shape can stay put).
 #: 1.2.0 resolved the theme/layout/master styling chain (V0-018); 1.3.0 resolves a
 #: picture (``a:blipFill``) slide background against the relationships of the part
-#: that declares it — the layout's art-directed backgrounds (V0-019 v5). The value
-#: is also the package cache key's ``compiler_version``, so a bump retires packages
-#: built by an older extractor.
-EXTRACTOR_VERSION = "1.3.0"
+#: that declares it — the layout's art-directed backgrounds (V0-019 v6); 1.4.0
+#: extracts the *non-placeholder* art a slide inherits from its layout and master
+#: (V0-019 v7), each part walked with its own identity and ``showMasterSp`` honoured.
+#: The value is also the package cache key's ``compiler_version``, so a bump retires
+#: packages built by an older extractor.
+EXTRACTOR_VERSION = "1.4.0"
 
 #: Fidelity classification from ``contracts/ctf/scene.schema.json``.
 #: ``docs/architecture/04_CONTENT_COMPILER.md`` additionally has a *failed*
@@ -331,6 +333,12 @@ class SlideScene:
     renderer: Optional[dict[str, Any]] = None
     #: Slide background (``Fill``); ``None`` means "renderer default".
     background: Optional[dict[str, Any]] = None
+    #: Art the slide *inherits* from its layout and master (V0-019 v7): the deck's
+    #: shared chrome, painted **beneath** ``objects`` and outside the slide's own
+    #: reading order and text. Empty when the chain contributes none. Placeholders
+    #: are not inherited — a layout/master placeholder is a definition the slide's
+    #: own placeholder replaces, and PowerPoint does not render the empty ones.
+    inherited_objects: list[ShapeObject] = field(default_factory=list)
 
     def fonts(self) -> list[str]:
         """Distinct typefaces used anywhere on the slide (sorted)."""
@@ -358,6 +366,8 @@ class SlideScene:
             data["background"] = self.background
         if self.renderer is not None:
             data["renderer"] = self.renderer
+        if self.inherited_objects:
+            data["inherited_objects"] = [o.to_dict() for o in self.inherited_objects]
         return data
 
 

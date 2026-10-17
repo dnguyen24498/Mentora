@@ -71,7 +71,7 @@ export function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPacka
     file_count: 5,
     renderer: {
       name: 'local-structural-svg',
-      version: '3.0.0',
+      version: '3.1.0',
       engine: 'stdlib-svg',
       config_hash: 'hash',
       data_region: 'local',

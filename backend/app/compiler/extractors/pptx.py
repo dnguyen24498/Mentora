@@ -155,6 +155,21 @@ def _effective_fonts(
     return sorted(found)
 
 
+def _inherited_shapes_visible(root: Optional[ET.Element]) -> bool:
+    """``showMasterSp``: PowerPoint's switch for inherited layout/master shapes.
+
+    It is set on ``p:sld`` (hide the layout's *and* the master's shapes on this
+    slide) and on ``p:sldLayout`` (hide the master's shapes on the slides using
+    that layout). Absent means shown — the schema default — so only an explicit
+    falsy value hides them.
+    """
+
+    if root is None:
+        return True
+    value = root.get("showMasterSp")
+    return value is None or value.strip().lower() not in ("0", "false", "off")
+
+
 @dataclass(frozen=True)
 class DeckContext:
     """The layout/master/theme chain one slide inherits from."""
@@ -165,6 +180,13 @@ class DeckContext:
     master_placeholders: list[PlaceholderDef] = field(default_factory=list)
     background: Optional[dict] = None
     warnings: tuple[str, ...] = ()
+    #: The chain's parts, so inherited art can resolve *its own* relationships
+    #: (a layout's picture belongs to the layout, not to the slide) — V0-019 v7.
+    layout_part: Optional[str] = None
+    master_part: Optional[str] = None
+    #: ``p:sldLayout/@showMasterSp="0"``: this layout hides the *master's* shapes
+    #: on the slides that use it. The layout's own shapes are still shown.
+    master_art_hidden: bool = False
 
     def placeholder(
         self, placeholder: Optional[str], idx: Optional[str]
@@ -472,6 +494,9 @@ class PptxExtractor:
             layout_placeholders=layout_placeholders,
             master_placeholders=master_placeholders,
             background=background,
+            layout_part=layout_part,
+            master_part=master_part,
+            master_art_hidden=not _inherited_shapes_visible(layout_root),
         )
 
     def _background_fill(
@@ -557,6 +582,15 @@ class PptxExtractor:
         # Reading order is the flattened walk order; make it explicit so
         # downstream stages do not have to infer it from list position.
         objects = [replace(obj, reading_order=index) for index, obj in enumerate(objects)]
+        # V0-019 v7: the deck's shared chrome. Only the slide's ``showMasterSp``
+        # switch (``p:sld``) can hide it; the layout's own switch is folded into
+        # the context (it hides the master's shapes, not the layout's).
+        inherited: list[ShapeObject] = []
+        if _inherited_shapes_visible(slide):
+            inherited = self._inherited_art(context, warnings)
+            inherited = [
+                replace(obj, reading_order=index) for index, obj in enumerate(inherited)
+            ]
         notes = self._extract_notes(archive, part, warnings)
         provenance = {
             "extractor": EXTRACTOR_NAME,
@@ -576,7 +610,37 @@ class PptxExtractor:
             warnings=warnings,
             provenance=provenance,
             background=background,
+            inherited_objects=inherited,
         )
+
+    def _inherited_art(self, context: DeckContext, warnings: list[str]) -> list[ShapeObject]:
+        """Layout and master art: the deck's shared chrome, under the slide's content.
+
+        PowerPoint paints the master's shapes, then the layout's, then the slide's,
+        and only **non-placeholder** objects are inherited: a layout/master
+        placeholder is a definition the slide's own placeholder replaces, and the
+        empty ones are not rendered. Each part is walked with *its own* identity so
+        a layout's pictures resolve against the layout's relationships — the same
+        rule as a picture slide background (V0-019 v6).
+        """
+
+        art: list[ShapeObject] = []
+        for inherited_part, hidden in (
+            (context.master_part, context.master_art_hidden),
+            (context.layout_part, False),
+        ):
+            if not inherited_part or hidden:
+                continue
+            root = self._read_xml_optional(inherited_part)
+            tree = _child(_child(root, P, "cSld"), P, "spTree")
+            if tree is None:
+                continue
+            art.extend(
+                obj
+                for obj in self._walk(tree, inherited_part, warnings, context, Transform(), 0)
+                if obj.placeholder is None
+            )
+        return art
 
     def _media_resolver(
         self, part: str, warnings: list[str]

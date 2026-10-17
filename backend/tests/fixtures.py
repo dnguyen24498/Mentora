@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import io
+import struct
 import zipfile
+import zlib
 from xml.sax.saxutils import escape
 
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -403,13 +405,14 @@ def slide_layout_xml() -> str:
     )
 
 
-def themed_slide_xml(shapes: list[str], *, background: str = "") -> str:
+def themed_slide_xml(shapes: list[str], *, background: str = "", attrs: str = "") -> str:
     header = (
         '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
     )
+    attributes = f" {attrs}" if attrs else ""
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f"<p:sld {_NSDECL}><p:cSld>{background}<p:spTree>{header}"
+        f"<p:sld {_NSDECL}{attributes}><p:cSld>{background}<p:spTree>{header}"
         f"{''.join(shapes)}</p:spTree></p:cSld></p:sld>"
     )
 
@@ -421,6 +424,7 @@ def themed_pptx(
     image: bytes | None = None,
     display_slide: list[str] | None = None,
     master_xml: str | None = None,
+    slide_attrs: str = "",
     **kwargs,
 ) -> bytes:
     """Assemble a deck that inherits from a theme, master, and layout.
@@ -443,7 +447,9 @@ def themed_pptx(
             [("rId1", REL_SLIDE_MASTER, "../slideMasters/slideMaster1.xml")]
         ).encode(),
         "ppt/slides/slide1.xml": themed_slide_xml(
-            display_slide if display_slide is not None else shapes, background=background
+            display_slide if display_slide is not None else shapes,
+            background=background,
+            attrs=slide_attrs,
         ).encode(),
     }
     if image is not None:
@@ -457,4 +463,97 @@ def themed_pptx(
         extra_slide_rels={1: slide_rels},
         extra_entries={**entries, **extra_entries},
         **kwargs,
+    )
+
+
+def tiny_png(rgb: tuple[int, int, int] = (255, 0, 0)) -> bytes:
+    """A real 1x1 PNG of one colour, built with the stdlib.
+
+    Different colours give byte-different assets, so a test can tell *which* part
+    was inlined where (a layout's picture from the master's, say).
+    """
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(b"\x00" + bytes(rgb)))
+        + chunk(b"IEND", b"")
+    )
+
+
+#: The two art parts the ``inherited_art_pptx`` deck keeps on its master/layout.
+MASTER_ART_PART = "ppt/media/master-art.png"
+LAYOUT_ART_PART = "ppt/media/layout-art.png"
+
+
+def _art_picture(shape_id: int, name: str, rel_id: str, *, x: int = 0, y: int = 0) -> str:
+    return (
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{shape_id}" name="{name}"/>'
+        f"<p:cNvPicPr/><p:nvPr/></p:nvPicPr>"
+        f'<p:blipFill><a:blip r:embed="{rel_id}"/></p:blipFill>'
+        f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="914400" cy="914400"/></a:xfrm>'
+        "</p:spPr></p:pic>"
+    )
+
+
+def inherited_art_pptx(*, slide_attrs: str = "", layout_attrs: str = "") -> bytes:
+    """A deck whose *master and layout* carry non-placeholder art (V0-019 v7).
+
+    The master holds a picture (the "crest"), the layout a picture (the "badge")
+    and a plain shape (a rule), plus its title/body placeholders. The layout's
+    placeholders are definitions, not art: `shapes` is only the slide's own text.
+    """
+
+    master = slide_master_xml().replace(
+        "</p:spTree>", _art_picture(90, "Crest", "rIdCrest") + "</p:spTree>", 1
+    )
+    layout = slide_layout_xml().replace(
+        "</p:spTree>",
+        _art_picture(91, "Badge", "rIdBadge")
+        + shape_xml(
+            92,
+            "Layout rule",
+            sp_pr=(
+                '<a:xfrm><a:off x="457200" y="457200"/>'
+                '<a:ext cx="1828800" cy="45720"/></a:xfrm>'
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+                '<a:solidFill><a:schemeClr val="accent2"/></a:solidFill>'
+            ),
+        )
+        + "</p:spTree>",
+        1,
+    )
+    if layout_attrs:
+        layout = layout.replace('type="title"', f'type="title" {layout_attrs}', 1)
+    entries: dict[str, bytes] = {
+        "ppt/slideLayouts/slideLayout1.xml": layout.encode(),
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels": _rels_xml(
+            [
+                ("rId1", REL_SLIDE_MASTER, "../slideMasters/slideMaster1.xml"),
+                ("rIdBadge", REL_IMAGE, "../media/layout-art.png"),
+            ]
+        ).encode(),
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels": _rels_xml(
+            [
+                ("rId1", REL_THEME, "../theme/theme1.xml"),
+                ("rIdCrest", REL_IMAGE, "../media/master-art.png"),
+            ]
+        ).encode(),
+        MASTER_ART_PART: tiny_png((255, 0, 0)),
+        LAYOUT_ART_PART: tiny_png((0, 0, 255)),
+    }
+    return themed_pptx(
+        [text_shape(2, "Title", text="Hello")],
+        master_xml=master,
+        slide_attrs=slide_attrs,
+        extra_entries=entries,
     )

@@ -40,7 +40,7 @@ from app.compiler.validators.package import (
     assert_package_ok,
     validate_package,
 )
-from tests.fixtures import build_pptx, picture_shape, text_shape
+from tests.fixtures import build_pptx, inherited_art_pptx, picture_shape, text_shape
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CTF_CONTRACTS = REPO_ROOT / "contracts" / "ctf"
@@ -74,8 +74,19 @@ def _type_ok(value, expected: str) -> bool:
 _DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
-def _validate(schema: dict, instance, path: str = "$") -> list[str]:
-    """Evaluate the keywords used by ``contracts/ctf/*.schema.json``."""
+def _validate(schema: dict, instance, path: str = "$", root: dict | None = None) -> list[str]:
+    """Evaluate the keywords used by ``contracts/ctf/*.schema.json``.
+
+    Local ``$ref``s (``#/properties/...``) are resolved against ``root``, so a
+    shared shape can be referenced instead of copied.
+    """
+
+    root = schema if root is None else root
+    if "$ref" in schema:
+        target = root
+        for step in schema["$ref"].lstrip("#/").split("/"):
+            target = target[step]
+        return _validate(target, instance, path, root)
 
     errors: list[str] = []
     expected = schema.get("type")
@@ -106,7 +117,7 @@ def _validate(schema: dict, instance, path: str = "$") -> list[str]:
         properties = schema.get("properties", {})
         for name, value in instance.items():
             if name in properties:
-                errors.extend(_validate(properties[name], value, f"{path}.{name}"))
+                errors.extend(_validate(properties[name], value, f"{path}.{name}", root))
             elif schema.get("additionalProperties") is False:
                 errors.append(f"{path}: unexpected property {name!r}")
     if isinstance(instance, list):
@@ -114,7 +125,7 @@ def _validate(schema: dict, instance, path: str = "$") -> list[str]:
             errors.append(f"{path}: fewer than {schema['minItems']} items")
         if "items" in schema:
             for index, item in enumerate(instance):
-                errors.extend(_validate(schema["items"], item, f"{path}[{index}]"))
+                errors.extend(_validate(schema["items"], item, f"{path}[{index}]", root))
     return errors
 
 
@@ -384,6 +395,35 @@ def test_multiple_scenes_keep_deck_order(rendered_from_pptx, metadata, object_st
     ]
     scene_paths = [p for p in built.paths() if p.startswith("scenes/")]
     assert scene_paths == ["scenes/000-ppt-slides-slide1-xml.json", "scenes/001-ppt-slides-slide2-xml.json"]
+
+
+# -- inherited art in the package contract (V0-019 v7) -----------------------------
+def test_scene_document_carries_inherited_art(rendered_from_pptx, metadata, object_store):
+    """The package must describe the chrome it drew, and still match its schema."""
+
+    built = build_from(rendered_from_pptx(inherited_art_pptx()), metadata, object_store)
+    document = parse(built, SCENE_PATH)
+
+    assert [obj["name"] for obj in document["inherited_objects"]] == [
+        "Crest",
+        "Badge",
+        "Layout rule",
+    ]
+    assert_matches_schema("scene.schema.json", document)
+
+
+def test_scene_schema_enforces_the_inherited_item_shape(
+    rendered_from_pptx, metadata, object_store
+):
+    """``inherited_objects`` items are the ``objects`` shape, not anything goes."""
+
+    built = build_from(rendered_from_pptx(inherited_art_pptx()), metadata, object_store)
+    document = parse(built, SCENE_PATH)
+    del document["inherited_objects"][0]["kind"]
+
+    errors = _validate(load_schema("scene.schema.json"), document)
+
+    assert any("inherited_objects[0]" in error for error in errors)
 
 
 # -- no Teaching Graph, no index ---------------------------------------------------

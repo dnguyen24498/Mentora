@@ -16,7 +16,7 @@
 
 ---
 
-Scene includes stable ID/source, normalized dimensions/bounds, fallback render, structured objects, notes, refs, fidelity, warnings, provenance, and steps. Stable object identity changes referenced by lessons require review.
+Scene includes stable ID/source, normalized dimensions/bounds, fallback render, structured objects, notes, refs, fidelity, warnings, provenance, and steps. Stable object identity changes referenced by lessons require review. A scene also carries the art it **inherits** from its layout and master (`inherited_objects`, V0-019 v7): the deck's shared chrome, painted beneath its own objects and outside its reading order, text and object count.
 
 ## Fidelity classification
 

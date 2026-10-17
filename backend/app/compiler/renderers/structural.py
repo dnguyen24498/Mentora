@@ -266,7 +266,7 @@ class StructuralSvgRenderer(DocumentRenderer):
     """Draws a slide from the IR's resolved styling, as one SVG per slide."""
 
     renderer_id = "local-structural-svg"
-    renderer_version = "3.0.0"
+    renderer_version = "3.1.0"
     engine = "stdlib-svg"
     fidelity_ceiling = FIDELITY_STRUCTURAL
 
@@ -396,6 +396,11 @@ class StructuralSvgRenderer(DocumentRenderer):
         background = scene.background
         if background and background.get("type") not in (None, "none"):
             body.append(self._background(canvas, background))
+        # V0-019 v7: the deck's shared chrome (layout/master art) paints under the
+        # slide's own objects — PowerPoint's paint order, and why an inherited
+        # picture can sit behind a slide shape.
+        for obj in scene.inherited_objects:
+            body.append(self._object(canvas, obj))
         for obj in sorted(scene.objects, key=lambda o: o.reading_order):
             body.append(self._object(canvas, obj))
         defs = "".join(canvas.defs)

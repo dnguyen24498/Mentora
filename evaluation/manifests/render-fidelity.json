@@ -3,7 +3,7 @@
   "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-019 v5 for the default render mode. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py against the DEFAULT renderer: 'local-structural-svg' reproduces each slide's own layout and styling, and draws anything it cannot reproduce (an unavailable source font, a chart/SmartArt, an un-inlinable picture) in the platform look IN PLACE, recording a warning rather than degrading the scene — so a deck whose fonts are not installed is still publishable. Native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here; the opt-in 'themed' re-layout mode's outcomes are asserted by test_publication_review.py and test_themed_renderer.py.",
   "engine": {
     "renderer_id": "local-structural-svg",
-    "renderer_version": "3.0.0",
+    "renderer_version": "3.1.0",
     "fidelity_ceiling": "STRUCTURAL_RENDERED",
     "data_region": "local"
   },

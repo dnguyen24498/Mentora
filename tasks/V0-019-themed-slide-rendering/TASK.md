@@ -260,7 +260,7 @@ stays `OPEN` — this task accepts no renderer technology.
   principle: **the grouping is the author's, the content is the author's, the look
   is the platform's.** Renderer identity `mentora-themed-svg@4.0.0`, theme
   `mentora-default` v4.0.0.
-- **v5 (this revision):** the product owner still did not want the re-layout. The
+- **v5 (`02ca28f`):** the product owner still did not want the re-layout. The
   **default flips back to the source layout** and gains a per-component platform
   fallback: the default mode is `faithful` (`StructuralSvgRenderer`,
   `local-structural-svg@3.0.0`), which reproduces the author's layout, styling,
@@ -272,7 +272,7 @@ stays `OPEN` — this task accepts no renderer technology.
   sets `requires_review`. `themed@4.0.0` is kept as the opt-in mode; the fidelity
   validator now escalates only `DEGRADED_RENDERED` and reports a font substitution
   as a warning; `review.render_notice` and the corpus baseline were re-based.
-- **v6 (this revision):** reviewing the default render on the real deck surfaced a
+- **v6 (`72f5f06`):** reviewing the default render on the real deck surfaced a
   slide whose author-drawn decoration "did not match the deck" — a thin ring the
   author had put on the *closing* slide. The ring was not the defect: the slide's
   **background was missing**. Decks put their art-directed dark backgrounds on the
@@ -290,11 +290,68 @@ stays `OPEN` — this task accepts no renderer technology.
   older extractor. On the real deck this restores slides 1, 23 and 28 — the other
   25 SVG assets are byte-identical — and nothing about fidelity, warnings or review
   state changes.
+- **v7 (this revision):** the same review, taken one step further, showed the deck's
+  slides still did not look like the deck: **the art they inherit was never drawn**.
+  A deck keeps its shared **chrome** — the institution crest, the faculty badge, a
+  rule, a static label — on the **layout** (or the master), not on each slide, and
+  PowerPoint paints it *under* the slide's own objects. The extractor walked only
+  `p:sld`, so on the reference deck **26 of 28 slides lost the top-right logo pair
+  they carry nowhere else** (layouts 13 and 15 hold `Picture 4`/`Picture 6`:
+  `ppt/media/image2.png`, the VMU crest, and `image3.png`, the faculty badge).
+  Extraction now also walks the master's and the layout's shape trees for
+  **non-placeholder** art and carries it as `inherited_objects`, each part walked
+  with its own identity so a layout's picture resolves against the **layout's**
+  relationships (the same rule as the v6 background cascade); `showMasterSp` is
+  honoured on the slide (hides the whole inherited layer) and on the layout (hides
+  the master's shapes only). The renderer paints it **master-first, layout-second,
+  the slide's own objects last** — PowerPoint's paint order, so inherited art can
+  sit behind a slide shape. A layout/master **placeholder** is deliberately *not*
+  inherited: it is a definition the slide's own placeholder replaces, and the empty
+  ones are not rendered. Inherited art is **not slide content** — it carries no
+  reading order of its own and never joins `objects`, the slide's text, its reading
+  order or its `object_count` — so the review's text and counts are unchanged.
+  Contract: `inherited_objects` on `contracts/ctf/scene.schema.json`, sharing the
+  `objects` item shape through a `$ref` (the test-side schema evaluator now resolves
+  local `$ref`s). Extractor 1.3.0 → **1.4.0** and renderer `local-structural-svg`
+  3.0.0 → **3.1.0** (both are in the package cache key, so stale packages are not
+  reused). The opt-in `themed` mode re-authors the look, so it does not carry the
+  chrome, and its notice now says so.
 
 ## Completion Evidence
 
 **Commit:** `72f5f06` (v6). Earlier revisions: `02ca28f` (v5), `7b5e8a0` (v1),
 `d969f88` (v2), `ae68632` (v3), `f528425` (v4).
+
+### v7 — inherited layout/master art
+
+**Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **364 passed**:
++8 tests in `tests/test_inherited_art.py` (master-then-layout paint order and
+per-part media resolution; layout placeholders are not inherited; inherited art is
+not slide content; `showMasterSp="0"` on the slide hides the whole layer and on the
+layout hides only the master's art; the SVG paints crest → badge → rule → the
+slide's own text; the scene document carries `inherited_objects` and a deck without
+it does not grow the key), and +2 in `tests/test_package_builder.py` (the packaged
+scene document carries the inherited art *and* still matches
+`contracts/ctf/scene.schema.json`; the schema **rejects** an inherited item without
+`kind`, i.e. the `$ref` is enforced rather than decorative).
+
+**Real deck** (artifact `1e4c06bc-…`, tenant `university-001`, 28 slides),
+recompiled in the default mode:
+
+| | v6 | v7 |
+| --- | --- | --- |
+| renderer | `local-structural-svg@3.0.0` | **`3.1.0`** |
+| extractor | `1.3.0` | **`1.4.0`** |
+| fidelity / review | 28 × `STRUCTURAL_RENDERED`, `publishable`, no review | **unchanged** |
+| `object_count` (slide 2 / slide 28) | 22 / 6 | **unchanged** (chrome is not slide content) |
+| slides 1, 23 SVG assets | — | **byte-identical to v6** (layouts 12/14 carry no art) |
+| slides 2–27, 28 | logo pair **missing** | **+2 pictures at (1142.6, 16.4) and (1197.0, 16.4), 44.4 × 44.4** (`image2.png` crest, `image3.png` badge) |
+
+Paint order on slide 28 is `crest → badge → the slide's own picture → text`.
+The author's parts are high-resolution (77 KB and 292 KB), so every slide that
+inherits them grows by ~500 KB inlined (slide 2: 20 KB → 521 KB), bounded by the
+per-scene media budget. No SVG rasterizer exists in this environment, so the SVGs
+are reported for human inspection (`/tmp/opencode/source_v7/s01..s28.svg`).
 
 ### v6 — picture background resolution (a follow-up defect in the default render)
 
