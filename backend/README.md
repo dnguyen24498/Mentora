@@ -4,7 +4,9 @@ Python backend for the AI Teacher Platform. The V0 vertical implemented so far:
 **secure PPTX ingestion + SQLite-backed persistence + deterministic structural
 extraction + per-slide rendering that reproduces the deck's own styling, behind
 an explicit fidelity gate + a baseline Content Package + teacher review**
-(preview, approve/reject, draft lesson-order and script edits).
+(preview, approve/reject, draft lesson-order and script edits) **+ atomic
+publication + class scheduling and start with an exactly pinned runtime tuple
+and a durable initial snapshot**.
 
 ## Commands
 
@@ -50,6 +52,7 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007, `review.py`/`workflow.py`/`draft.py`) **and** the atomic publication transition (V0-008, `service.py`/`seal.py`/`index.py`/`outbox.py`): seal (checksums + digests) → index-version pin → one commit transaction → published-version retrieval. |
+| `app/classroom/` | Classes, runtime session plans and sessions (V0-009): schedule a class, start it by resolving and pinning the exact runtime tuple once (`service.py`/`repository.py`/`catalog.py`), build and validate the durable initial snapshot (`snapshot.py`), and authorize joins against the class enrollment. |
 | `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
@@ -74,6 +77,14 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /course-versions/{versionId}/publication` — the version's newest publication (`404` when unpublished). `?verify=true` re-reads the pinned package and re-checks it against the digest sealed at publish time, adding an `integrity` report (`VERIFIED`/`MISMATCH`/`MISSING`).
 - `GET /publications/{publicationId}` — one publication by identity, **including a superseded one** (a session pinned to it keeps reading it). Another institution's is `404`, not `403` (the lookup is tenant-scoped and does not leak existence). `?verify=true` as above.
 - `GET /courses/{courseId}/publications` — the course's publication history, newest first, superseded ones included (`?limit=`, default 50).
+- `POST /classes` — **V0-009**: schedule a class against a course (`course_id` required, optional `title`, `version_id`, `scheduled_for`). Created `SCHEDULED`; `version_id` must be a version *of that course* (`400 INVALID_REQUEST` otherwise). `scheduled_for` is recorded but never enforced — there is no scheduler (`DEC-TECH-003` `OPEN`), so the start is explicit.
+- `GET /classes` — the tenant's classes, newest first (`?limit=`, default 100).
+- `GET /classes/{classId}` — the class with its `session` and `session_plan` (both `null` before a start).
+- `POST /classes/{classId}/start` — **V0-009**: resolve the exact runtime tuple **once** — course/version/publication/package/content, lesson plan, knowledge-index pin, policy, capability, home region — pin it immutably and commit the initial durable snapshot with the session in **one transaction**, then go `ACTIVE`. `200` with `created` (false on a replay): a duplicate or concurrent start returns the same session (`DEC-RUNTIME-003`). `409 CLASS_NOT_READY` with an `issue_code` — `VERSION_NOT_PUBLISHED` (draft/never published), `INCOMPATIBLE_INDEX` (the index pin is not about this content), `INCOMPATIBLE_CONTENT` (envelope/lesson plan the runtime does not support, or the package is missing), `CONTENT_DIGEST_MISMATCH` (the pinned bytes no longer match the seal), `WRONG_STATE`, `COMMIT_CONFLICT` — and nothing is written, so the class stays `SCHEDULED` and retryable.
+- `GET /classes/{classId}/snapshot` — the authoritative session snapshot, validated (schema version + checksum) before it is returned; a damaged one is `502 STORAGE_FAILURE` with `issue_code SNAPSHOT_INVALID` rather than being replayed. `404` when the class has not started.
+- `POST /classes/{classId}/enrollments` — enroll a student (`student_id` query param). Idempotent per `(class, student)`: returns the enrollment with `created`.
+- `GET /classes/{classId}/enrollments` — the class roster the join check is made against.
+- `POST /classes/{classId}/bootstrap-token` — **V0-009**: issue a short-lived join credential to a student **enrolled in a running class** (body `{"student_id": ...}`). `403 NOT_ENROLLED` when the principal is in the tenant but not enrolled; `403 TENANT_ACCESS_DENIED` for another institution's class; `409 CLASS_NOT_READY` with `issue_code NOT_STARTED` before a start. The raw token is returned once — only its `token_sha256` is stored — and it binds class/student/session/`actor_epoch`/nonce/expiry with `subscribe` scope only.
 - `GET /renderer` — the default render mode, every available mode, the active theme, and the requested mode's identity/capability/circuit-breaker health (`?mode=`, V0-019).
 - `GET /artifacts/{artifactId}` — artifact metadata (the Teacher Studio uses `filename` for its page title).
 - `GET /health`.
@@ -87,8 +98,10 @@ break the browser). For normal development the frontend runs on its own server a
 - **SQLite** is used as the V0 local/dev equivalent of the durable relational
   store required by `DEC-DATA-001` ("PostgreSQL **or equivalent**"). The schema
   is isolated in `app/db/schema.sql` so the repository layer can target
-  PostgreSQL later; the PostgreSQL reference is `database/migrations/0001_baseline.sql`
-  and `database/migrations/0002_review_decisions_and_drafts.sql`.
+  PostgreSQL later; the PostgreSQL reference is `database/migrations/0001_baseline.sql`,
+  `database/migrations/0002_review_decisions_and_drafts.sql`,
+  `database/migrations/0003_atomic_publication.sql` and
+  `database/migrations/0004_class_and_session_plan.sql`.
 - **Connections are thread-scoped (V0-020).** FastAPI serves the sync endpoints
   from a worker threadpool, so requests really do overlap. A `sqlite3.Connection`
   cannot be shared for that: `BEGIN`/`COMMIT` state and cursors are
@@ -398,3 +411,89 @@ break the browser). For normal development the frontend runs on its own server a
     checksum and index failure, a stale/absent approval, publishing writing no
     bytes, a correction leaving the old package readable, tamper detection, tenant
     isolation, and telemetry.
+- **Class and runtime session plan (V0-009).** `app/classroom/` schedules a class and
+  starts it by resolving and pinning the exact runtime tuple **once**.
+  - **The module home is `app/classroom/`.** The task family's own allowlists name it
+    (V0-010 → `classroom/`, V0-013 → `classroom/timeline/`, V1-004 → `classroom/turn/`),
+    so the reserved legacy placeholders `class_management/`, `session/` and
+    `student/` are left empty rather than split across four packages.
+  - **`PREPARING` is in-flight only and is never persisted**, the same reasoning as
+    V0-008's stages: one transaction (`ClassRepository.commit_start`) performs the
+    guarded `UPDATE classes … WHERE state = 'SCHEDULED'` (the row count is the guard)
+    and then writes the plan, the session and the initial snapshot. A crash anywhere
+    leaves the class `SCHEDULED` with no plan/session/snapshot, so a partial start is
+    invisible by construction and the retry is another `POST …/start`.
+  - **No runtime `latest` lookup — the tuple is resolved once and pinned.** With no
+    `version_id` the start takes the course's current *published* publication; with
+    one it takes that version's publication, superseded included (`DEC-CONTENT-005`).
+    The plan (`RuntimeSessionPlan`) has no update path, so publishing a correction
+    afterwards leaves a running session's tuple *and* snapshot byte-identical while a
+    later class pins the newer version — `tests/test_class_start.py` proves both
+    halves.
+  - **Named absences in the tuple.** `assessment_version` and `model_routing_version`
+    are pinned as explicit `null`s: the canonical tuple names them and V0 has neither
+    subsystem, and recording the absence means the immutable tuple never has to gain
+    a field later.
+  - **The runtime half is replaceable infrastructure.** `catalog.py` defines the
+    `RuntimeCatalog` interface and a baseline that supplies `policy_version`
+    (`runtime-policy@1`, the name of the applied LOCKED default policy set), the
+    supported CTF envelope versions (`1.0.0`) and the home region from
+    `Settings.home_region` (`MENTORA_HOME_REGION`, default `local-1`). `DEC-TECH-009`
+    is `OPEN`, so the region is configuration and no cloud geography is asserted.
+    `capability_version` is the *observed* identity of the warmed default renderer
+    (`name@version`, full identity kept in the plan's `capabilities`), so a later
+    renderer upgrade cannot retroactively change what a session warmed.
+  - **The start reads only what it pins.** It re-verifies the pinned package against
+    its seal (`seal.verify_package`) and reads its manifest + `lesson-plan.json`, and
+    it reads the publication's knowledge-index record — never the source `.pptx`
+    (`DEC-CONTENT-001`) and never a re-render. The index pin is checked for
+    *compatibility*, not mere presence: `index_version` must equal the publication's
+    `knowledge_index_version` and `source_digest` must equal its `content_digest`
+    (`DEC-DATA-005`).
+  - **Refusals are classified and write nothing.** `409 CLASS_NOT_READY` with
+    `issue_code` = `VERSION_NOT_PUBLISHED` (a draft or never-published version),
+    `INCOMPATIBLE_INDEX`, `INCOMPATIBLE_CONTENT` (unsupported envelope/lesson plan, or
+    a missing package), `CONTENT_DIGEST_MISMATCH` (the pinned bytes no longer match
+    the seal), `WRONG_STATE`, `COMMIT_CONFLICT`; the join path adds `NOT_STARTED`.
+    `403 NOT_ENROLLED` is the class-participation denial (distinct from the
+    cross-tenant `403 TENANT_ACCESS_DENIED`). A damaged snapshot is
+    `502 STORAGE_FAILURE` + `SNAPSHOT_INVALID`. Two new stable `ErrorCode` members;
+    `PUBLICATION_BLOCKED` stays the publication transition's own code.
+  - **Duplicate and concurrent starts are idempotent** (`DEC-RUNTIME-003`): the class
+    is the identity, so the second request returns the first session with
+    `created: false`, and `UNIQUE (class_id)` on the plan and the session is the
+    backstop for a race the guard missed (the loser re-reads the winner, or is
+    classified `COMMIT_CONFLICT`).
+  - **The snapshot is durable and validated before use** (`DEC-DATA-004`):
+    `snapshot.py` builds one canonical document (`runtime-snapshot@1`; pinned versions,
+    lesson position from the pinned plan, empty `turn.queue`/null floor, null timeline
+    checkpoint, no pending effects, `actor_epoch`/`state_version`/`event_sequence` = 1)
+    with a sha256 checksum over its canonical bytes, stored beside the document.
+    `GET /classes/{classId}/snapshot` re-validates schema version *and* checksum and
+    refuses a damaged document rather than replaying it.
+  - **Join is authorized, not assumed.** `POST /classes/{classId}/bootstrap-token`
+    requires an `ACTIVE` session and a tenant-scoped enrollment; the credential binds
+    class/student/session/`actor_epoch`/nonce/expiry, is stored **only** as
+    `token_sha256`, carries `subscribe` scope only (`DEC-TURN-001`), and
+    `verify_bootstrap_token` refuses unknown/expired/revoked/stale-epoch tokens
+    (`DEC-RUNTIME-007`). It has no HTTP route yet — the media gateway calls it in V1,
+    and the same is true of `revoke_bootstrap_token` — so enrollment is the whole
+    authorization story in V0: `student_id` is client-asserted (federation and roles
+    are not implemented), while the tenant boundary and the class roster are real.
+  - **Deliberately not here.** No scheduler (`scheduled_for` is recorded, never
+    enforced; `DEC-TECH-003` is `OPEN`), no ordered per-class log or outbox (`DEC-DATA-003`
+    is `OPEN` and V1-002 owns it, so a start records state/snapshot/telemetry instead),
+    no room/SFU work, and no transitions after `ACTIVE` — the state machine's
+    `DEGRADED`/`RECOVERING`/`ENDING`/`COMPLETED`/`FAILED` are named in the vocabulary
+    and the schema `CHECK` but are not written here (V0-010).
+  - Durable state: `classes`, `enrollments`, `runtime_session_plans`,
+    `classroom_sessions`, `session_snapshots` and `bootstrap_tokens` in
+    `app/db/schema.sql` (PostgreSQL reference
+    `database/migrations/0004_class_and_session_plan.sql`).
+    `app/classroom/telemetry.py` emits `class.scheduled`, `class.started`
+    (with `created`), `class.start_blocked` (with `stage` and `issue_code`),
+    `class.join`, `class.snapshot_read` and the snapshot failure with identities and
+    counts only — never the class title, slide text or notes. Covered by
+    `tests/test_class_start.py` (22): the pinned tuple, no-latest-lookup, restart
+    survival, the four required failures, concurrency, snapshots, catalog injection,
+    token digest/expiry/revocation/epoch, tenancy and telemetry.

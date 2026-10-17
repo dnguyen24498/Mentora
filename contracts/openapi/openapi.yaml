@@ -332,21 +332,177 @@ paths:
               schema: {$ref: '#/components/schemas/PublicationPage'}
         '403':
           description: 'Course belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+  /classes:
+    post:
+      operationId: scheduleClass
+      description: >-
+        Schedule a class against a course (V0-009). Scheduling records intent
+        only: nothing is pinned until `start`, which resolves the exact runtime
+        version tuple once. `version_id` pins a version explicitly (it must belong
+        to the course); omitted, `start` resolves the course's current published
+        version. `scheduled_for` is recorded, never enforced — there is no
+        scheduler or durable workflow (DEC-TECH-003 is OPEN), so `start` is the
+        explicit transition.
+      parameters:
+        - {in: query, name: course_id, required: true, schema: {type: string}}
+        - {in: query, name: title, required: false, schema: {type: string, maxLength: 512}}
+        - {in: query, name: version_id, required: false, schema: {type: string}}
+        - {in: query, name: scheduled_for, required: false, schema: {type: string, format: date-time}}
+      responses:
+        '201':
+          description: The scheduled class
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Class'}
+        '400':
+          description: 'Malformed request (stable code INVALID_REQUEST): a version that is not this course''s, or a non-ISO scheduled_for'
+        '403':
+          description: 'Course belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'Unknown course for this tenant (stable code NOT_FOUND)'
+    get:
+      operationId: listClasses
+      description: The tenant's classes, newest first.
+      parameters:
+        - {in: query, name: limit, required: false, schema: {type: integer, default: 100, maximum: 500}}
+      responses:
+        '200':
+          description: Classes of the tenant
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Class'}}
+  /classes/{classId}:
+    get:
+      operationId: getClass
+      description: >-
+        The class with its session and pinned runtime tuple. `session` and
+        `session_plan` are null before a successful start.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: Class, session and pinned runtime tuple
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassView'}
+        '403':
+          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'Unknown class (stable code NOT_FOUND)'
   /classes/{classId}/start:
     post:
       operationId: startClass
-      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
-      responses: {'202': {description: Accepted}, '409': {description: Invalid state/version}}
+      description: >-
+        `SCHEDULED -> PREPARING -> ACTIVE` (V0-009). The session resolves the exact
+        runtime tuple **once** — course/version/publication/package/content,
+        lesson plan, knowledge-index pin, policy, capability and home region — and
+        commits it together with the initial durable snapshot in one transaction,
+        so a partial start is invisible and a refused start writes nothing. No
+        runtime `latest` lookup exists: after this call a session reads its own
+        pinned plan, and a later publication cannot move it (DEC-CONTENT-005).
+        Idempotent: a replay returns the same session with `created: false`
+        (DEC-RUNTIME-003).
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: >-
+            The session, its pinned tuple and its initial snapshot. `created` is
+            false when this call replayed an existing session.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassStartResult'}
+        '403':
+          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'Unknown class (stable code NOT_FOUND)'
+        '409':
+          description: >-
+            The class cannot start (stable code CLASS_NOT_READY). `issue_code` is
+            VERSION_NOT_PUBLISHED (draft or never published), INCOMPATIBLE_INDEX
+            (the index pin is not about this content), INCOMPATIBLE_CONTENT (the
+            package envelope or lesson plan is not one this runtime supports),
+            CONTENT_DIGEST_MISMATCH (the pinned bytes no longer match the seal),
+            WRONG_STATE, or COMMIT_CONFLICT. The class stays SCHEDULED and nothing
+            is written.
   /classes/{classId}/snapshot:
     get:
       operationId: getSnapshot
-      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
-      responses: {'200': {description: Authoritative snapshot}}
+      description: >-
+        The authoritative session snapshot (DEC-DATA-004). Its schema version and
+        checksum are validated before it is returned, so a damaged snapshot is
+        refused (502 STORAGE_FAILURE, issue_code SNAPSHOT_INVALID) rather than
+        replayed.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The validated snapshot document and its checksum
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionSnapshot'}
+        '403':
+          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'
+        '502':
+          description: 'Stored snapshot fails validation (stable code STORAGE_FAILURE, issue_code SNAPSHOT_INVALID)'
+  /classes/{classId}/enrollments:
+    post:
+      operationId: enrollStudent
+      description: >-
+        Enroll a student in a class. Idempotent per (class, student): enrolling
+        twice is one enrollment, so a retried command is not an error.
+      parameters:
+        - {$ref: '#/components/parameters/ClassId'}
+        - {in: query, name: student_id, required: true, schema: {type: string, maxLength: 256}}
+      responses:
+        '200':
+          description: The enrollment (`created` is false on a replay)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Enrollment'}
+        '400': {description: 'Missing student_id (stable code INVALID_REQUEST)'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+    get:
+      operationId: listEnrollments
+      description: The class roster the join check is made against.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The class's enrollments
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnrollmentList'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
   /classes/{classId}/bootstrap-token:
     post:
       operationId: issueBootstrapToken
-      parameters: [{in: path, name: classId, required: true, schema: {type: string}}]
-      responses: {'200': {description: Short-lived token}}
+      description: >-
+        Issue a short-lived join credential — only to a student enrolled in a
+        running class. This is where "only authorized enrollment can join" is
+        enforced: the class must be ACTIVE and the principal must be enrolled in
+        this class in this tenant. The raw token is returned once and only its
+        digest is stored; it binds class, student, session and actor epoch
+        (DEC-RUNTIME-007) and carries `subscribe` scope only — group student
+        microphones are unpublished by default (DEC-TURN-001). The media gateway
+        validates it in V1; this endpoint creates no room/SFU (out of scope).
+      parameters: [$ref: '#/components/parameters/ClassId']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BootstrapTokenRequest'}
+      responses:
+        '200':
+          description: The issued credential (the only view of the raw token)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BootstrapToken'}
+        '403':
+          description: 'Not enrolled in this class (stable code NOT_ENROLLED), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+        '409':
+          description: 'The class has not started (stable code CLASS_NOT_READY, issue_code NOT_STARTED)'
   /renderer:
     get:
       operationId: getRendererStatus
@@ -373,6 +529,12 @@ components:
         content out in the platform theme. An unknown value is rejected with
         INVALID_REQUEST (issue_code UNKNOWN_RENDER_MODE).
       schema: {type: string, enum: [themed, faithful]}
+    ClassId:
+      in: path
+      name: classId
+      required: true
+      description: The class (a scheduled teaching occurrence), tenant-scoped.
+      schema: {type: string}
   schemas:
     Artifact:
       description: Stored source presentation metadata (one immutable upload).
@@ -754,3 +916,184 @@ components:
         observed_digest: {type: string}
         file_count: {type: integer}
         issues: {type: array, items: {type: string}}
+    Class:
+      description: >-
+        A scheduled teaching occurrence (V0-009). It pins nothing until it starts;
+        `version_id` is the version the teacher named when scheduling, and null
+        means the start resolves the course's current published version once.
+      type: object
+      required: [class_id, institution_id, course_id, title, state, created_at]
+      properties:
+        class_id: {type: string}
+        institution_id: {type: string}
+        course_id: {type: string}
+        title: {type: string}
+        version_id:
+          type: [string, 'null']
+          description: 'An explicit version pin, or null to resolve at start'
+        scheduled_for:
+          type: [string, 'null']
+          description: 'Recorded intent only; there is no scheduler (DEC-TECH-003 is OPEN)'
+        state:
+          type: string
+          enum: [SCHEDULED, ACTIVE, DEGRADED, RECOVERING, ENDING, COMPLETED, FAILED]
+          description: >-
+            SCHEDULED until a successful start; the transitions after ACTIVE
+            belong to the Classroom Actor (V0-010). PREPARING is in-flight only and
+            is never stored.
+        created_at: {type: string}
+        started_at: {type: [string, 'null']}
+    ClassView:
+      description: A class with its session and pinned runtime tuple (both null before a start).
+      type: object
+      required: [class, session, session_plan]
+      properties:
+        class: {$ref: '#/components/schemas/Class'}
+        session: {oneOf: [{$ref: '#/components/schemas/ClassroomSession'}, {type: 'null'}]}
+        session_plan: {oneOf: [{$ref: '#/components/schemas/RuntimeSessionPlan'}, {type: 'null'}]}
+    RuntimeVersions:
+      description: >-
+        The pinned runtime tuple (docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md):
+        every member is a resolved value, never a lookup. `latest` is forbidden, so
+        a later publication cannot move a running session. `assessment_version` and
+        `model_routing_version` are explicit nulls because V0 has neither subsystem.
+      type: object
+      required: [course_id, course_version, version_id, publication_id, package_id, content_package_version, content_digest, lesson_plan_version, knowledge_index_version, index_version_id, index_source_digest, policy_version, capability_version, region]
+      properties:
+        course_id: {type: string}
+        course_version: {type: integer, minimum: 1}
+        version_id: {type: string}
+        publication_id: {type: string}
+        package_id: {type: string}
+        content_package_version: {type: string}
+        content_digest: {type: string, description: 'The seal digest of the pinned bytes'}
+        lesson_plan_version: {type: string}
+        knowledge_index_version: {type: string}
+        index_version_id: {type: string}
+        index_source_digest:
+          type: string
+          description: 'The content this index pin is compatible with (DEC-DATA-005)'
+        teaching_graph_version: {type: [string, 'null']}
+        assessment_version: {type: [string, 'null']}
+        model_routing_version: {type: [string, 'null']}
+        policy_version:
+          type: string
+          description: 'Names the LOCKED default policy set the session ran under'
+        capability_version:
+          type: string
+          description: 'The warmed capability identity, name@version of the default renderer'
+        region: {type: string, description: 'Home region (DEC-DEPLOY-002); configuration, not a decided geography'}
+    RuntimeSessionPlan:
+      description: >-
+        The class-specific immutable tuple (terminology: RuntimeSessionPlan, owner
+        Class Management), written once at start with no update path.
+      type: object
+      required: [session_plan_id, class_id, versions, capabilities, created_at]
+      properties:
+        session_plan_id: {type: string}
+        class_id: {type: string}
+        versions: {$ref: '#/components/schemas/RuntimeVersions'}
+        capabilities:
+          type: object
+          description: 'Renderer identity and support the session admitted through'
+          properties:
+            identity: {type: object}
+            support: {type: object}
+        created_at: {type: string}
+    ClassroomSession:
+      description: The durable session created at start, with its initial authoritative state.
+      type: object
+      required: [session_id, class_id, course_id, session_plan_id, state, actor_epoch, state_version, event_sequence, created_at, started_at]
+      properties:
+        session_id: {type: string}
+        class_id: {type: string}
+        course_id: {type: string}
+        session_plan_id: {type: string}
+        state: {type: string, enum: [SCHEDULED, ACTIVE, DEGRADED, RECOVERING, ENDING, COMPLETED, FAILED]}
+        actor_epoch:
+          type: integer
+          minimum: 1
+          description: 'Initial epoch is 1; ownership transfer/fencing is V1-002 (DEC-RUNTIME-007)'
+        state_version: {type: integer, minimum: 1}
+        event_sequence: {type: integer, minimum: 0}
+        snapshot_id: {type: [string, 'null']}
+        created_at: {type: string}
+        started_at: {type: string}
+    SessionSnapshot:
+      description: >-
+        A durable, checksummed snapshot (DEC-DATA-004). Validated before use: an
+        unsupported schema version, a missing region, or a checksum mismatch is
+        refused rather than replayed. `document` carries versions, lesson/scene/step,
+        turn (queue/floor), timeline checkpoint, pending effects, epoch/version/sequence.
+      type: object
+      required: [snapshot_id, class_id, session_id, schema_version, state, state_version, event_sequence, actor_epoch, checksum, created_at, document]
+      properties:
+        snapshot_id: {type: string}
+        class_id: {type: string}
+        session_id: {type: string}
+        schema_version: {type: string, description: 'e.g. runtime-snapshot@1'}
+        state: {type: string}
+        state_version: {type: integer}
+        event_sequence: {type: integer}
+        actor_epoch: {type: integer}
+        checksum: {type: string, description: 'sha256 over the canonical document'}
+        created_at: {type: string}
+        document: {type: object}
+    ClassStartResult:
+      description: 'The start response: the class, its session, the pinned tuple and the initial snapshot.'
+      type: object
+      required: [class, session, session_plan, snapshot, created]
+      properties:
+        class: {$ref: '#/components/schemas/Class'}
+        session: {$ref: '#/components/schemas/ClassroomSession'}
+        session_plan: {$ref: '#/components/schemas/RuntimeSessionPlan'}
+        snapshot: {$ref: '#/components/schemas/SessionSnapshot'}
+        created:
+          type: boolean
+          description: 'False when the request replayed an existing session (DEC-RUNTIME-003)'
+    Enrollment:
+      description: One student's authorization to join one class.
+      type: object
+      required: [enrollment_id, class_id, student_id, created_at]
+      properties:
+        enrollment_id: {type: string}
+        class_id: {type: string}
+        student_id: {type: string}
+        created_at: {type: string}
+        created:
+          type: boolean
+          description: 'Present on the enroll response: false when the enrollment already existed'
+    EnrollmentList:
+      type: object
+      required: [class_id, enrollments]
+      properties:
+        class_id: {type: string}
+        enrollments: {type: array, items: {$ref: '#/components/schemas/Enrollment'}}
+    BootstrapTokenRequest:
+      type: object
+      required: [student_id]
+      additionalProperties: false
+      properties:
+        student_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 'Who is asking to join; enrollment is what authorizes it'
+    BootstrapToken:
+      description: >-
+        A short-lived join credential. Returned once — only its sha256 digest is
+        stored — bound to the class, student, session and actor epoch, with
+        subscribe scope only.
+      type: object
+      required: [token, class_id, session_id, student_id, actor_epoch, nonce, scopes, issued_at, expires_at]
+      properties:
+        token: {type: string, description: 'The raw credential; the only time it is returned'}
+        class_id: {type: string}
+        session_id: {type: string}
+        student_id: {type: string}
+        actor_epoch: {type: integer, description: 'A token from a stale epoch cannot authorize'}
+        nonce: {type: string}
+        scopes: {type: array, items: {type: string, enum: [subscribe]}, description: 'Subscribe only: floor/publish_audio is the floor token (DEC-TURN-008)'}
+        issued_at: {type: string}
+        expires_at: {type: string, description: 'Bounded lifetime; the terminal path besides revocation'}
+

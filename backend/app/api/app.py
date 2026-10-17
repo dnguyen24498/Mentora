@@ -25,6 +25,16 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
   (``?verify=true`` re-checks the pinned package against its seal)
 * ``GET  /publications/{publicationId}`` — one publication by identity (superseded included)
 * ``GET  /courses/{courseId}/publications`` — a course's publication history
+* ``POST /classes`` — schedule a class against a course (V0-009)
+* ``GET  /classes`` — the tenant's classes
+* ``GET  /classes/{classId}`` — the class, its session and its pinned version tuple
+* ``POST /classes/{classId}/start`` — resolve and pin the exact runtime tuple, then
+  ``ACTIVE`` (idempotent; ``409`` ``CLASS_NOT_READY`` + ``issue_code`` on a refusal)
+* ``GET  /classes/{classId}/snapshot`` — the durable, checksum-validated snapshot
+* ``POST /classes/{classId}/enrollments`` — enroll a student (idempotent)
+* ``GET  /classes/{classId}/enrollments`` — the class roster
+* ``POST /classes/{classId}/bootstrap-token`` — short-lived join credential, issued
+  only to an enrolled student of a running class (``403`` ``NOT_ENROLLED`` otherwise)
 * ``GET  /renderer`` — renderer capability and health
 * ``GET  /health``
 
@@ -42,6 +52,10 @@ from fastapi import Depends, FastAPI, File, Header, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from app.api.spa import SpaStaticFiles
+from app.classroom.catalog import BaselineRuntimeCatalog
+from app.classroom.repository import ClassRepository
+from app.classroom.router import build_class_router
+from app.classroom.service import ClassroomService
 from app.common.errors import AppError
 from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.package_builder.service import PackageBuildService
@@ -126,6 +140,21 @@ def create_app(
         package_build_service,
         index_builder=BaselineIndexBuilder(),
     )
+    # Class start (V0-009). The runtime catalog is replaceable infrastructure:
+    # DEC-TECH-009 (cloud/provider/regions) is OPEN, so the home region comes from
+    # configuration and the policy version names the LOCKED default policy set. The
+    # capability probe reports the *default* renderer's identity, which the session
+    # pins — a later renderer upgrade cannot change what a running session warmed.
+    classroom_service = ClassroomService(
+        repository,
+        ClassRepository(database),
+        object_store,
+        catalog=BaselineRuntimeCatalog(region=settings.home_region),
+        capability_probe=lambda: {
+            "identity": renderer.identity().to_dict(),
+            "support": renderer.inspect_support().to_dict(),
+        },
+    )
 
     app = FastAPI(title="Mentora API", version="1.0.0")
     app.state.settings = settings
@@ -139,6 +168,7 @@ def create_app(
     app.state.review_repository = review_repository
     app.state.review_workflow = review_workflow
     app.state.publication_service = publication_service
+    app.state.classroom_service = classroom_service
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_request, exc: AppError) -> JSONResponse:
@@ -160,6 +190,10 @@ def create_app(
     # Atomic publication (V0-008): seal/index/commit an approved version and serve
     # published versions, including superseded ones.
     app.include_router(build_publication_router(publication_service, tenant))
+    # Class and runtime session plan (V0-009): schedule a class, start it by
+    # pinning the exact runtime tuple once, serve the durable snapshot, and
+    # authorize joins against the class enrollment.
+    app.include_router(build_class_router(classroom_service, tenant))
 
     @app.get("/health")
     def health() -> dict[str, str]:

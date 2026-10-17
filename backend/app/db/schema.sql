@@ -190,3 +190,145 @@ CREATE TABLE IF NOT EXISTS publication_outbox (
 );
 CREATE INDEX IF NOT EXISTS idx_publication_outbox_tenant
     ON publication_outbox(institution_id, created_at);
+
+-- V0-009: class and runtime session plan. ``docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md``:
+-- a class pins an explicit runtime tuple — *"Course, CTF, content package, lesson,
+-- optional teaching graph, assessment, knowledge index, policy, model-routing
+-- configuration, and home region are explicit versions. ``latest`` is forbidden."*
+-- The plan and the snapshot are append-only facts: there is no UPDATE path to a
+-- pinned tuple, so a running session cannot be moved onto different content
+-- (``DEC-CONTENT-005``: "active sessions pin all compatible versions").
+
+-- A scheduled teaching occurrence. Scheduling records the *intent*; it pins the
+-- version tuple only when it starts, and then once for the life of the session.
+CREATE TABLE IF NOT EXISTS classes (
+    class_id       TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL REFERENCES institutions(institution_id),
+    course_id      TEXT NOT NULL REFERENCES courses(course_id),
+    title          TEXT NOT NULL,
+    -- The course version the teacher pinned when scheduling, if any. NULL means
+    -- "resolve the course's current published version once, at start" — a single
+    -- recorded decision, never a runtime ``latest`` lookup.
+    version_id     TEXT REFERENCES course_versions(version_id),
+    scheduled_for  TEXT,
+    state          TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    started_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_classes_tenant ON classes(institution_id, course_id);
+
+-- Who may join. Authorization is class participation, not tenant membership:
+-- a principal inside the tenant that is not enrolled is refused (403
+-- ``NOT_ENROLLED``), which is what "only authorized enrollment can join" means in
+-- V0, where institutional federation/roles do not exist yet.
+CREATE TABLE IF NOT EXISTS enrollments (
+    enrollment_id  TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    class_id       TEXT NOT NULL REFERENCES classes(class_id),
+    student_id     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    -- Enrolling twice is one enrollment, so a retried command is not an error.
+    UNIQUE (institution_id, class_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_enrollments_tenant
+    ON enrollments(institution_id, class_id);
+
+-- The pinned runtime tuple (terminology: ``RuntimeSessionPlan``), written once at
+-- start. Every column is the *resolved* value: no column is a pointer that a
+-- later publication could move.
+CREATE TABLE IF NOT EXISTS runtime_session_plans (
+    session_plan_id         TEXT PRIMARY KEY,
+    institution_id          TEXT NOT NULL,
+    class_id                TEXT NOT NULL REFERENCES classes(class_id),
+    course_id               TEXT NOT NULL REFERENCES courses(course_id),
+    version_id              TEXT NOT NULL REFERENCES course_versions(version_id),
+    course_version          INTEGER NOT NULL,
+    publication_id          TEXT NOT NULL REFERENCES publications(publication_id),
+    package_id              TEXT NOT NULL,
+    content_package_version TEXT NOT NULL,
+    -- The seal's content digest: what the pinned bytes are, re-checkable later.
+    content_digest          TEXT NOT NULL,
+    lesson_plan_version     TEXT NOT NULL,
+    knowledge_index_version TEXT NOT NULL,
+    index_version_id        TEXT NOT NULL REFERENCES knowledge_index_versions(index_version_id),
+    -- The index pin's compatibility basis: a plan whose pin does not match this
+    -- content is refused rather than retrieved through (DEC-DATA-005).
+    index_source_digest     TEXT NOT NULL,
+    teaching_graph_version  TEXT,
+    -- Named absences: the canonical tuple lists assessment and model-routing, and
+    -- V0 has neither subsystem. They are recorded as explicit NULLs so the
+    -- immutable tuple never has to gain a field later.
+    assessment_version      TEXT,
+    model_routing_version   TEXT,
+    policy_version          TEXT NOT NULL,
+    capability_version      TEXT NOT NULL,
+    capabilities            TEXT NOT NULL,
+    region                  TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    -- One plan per class: a retry cannot fork the tuple a session runs on.
+    UNIQUE (class_id)
+);
+CREATE INDEX IF NOT EXISTS idx_session_plans_tenant
+    ON runtime_session_plans(institution_id, class_id);
+
+CREATE TABLE IF NOT EXISTS classroom_sessions (
+    session_id      TEXT PRIMARY KEY,
+    institution_id  TEXT NOT NULL,
+    class_id        TEXT NOT NULL REFERENCES classes(class_id),
+    course_id       TEXT NOT NULL REFERENCES courses(course_id),
+    session_plan_id TEXT NOT NULL REFERENCES runtime_session_plans(session_plan_id),
+    state           TEXT NOT NULL,
+    -- Initial epoch; ownership transfer/fencing across an actor move is V1-002.
+    actor_epoch     INTEGER NOT NULL,
+    state_version   INTEGER NOT NULL,
+    event_sequence  INTEGER NOT NULL,
+    snapshot_id     TEXT,
+    created_at      TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    -- "Unique constraints enforce one live session" (DATA_MODEL_AND_TRANSACTIONS).
+    UNIQUE (class_id)
+);
+CREATE INDEX IF NOT EXISTS idx_classroom_sessions_tenant
+    ON classroom_sessions(institution_id, class_id);
+
+-- The durable initial snapshot (DEC-DATA-004). Recovery replays from a snapshot,
+-- so it is validated (schema version + checksum) before it is used.
+CREATE TABLE IF NOT EXISTS session_snapshots (
+    snapshot_id    TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    session_id     TEXT NOT NULL REFERENCES classroom_sessions(session_id),
+    class_id       TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    state          TEXT NOT NULL,
+    state_version  INTEGER NOT NULL,
+    event_sequence INTEGER NOT NULL,
+    actor_epoch    INTEGER NOT NULL,
+    document       TEXT NOT NULL,
+    checksum       TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    -- One snapshot per state version: re-snapshotting the same version is a retry,
+    -- not a new fact.
+    UNIQUE (session_id, state_version)
+);
+CREATE INDEX IF NOT EXISTS idx_session_snapshots_tenant
+    ON session_snapshots(institution_id, session_id);
+
+-- Short-lived join credentials. Only the digest is stored — the token is a
+-- credential, so a database read must not yield a usable one — and every token
+-- has a terminal path (expiry, or ``revoked_at``).
+CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+    token_sha256   TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    class_id       TEXT NOT NULL REFERENCES classes(class_id),
+    session_id     TEXT NOT NULL REFERENCES classroom_sessions(session_id),
+    student_id     TEXT NOT NULL,
+    actor_epoch    INTEGER NOT NULL,
+    nonce          TEXT NOT NULL,
+    scopes         TEXT NOT NULL,
+    issued_at      TEXT NOT NULL,
+    expires_at     TEXT NOT NULL,
+    revoked_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_tenant
+    ON bootstrap_tokens(institution_id, class_id);
+

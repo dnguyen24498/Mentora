@@ -14,6 +14,8 @@ DEC-CONTENT-001,backend/app/compiler/render_service.py,CODE
 DEC-CONTENT-001,backend/app/compiler/validators/package.py,CODE
 DEC-CONTENT-001,backend/app/compiler/imaging.py,CODE
 DEC-CONTENT-001,backend/app/compiler/renderers/themed.py,CODE
+DEC-CONTENT-001,backend/app/classroom/service.py,CODE
+DEC-CONTENT-001,backend/app/classroom/repository.py,CODE
 DEC-CONTENT-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-002,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
 DEC-CONTENT-002,docs/architecture/04_CONTENT_COMPILER.md,ARCH
@@ -58,6 +60,11 @@ DEC-CONTENT-005,backend/tests/test_publication_review_flow.py,CODE
 DEC-CONTENT-005,frontend/src/components/TeacherStudio.test.tsx,CODE
 DEC-CONTENT-005,frontend/src/pages/StudioPage.tsx,CODE
 DEC-CONTENT-005,frontend/src/pages/StudioPage.test.tsx,CODE
+DEC-CONTENT-005,backend/app/classroom/models.py,CODE
+DEC-CONTENT-005,backend/app/classroom/repository.py,CODE
+DEC-CONTENT-005,backend/app/classroom/service.py,CODE
+DEC-CONTENT-005,backend/app/classroom/snapshot.py,CODE
+DEC-CONTENT-005,backend/tests/test_class_start.py,CODE
 DEC-CONTENT-006,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-006,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-CONTENT-006,docs/architecture/05_CONTENT_MODELS_AND_FIDELITY.md,ARCH
@@ -144,6 +151,9 @@ DEC-DATA-004,docs/testing/INVARIANT_AND_CHAOS_TESTS.md,SPEC
 DEC-DATA-004,contracts/events/course-version-published.schema.json,SPEC
 DEC-DATA-004,backend/app/publication/outbox.py,CODE
 DEC-DATA-004,backend/tests/test_publication_publish.py,CODE
+DEC-DATA-004,backend/app/classroom/snapshot.py,CODE
+DEC-DATA-004,backend/app/classroom/service.py,CODE
+DEC-DATA-004,backend/tests/test_class_start.py,CODE
 DEC-DATA-005,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DATA-005,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH
 DEC-DATA-005,docs/architecture/07_PUBLICATION_AND_REVIEW.md,ARCH
@@ -155,6 +165,9 @@ DEC-DATA-005,backend/app/publication/index.py,CODE
 DEC-DATA-005,backend/app/publication/repository.py,CODE
 DEC-DATA-005,backend/app/publication/service.py,CODE
 DEC-DATA-005,backend/tests/test_publication_publish.py,CODE
+DEC-DATA-005,backend/app/classroom/repository.py,CODE
+DEC-DATA-005,backend/app/classroom/service.py,CODE
+DEC-DATA-005,backend/tests/test_class_start.py,CODE
 DEC-DEPLOY-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DEPLOY-001,docs/architecture/08_RUNTIME_CONTROL_PLANE.md,ARCH
 DEC-DEPLOY-001,docs/architecture/22_DEPLOYMENT_AND_SCALING.md,ARCH
@@ -169,6 +182,8 @@ DEC-DEPLOY-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DEPLOY-002,docs/architecture/13_MEDIA_SPEECH_AND_VOICE.md,ARCH
 DEC-DEPLOY-002,docs/architecture/20_OBSERVABILITY_COST_AND_CAPACITY.md,ARCH
 DEC-DEPLOY-002,docs/architecture/22_DEPLOYMENT_AND_SCALING.md,ARCH
+DEC-DEPLOY-002,backend/app/classroom/catalog.py,CODE
+DEC-DEPLOY-002,backend/app/config.py,CODE
 DEC-PERSONAL-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-PERSONAL-001,docs/architecture/10_TEACHER_ORCHESTRATOR.md,ARCH
 DEC-RELIABILITY-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
@@ -228,6 +243,8 @@ DEC-RELIABILITY-002,backend/app/publication/service.py,CODE
 DEC-RELIABILITY-002,backend/tests/test_publication_publish.py,CODE
 DEC-RELIABILITY-002,backend/app/db/database.py,CODE
 DEC-RELIABILITY-002,backend/tests/test_database_concurrency.py,CODE
+DEC-RELIABILITY-002,backend/app/classroom/service.py,CODE
+DEC-RELIABILITY-002,backend/tests/test_class_start.py,CODE
 DEC-RUNTIME-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-001,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
 DEC-RUNTIME-001,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH
@@ -274,6 +291,9 @@ DEC-RUNTIME-003,docs/testing/TEST_STRATEGY.md,SPEC
 DEC-RUNTIME-003,backend/app/publication/repository.py,CODE
 DEC-RUNTIME-003,backend/app/publication/service.py,CODE
 DEC-RUNTIME-003,backend/tests/test_publication_publish.py,CODE
+DEC-RUNTIME-003,backend/app/classroom/repository.py,CODE
+DEC-RUNTIME-003,backend/app/classroom/service.py,CODE
+DEC-RUNTIME-003,backend/tests/test_class_start.py,CODE
 DEC-RUNTIME-004,contracts/websocket/PROTOCOL.md,SPEC
 DEC-RUNTIME-004,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-004,docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md,ARCH
@@ -311,12 +331,17 @@ DEC-RUNTIME-007,docs/state-machines/TEACHER_VOICE_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-007,docs/state-machines/TIMELINE_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-007,docs/state-machines/TURN_MANAGER_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-007,docs/testing/INVARIANT_AND_CHAOS_TESTS.md,SPEC
+DEC-RUNTIME-007,backend/app/classroom/models.py,CODE
+DEC-RUNTIME-007,backend/app/classroom/service.py,CODE
+DEC-RUNTIME-007,backend/tests/test_class_start.py,CODE
 DEC-SCORM-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-SCORM-001,docs/architecture/23_LMS_SIS_SCORM_AND_INTEGRATIONS.md,ARCH
 DEC-TURN-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-TURN-001,docs/architecture/11_RAISE_HAND_AND_TURN_CONTROL.md,ARCH
 DEC-TURN-001,docs/product/PRODUCT_REQUIREMENTS.md,SPEC
 DEC-TURN-001,docs/product/V1_SCOPE.md,SPEC
+DEC-TURN-001,backend/app/classroom/models.py,CODE
+DEC-TURN-001,backend/app/classroom/service.py,CODE
 DEC-TURN-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-TURN-002,docs/architecture/11_RAISE_HAND_AND_TURN_CONTROL.md,ARCH
 DEC-TURN-002,docs/architecture/15_FRONTEND_CLASSROOM_AND_STUDIO.md,ARCH

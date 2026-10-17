@@ -27,6 +27,11 @@ class ErrorCode(str, Enum):
     RENDER_FAILED = "RENDER_FAILED"
     RENDERER_UNAVAILABLE = "RENDERER_UNAVAILABLE"
     PUBLICATION_BLOCKED = "PUBLICATION_BLOCKED"
+    # V0-009 (class start): the class cannot be started because the version tuple
+    # it must pin is not usable, and the join denial for a principal that is in
+    # the tenant but not enrolled in the class.
+    CLASS_NOT_READY = "CLASS_NOT_READY"
+    NOT_ENROLLED = "NOT_ENROLLED"
 
 
 class AppError(Exception):
@@ -71,6 +76,30 @@ class PublicationBlockedError(AppError):
 
     code = ErrorCode.PUBLICATION_BLOCKED
     http_status = 409
+
+
+class ClassNotReadyError(AppError):
+    """A class cannot start: the exact version tuple it must pin is not usable.
+
+    ``docs/state-machines/CLASSROOM_SESSION_STATE_MACHINE.md`` names the
+    ``SCHEDULED -> PREPARING -> ACTIVE`` transition; every refusal here happens
+    before the commit point, so the class stays ``SCHEDULED`` and a retry after
+    the fix starts from a clean state (``DEC-RELIABILITY-002``).
+    """
+
+    code = ErrorCode.CLASS_NOT_READY
+    http_status = 409
+
+
+class NotEnrolledError(AppError):
+    """The principal is in the tenant but not enrolled in the class.
+
+    Distinct from :class:`TenantAccessError`: the tenant boundary is satisfied,
+    so this is a class-participation denial, not a cross-tenant one.
+    """
+
+    code = ErrorCode.NOT_ENROLLED
+    http_status = 403
 
 
 def error(code: ErrorCode, message: str) -> AppError:

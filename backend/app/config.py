@@ -16,6 +16,12 @@ DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MiB streaming size limit
 DEFAULT_MAX_ARCHIVE_ENTRIES = 5_000
 DEFAULT_MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # zip-bomb guard
 
+#: The home region a class runs in (``DEC-DEPLOY-002``: "each class has a home
+#: region"). ``DEC-TECH-009`` (primary cloud/provider/regions) is ``OPEN``, so this
+#: is *configuration*, never a decided geography: the default names the local
+#: single-host deployment rather than asserting a cloud region.
+DEFAULT_HOME_REGION = "local-1"
+
 
 def _default_frontend_dist() -> Path:
     # backend/app/config.py -> repo root/frontend/dist
@@ -30,6 +36,8 @@ class Settings:
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_archive_entries: int = DEFAULT_MAX_ARCHIVE_ENTRIES
     max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED_BYTES
+    #: The home region a session pins (``DEC-DEPLOY-002``); see DEFAULT_HOME_REGION.
+    home_region: str = DEFAULT_HOME_REGION
 
     @classmethod
     def from_env(cls, base_dir: Path | str | None = None) -> "Settings":
@@ -38,4 +46,5 @@ class Settings:
             database_path=Path(os.environ.get("MENTORA_DB_PATH", base / "mentora.db")),
             object_root=Path(os.environ.get("MENTORA_OBJECT_ROOT", base / "objects")),
             frontend_dist=Path(os.environ.get("MENTORA_FRONTEND_DIST", _default_frontend_dist())),
+            home_region=os.environ.get("MENTORA_HOME_REGION", DEFAULT_HOME_REGION),
         )

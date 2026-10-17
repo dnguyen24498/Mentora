@@ -1,0 +1,191 @@
+"""Structured telemetry for class start and join authorization (V0-009).
+
+Follows the render-stage and publication telemetry
+(``docs/architecture/20_OBSERVABILITY_COST_AND_CAPACITY.md``): carry tenant, class,
+session, course/version/package identity and counts — never authored text. A class
+title and a student id are the only free-form values near this flow, and the
+student id is recorded as *presence* only, because it identifies a person.
+
+``docs/sequences/CLASS_START.md`` asserts *"Every terminal path emits metrics and
+user-visible state."* That is why a refused start emits ``class.start_blocked``
+with its ``issue_code`` and why a refused join emits ``class.join_denied``: the
+terminal failure paths are observable, not just the success path.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+logger = logging.getLogger("mentora.classroom")
+
+
+@dataclass
+class ClassroomMetrics:
+    """Counters for the class-start and join flow."""
+
+    classes_scheduled: int = 0
+    enrollments_created: int = 0
+    enrollments_replayed: int = 0
+    sessions_started: int = 0
+    starts_replayed: int = 0
+    starts_blocked: int = 0
+    joins_authorized: int = 0
+    joins_denied: int = 0
+    snapshots_read: int = 0
+    snapshot_failures: int = 0
+
+    def to_dict(self) -> dict[str, int]:
+        return dict(self.__dict__)
+
+
+@dataclass
+class ClassroomTelemetry:
+    """Emits one structured record per outcome and keeps counters."""
+
+    metrics: ClassroomMetrics = field(default_factory=ClassroomMetrics)
+    _logger: logging.Logger = field(default=logger, repr=False)
+
+    def emit(self, event: str, **fields: Any) -> dict[str, Any]:
+        record = {"event": event, **fields}
+        try:
+            self._logger.info(json.dumps(record, sort_keys=True, default=str))
+        except (TypeError, ValueError):  # pragma: no cover - telemetry must never break a start
+            self._logger.info("event=%s", event)
+        return record
+
+    def record_scheduled(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        course_id: str,
+        title: str,
+        version_id: Optional[str],
+        scheduled_for: Optional[str],
+    ) -> dict[str, Any]:
+        self.metrics.classes_scheduled += 1
+        return self.emit(
+            "class.scheduled",
+            institution_id=institution_id,
+            class_id=class_id,
+            course_id=course_id,
+            # The title is course-authored text: record its presence, not it.
+            title_present=bool(title),
+            title_chars=len(title or ""),
+            version_pinned=version_id is not None,
+            scheduled=bool(scheduled_for),
+        )
+
+    def record_started(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: str,
+        course_id: str,
+        version_id: str,
+        course_version: int,
+        package_id: str,
+        content_package_version: str,
+        knowledge_index_version: str,
+        policy_version: str,
+        capability_version: str,
+        region: str,
+        actor_epoch: int,
+        created: bool,
+    ) -> dict[str, Any]:
+        if created:
+            self.metrics.sessions_started += 1
+        else:
+            self.metrics.starts_replayed += 1
+        return self.emit(
+            "class.started",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            course_id=course_id,
+            version_id=version_id,
+            course_version=course_version,
+            package_id=package_id,
+            content_package_version=content_package_version,
+            knowledge_index_version=knowledge_index_version,
+            policy_version=policy_version,
+            capability_version=capability_version,
+            region=region,
+            actor_epoch=actor_epoch,
+            created=created,
+        )
+
+    def record_blocked(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        course_id: str,
+        stage: str,
+        issue_code: str,
+        version_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        self.metrics.starts_blocked += 1
+        return self.emit(
+            "class.start_blocked",
+            institution_id=institution_id,
+            class_id=class_id,
+            course_id=course_id,
+            stage=stage,
+            issue_code=issue_code,
+            version_id=version_id,
+        )
+
+    def record_join(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: Optional[str],
+        authorized: bool,
+        issue_code: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if authorized:
+            self.metrics.joins_authorized += 1
+        else:
+            self.metrics.joins_denied += 1
+        return self.emit(
+            "class.join",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            authorized=authorized,
+            issue_code=issue_code,
+            # The student id identifies a person: presence and length only.
+            student_present=True,
+        )
+
+    def record_snapshot_read(
+        self, *, institution_id: str, class_id: str, session_id: str, state_version: int
+    ) -> dict[str, Any]:
+        self.metrics.snapshots_read += 1
+        return self.emit(
+            "class.snapshot_read",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            state_version=state_version,
+        )
+
+    def record_snapshot_failure(
+        self, *, institution_id: str, session_id: str, issue_code: str
+    ) -> dict[str, Any]:
+        self.metrics.snapshot_failures += 1
+        return self.emit(
+            "class.snapshot_invalid",
+            institution_id=institution_id,
+            session_id=session_id,
+            issue_code=issue_code,
+        )
+
+
+__all__ = ["ClassroomMetrics", "ClassroomTelemetry"]
