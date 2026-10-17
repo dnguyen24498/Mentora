@@ -139,6 +139,8 @@ PowerPoint rendering) stays `OPEN` — this task accepts no renderer technology.
 
 ## Completion Evidence
 
+**Commit:** `7b5e8a0`.
+
 **Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **305 passed** (was 280;
 25 new tests across `test_themed_renderer.py` and `test_renderer_factory.py`).
 
