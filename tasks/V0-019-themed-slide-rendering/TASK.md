@@ -293,8 +293,8 @@ stays `OPEN` — this task accepts no renderer technology.
 
 ## Completion Evidence
 
-**Commit:** `02ca28f` (v5) + `v6` (picture backgrounds). Earlier revisions:
-`7b5e8a0` (v1), `d969f88` (v2), `ae68632` (v3), `f528425` (v4).
+**Commit:** `72f5f06` (v6). Earlier revisions: `02ca28f` (v5), `7b5e8a0` (v1),
+`d969f88` (v2), `ae68632` (v3), `f528425` (v4).
 
 ### v6 — picture background resolution (a follow-up defect in the default render)
 
