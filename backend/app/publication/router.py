@@ -1,4 +1,5 @@
-"""HTTP surface for the teacher review preview and review actions (V0-007).
+"""HTTP surface for the teacher review preview and review actions (V0-007) and
+for the atomic publication transition (V0-008).
 
 The review needs the *lesson order*, which only the baseline package knows, so it
 cannot be built from the V0-005 endpoints alone. Routes:
@@ -17,6 +18,16 @@ cannot be built from the V0-005 endpoints alone. Routes:
   revision of the lesson order (never touches the package).
 * ``GET  /artifacts/{artifactId}/review-package/drafts`` — draft history.
 
+Publication (V0-008):
+
+* ``POST /course-versions/{versionId}/publish`` — seal, index and commit an
+  approved version (idempotent: a replay returns the same publication).
+* ``GET  /course-versions/{versionId}/publication`` — the newest publication of a
+  version, optionally re-verified against its seal.
+* ``GET  /publications/{publicationId}`` — one publication by identity, including
+  a superseded one (``DEC-CONTENT-005``: a session keeps its pinned version).
+* ``GET  /courses/{courseId}/publications`` — publication history of a course.
+
 Every route is tenant-scoped through ``X-Institution-Id``. Without the header the
 request is rejected before reaching the service (422), which is exactly why the
 frontend fetches renders through JS and turns them into blob URLs.
@@ -32,6 +43,7 @@ from pydantic import BaseModel, Field
 from app.common.errors import NotFoundError
 from app.publication.draft import SectionInput
 from app.publication.review import ReviewService
+from app.publication.service import PublicationService
 from app.publication.workflow import ReviewWorkflow
 
 
@@ -147,5 +159,83 @@ def build_review_router(
     return router
 
 
-__all__ = ["build_review_router"]
+class PublishRequest(BaseModel):
+    """An optional attribution for the publication.
+
+    Identity and roles are not implemented yet
+    (``docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md``), so this is
+    attribution, **not** an authorization control — the same note as the review
+    decision's ``reviewer``.
+    """
+
+    published_by: Optional[str] = Field(default=None, max_length=256)
+
+
+def build_publication_router(
+    service: PublicationService,
+    tenant: Callable[..., str],
+) -> APIRouter:
+    """Routes for the atomic publication transition and published-version retrieval."""
+
+    router = APIRouter()
+
+    @router.post("/course-versions/{version_id}/publish")
+    def publish_version(
+        version_id: str,
+        body: Optional[PublishRequest] = None,
+        institution_id: str = Depends(tenant),
+    ) -> dict:
+        """Seal, index and commit an approved version; returns the publication.
+
+        ``200`` whether the publication was created or replayed: the identity is
+        the content, so a retry after a lost response returns the same
+        publication with ``created: false`` (``DEC-RUNTIME-003``). ``409``
+        ``PUBLICATION_BLOCKED`` carries the precise ``issue_code`` when the
+        version is not approved, its approval is stale, the package fails its
+        checksums, or the index version could not be established.
+        """
+
+        publication, created = service.publish(
+            institution_id, version_id, published_by=body.published_by if body else None
+        )
+        return {**publication.to_dict(), "created": created}
+
+    @router.get("/course-versions/{version_id}/publication")
+    def get_version_publication(
+        version_id: str,
+        verify: bool = False,
+        institution_id: str = Depends(tenant),
+    ) -> dict:
+        """The newest publication of a course version (``404`` when unpublished).
+
+        ``?verify=true`` re-checks the pinned package against its seal and adds an
+        ``integrity`` block; it reads the package bytes, so it is opt-in.
+        """
+
+        return service.publication_for_version(institution_id, version_id, verify=verify)
+
+    @router.get("/publications/{publication_id}")
+    def get_publication(
+        publication_id: str,
+        verify: bool = False,
+        institution_id: str = Depends(tenant),
+    ) -> dict:
+        """One publication by identity — including a superseded one."""
+
+        return service.get_publication(institution_id, publication_id, verify=verify)
+
+    @router.get("/courses/{course_id}/publications")
+    def list_publications(
+        course_id: str,
+        limit: int = 50,
+        institution_id: str = Depends(tenant),
+    ) -> dict:
+        """A course's publication history, newest first (superseded ones included)."""
+
+        return service.list_publications(institution_id, course_id, limit=limit)
+
+    return router
+
+
+__all__ = ["build_publication_router", "build_review_router"]
 

@@ -109,3 +109,84 @@ CREATE TABLE IF NOT EXISTS review_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_review_drafts_tenant
     ON review_drafts(institution_id, artifact_id, revision);
+
+-- V0-008: atomic publication. A publication is an immutable *fact* — this course
+-- version, this content package, this pinned version tuple, published once — so
+-- these tables are append-only apart from the supersede link. Publication state
+-- is written by exactly one transaction (PublicationRepository.commit), which is
+-- why a half-published version cannot be observed.
+
+-- The knowledge-index version a published content version pins (DEC-DATA-005).
+-- The index *content* is V0-014; the identity and its provenance are recorded
+-- here, before anything can retrieve through the pin.
+CREATE TABLE IF NOT EXISTS knowledge_index_versions (
+    index_version_id        TEXT PRIMARY KEY,
+    institution_id          TEXT NOT NULL,
+    course_id               TEXT NOT NULL REFERENCES courses(course_id),
+    version_id              TEXT NOT NULL REFERENCES course_versions(version_id),
+    package_id              TEXT NOT NULL,
+    content_package_version TEXT NOT NULL,
+    index_version           TEXT NOT NULL,
+    status                  TEXT NOT NULL,
+    -- The published content this identity is compatible with (the seal digest).
+    source_digest           TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    -- One index version per published content version: a retry cannot fork the
+    -- identity that retrieval filters by.
+    UNIQUE (institution_id, version_id, content_package_version)
+);
+CREATE INDEX IF NOT EXISTS idx_index_versions_tenant
+    ON knowledge_index_versions(institution_id, version_id);
+
+CREATE TABLE IF NOT EXISTS publications (
+    publication_id          TEXT PRIMARY KEY,
+    institution_id          TEXT NOT NULL,
+    course_id               TEXT NOT NULL REFERENCES courses(course_id),
+    version_id              TEXT NOT NULL REFERENCES course_versions(version_id),
+    -- Denormalised version number: the supersede rule and "newest" ordering need
+    -- it without a join, and it is what the pinned tuple reports.
+    course_version          INTEGER NOT NULL,
+    artifact_id             TEXT NOT NULL REFERENCES source_artifacts(artifact_id),
+    package_id              TEXT NOT NULL,
+    content_package_version TEXT NOT NULL,
+    lesson_plan_versions    TEXT NOT NULL,
+    knowledge_index_version TEXT NOT NULL,
+    teaching_graph_version  TEXT,
+    index_version_id        TEXT NOT NULL REFERENCES knowledge_index_versions(index_version_id),
+    -- The seal: manifest identity plus the content digest a read can re-check.
+    manifest_sha256         TEXT NOT NULL,
+    content_digest          TEXT NOT NULL,
+    file_count              INTEGER NOT NULL,
+    total_bytes             INTEGER NOT NULL,
+    state                   TEXT NOT NULL,
+    -- Set on a superseded publication. A link, never a delete: a session pinned
+    -- to it keeps reading it (DEC-CONTENT-005).
+    superseded_by           TEXT,
+    published_by            TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    -- Idempotency: the same version published with the same content is one
+    -- publication (DEC-RUNTIME-003); a correction has a new course version.
+    UNIQUE (institution_id, version_id, content_package_version)
+);
+CREATE INDEX IF NOT EXISTS idx_publications_tenant
+    ON publications(institution_id, course_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_publications_version
+    ON publications(institution_id, version_id);
+
+-- Transactional outbox (docs/architecture/16_DATA_STORAGE_AND_EVENTS.md): the
+-- event row commits with the publication, so metadata and event cannot disagree.
+-- Delivered at least once, consumers deduplicate event_id; delivery itself is not
+-- implemented (DEC-TECH-001 ordered-event technology is OPEN), so dispatched_at
+-- stays NULL until a later task adds a sender.
+CREATE TABLE IF NOT EXISTS publication_outbox (
+    event_id       TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    aggregate_type TEXT NOT NULL,
+    aggregate_id   TEXT NOT NULL,
+    event_type     TEXT NOT NULL,
+    payload        TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    dispatched_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_publication_outbox_tenant
+    ON publication_outbox(institution_id, created_at);

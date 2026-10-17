@@ -49,7 +49,10 @@ DEC-CONTENT-005,backend/app/compiler/package_builder/service.py,CODE
 DEC-CONTENT-005,backend/app/compiler/package_builder/loader.py,CODE
 DEC-CONTENT-005,backend/app/publication/models.py,CODE
 DEC-CONTENT-005,backend/app/publication/repository.py,CODE
+DEC-CONTENT-005,backend/app/publication/seal.py,CODE
+DEC-CONTENT-005,backend/app/publication/service.py,CODE
 DEC-CONTENT-005,backend/app/publication/workflow.py,CODE
+DEC-CONTENT-005,backend/tests/test_publication_publish.py,CODE
 DEC-CONTENT-005,backend/tests/test_publication_review_decisions.py,CODE
 DEC-CONTENT-005,backend/tests/test_publication_review_flow.py,CODE
 DEC-CONTENT-005,frontend/src/components/TeacherStudio.test.tsx,CODE
@@ -112,6 +115,7 @@ DEC-DATA-001,docs/data/DATA_MODEL_AND_TRANSACTIONS.md,SPEC
 DEC-DATA-001,backend/app/publication/models.py,CODE
 DEC-DATA-001,backend/app/publication/repository.py,CODE
 DEC-DATA-001,database/migrations/0002_review_decisions_and_drafts.sql,SPEC
+DEC-DATA-001,database/migrations/0003_atomic_publication.sql,SPEC
 DEC-DATA-001,backend/app/db/database.py,CODE
 DEC-DATA-001,backend/tests/test_database_concurrency.py,CODE
 DEC-DATA-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
@@ -137,6 +141,9 @@ DEC-DATA-004,docs/state-machines/TEACHER_VOICE_STATE_MACHINE.md,SPEC
 DEC-DATA-004,docs/state-machines/TIMELINE_STATE_MACHINE.md,SPEC
 DEC-DATA-004,docs/state-machines/TURN_MANAGER_STATE_MACHINE.md,SPEC
 DEC-DATA-004,docs/testing/INVARIANT_AND_CHAOS_TESTS.md,SPEC
+DEC-DATA-004,contracts/events/course-version-published.schema.json,SPEC
+DEC-DATA-004,backend/app/publication/outbox.py,CODE
+DEC-DATA-004,backend/tests/test_publication_publish.py,CODE
 DEC-DATA-005,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DATA-005,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH
 DEC-DATA-005,docs/architecture/07_PUBLICATION_AND_REVIEW.md,ARCH
@@ -144,6 +151,10 @@ DEC-DATA-005,docs/architecture/14_LLM_RAG_AND_AI_SAFETY.md,ARCH
 DEC-DATA-005,docs/architecture/17_SECURITY_PRIVACY_AND_GOVERNANCE.md,ARCH
 DEC-DATA-005,docs/security/THREAT_MODEL_AND_CONTROLS.md,SPEC
 DEC-DATA-005,docs/testing/CONTENT_AND_AI_EVALUATION.md,SPEC
+DEC-DATA-005,backend/app/publication/index.py,CODE
+DEC-DATA-005,backend/app/publication/repository.py,CODE
+DEC-DATA-005,backend/app/publication/service.py,CODE
+DEC-DATA-005,backend/tests/test_publication_publish.py,CODE
 DEC-DEPLOY-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DEPLOY-001,docs/architecture/08_RUNTIME_CONTROL_PLANE.md,ARCH
 DEC-DEPLOY-001,docs/architecture/22_DEPLOYMENT_AND_SCALING.md,ARCH
@@ -212,6 +223,9 @@ DEC-RELIABILITY-002,docs/operations/MEDIA_OUTAGE_RUNBOOK.md,SPEC
 DEC-RELIABILITY-002,docs/operations/SLO_CAPACITY_AND_ERROR_BUDGET.md,SPEC
 DEC-RELIABILITY-002,docs/product/PRODUCT_REQUIREMENTS.md,SPEC
 DEC-RELIABILITY-002,backend/app/publication/repository.py,CODE
+DEC-RELIABILITY-002,backend/app/publication/errors.py,CODE
+DEC-RELIABILITY-002,backend/app/publication/service.py,CODE
+DEC-RELIABILITY-002,backend/tests/test_publication_publish.py,CODE
 DEC-RELIABILITY-002,backend/app/db/database.py,CODE
 DEC-RELIABILITY-002,backend/tests/test_database_concurrency.py,CODE
 DEC-RUNTIME-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
@@ -257,6 +271,9 @@ DEC-RUNTIME-003,docs/state-machines/TEACHER_VOICE_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-003,docs/state-machines/TIMELINE_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-003,docs/state-machines/TURN_MANAGER_STATE_MACHINE.md,SPEC
 DEC-RUNTIME-003,docs/testing/TEST_STRATEGY.md,SPEC
+DEC-RUNTIME-003,backend/app/publication/repository.py,CODE
+DEC-RUNTIME-003,backend/app/publication/service.py,CODE
+DEC-RUNTIME-003,backend/tests/test_publication_publish.py,CODE
 DEC-RUNTIME-004,contracts/websocket/PROTOCOL.md,SPEC
 DEC-RUNTIME-004,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-004,docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md,ARCH

@@ -19,6 +19,12 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``GET  /artifacts/{artifactId}/review-package/review-state`` — decision, draft, blocking status
 * ``POST /artifacts/{artifactId}/review-package/drafts`` — append a draft lesson-order revision
 * ``GET  /artifacts/{artifactId}/review-package/drafts`` — draft revision history
+* ``POST /course-versions/{versionId}/publish`` — seal, index and commit an approved
+  version (V0-008; idempotent, returns the publication)
+* ``GET  /course-versions/{versionId}/publication`` — the newest publication of a version
+  (``?verify=true`` re-checks the pinned package against its seal)
+* ``GET  /publications/{publicationId}`` — one publication by identity (superseded included)
+* ``GET  /courses/{courseId}/publications`` — a course's publication history
 * ``GET  /renderer`` — renderer capability and health
 * ``GET  /health``
 
@@ -52,9 +58,11 @@ from app.config import Settings
 from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
 from app.db.database import Database, init_db
-from app.publication.repository import ReviewRepository
+from app.publication.index import BaselineIndexBuilder
+from app.publication.repository import PublicationRepository, ReviewRepository
 from app.publication.review import ReviewService
-from app.publication.router import build_review_router
+from app.publication.router import build_publication_router, build_review_router
+from app.publication.service import PublicationService
 from app.publication.workflow import ReviewWorkflow
 from app.storage.object_store import LocalObjectStore
 
@@ -104,8 +112,19 @@ def create_app(
     review_service = ReviewService(repository, object_store, package_build_service)
     # Review decisions and draft revisions are durable *state*, so they live in
     # the relational store — never in the immutable object store (DEC-DATA-001).
-    review_workflow = ReviewWorkflow(
-        review_service, ReviewRepository(database), repository
+    review_repository = ReviewRepository(database)
+    review_workflow = ReviewWorkflow(review_service, review_repository, repository)
+    # The atomic publication transition (V0-008). The index builder is replaceable
+    # infrastructure: DEC-TECH-008 (search/vector technology) is OPEN, so the local
+    # baseline only establishes the index-version *identity* a publication pins and
+    # builds no index content (V0-014 does).
+    publication_service = PublicationService(
+        repository,
+        review_repository,
+        PublicationRepository(database),
+        object_store,
+        package_build_service,
+        index_builder=BaselineIndexBuilder(),
     )
 
     app = FastAPI(title="Mentora API", version="1.0.0")
@@ -117,7 +136,9 @@ def create_app(
     app.state.rendering_service = rendering_service
     app.state.package_build_service = package_build_service
     app.state.review_service = review_service
+    app.state.review_repository = review_repository
     app.state.review_workflow = review_workflow
+    app.state.publication_service = publication_service
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_request, exc: AppError) -> JSONResponse:
@@ -136,6 +157,9 @@ def create_app(
     # Teacher review (V0-007): read-only projection of a built package plus the
     # approve/reject decision and draft lesson-order revisions.
     app.include_router(build_review_router(review_service, review_workflow, tenant))
+    # Atomic publication (V0-008): seal/index/commit an approved version and serve
+    # published versions, including superseded ones.
+    app.include_router(build_publication_router(publication_service, tenant))
 
     @app.get("/health")
     def health() -> dict[str, str]:

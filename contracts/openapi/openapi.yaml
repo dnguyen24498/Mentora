@@ -243,14 +243,95 @@ paths:
     post:
       operationId: publishVersion
       description: >-
-        A version may only be published when the fidelity gate reports
-        publishable (no FAILED/CANCELLED/missing render). Otherwise 409
-        PUBLICATION_BLOCKED.
+        Atomic publication (V0-008). Seals the built package (verifies checksums
+        and references, records the manifest and content digests), establishes
+        the compatible knowledge-index version, and commits the publication
+        metadata, the index-version record and the outbox event in one
+        transaction — only after which the version is visible as PUBLISHED.
+        Preconditions: the version is APPROVED and its newest review decision is
+        an APPROVE covering the package's current content_package_version.
+        Idempotent (DEC-RUNTIME-003): the identity is (versionId,
+        content_package_version), so a repeat returns the same publication with
+        `created: false` instead of a second one. Validation failures are
+        refused before anything is written: `issue_code` is NOT_APPROVED,
+        STALE_APPROVAL, WRONG_STATE, the validator's code (e.g.
+        CHECKSUM_MISMATCH), or INDEX_FAILED.
       parameters: [{in: path, name: versionId, required: true, schema: {type: string}}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublishRequest'}
       responses:
-        '202': {description: Accepted}
+        '200':
+          description: The publication (created, or replayed when already published)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublishedVersion'}
+        '403':
+          description: 'Version belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'No package has been built for the version''s artifact (stable code NOT_FOUND)'
         '409':
-          description: 'Publication blocked by a failed render (stable code PUBLICATION_BLOCKED)'
+          description: 'Publication refused (stable code PUBLICATION_BLOCKED, precise issue_code)'
+  /course-versions/{versionId}/publication:
+    get:
+      operationId: getVersionPublication
+      description: >-
+        The newest publication of a course version, or 404 when it has not been
+        published. `verify=true` re-reads the pinned package and re-checks it
+        against the digest recorded at seal time, adding an `integrity` block
+        (VERIFIED / MISMATCH / MISSING).
+      parameters:
+        - {in: path, name: versionId, required: true, schema: {type: string}}
+        - {in: query, name: verify, required: false, schema: {type: boolean, default: false}}
+      responses:
+        '200':
+          description: The publication, optionally with its integrity report
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Publication'}
+        '403':
+          description: 'Version belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'The version has not been published (stable code NOT_FOUND)'
+  /publications/{publicationId}:
+    get:
+      operationId: getPublication
+      description: >-
+        One publication by identity, including a superseded one: DEC-CONTENT-005
+        pins all compatible versions, so a session that started on an older
+        publication keeps reading it. A publication of another institution is
+        NOT_FOUND rather than forbidden (the lookup is tenant-scoped, so it does
+        not leak existence). `verify=true` adds the integrity report.
+      parameters:
+        - {in: path, name: publicationId, required: true, schema: {type: string}}
+        - {in: query, name: verify, required: false, schema: {type: boolean, default: false}}
+      responses:
+        '200':
+          description: The publication, optionally with its integrity report
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Publication'}
+        '404':
+          description: 'Unknown publication or another institution''s (stable code NOT_FOUND)'
+  /courses/{courseId}/publications:
+    get:
+      operationId: listCoursePublications
+      description: >-
+        A course's publication history, newest first. Superseded publications are
+        included: they are history, not deletions.
+      parameters:
+        - {in: path, name: courseId, required: true, schema: {type: string}}
+        - {in: query, name: limit, required: false, schema: {type: integer, default: 50, maximum: 500}}
+      responses:
+        '200':
+          description: The course's publications, newest first
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationPage'}
+        '403':
+          description: 'Course belongs to another institution (stable code TENANT_ACCESS_DENIED)'
   /classes/{classId}/start:
     post:
       operationId: startClass
@@ -595,3 +676,81 @@ components:
         decision: {oneOf: [{$ref: '#/components/schemas/ReviewDecision'}, {type: 'null'}]}
         draft: {oneOf: [{$ref: '#/components/schemas/ReviewDraft'}, {type: 'null'}]}
         draft_count: {type: integer, minimum: 0}
+    PublishRequest:
+      description: Optional attribution for a publication (not an authorization control in V0).
+      type: object
+      additionalProperties: false
+      properties:
+        published_by: {type: string, maxLength: 256}
+    Publication:
+      description: >-
+        One committed publication: an immutable package plus the compatible
+        version tuple a runtime pins (DEC-CONTENT-005, DEC-DATA-005). Rows are
+        immutable facts; a correction publishes a new course version and links the
+        previous publication through `superseded_by` instead of deleting it.
+        `content_digest` is the seal over the published content — re-check it with
+        `?verify=true`, which adds `integrity`.
+      type: object
+      required: [publication_id, institution_id, course_id, version_id, course_version, artifact_id, package_id, content_package_version, lesson_plan_versions, knowledge_index_version, index_version_id, package_prefix, manifest_sha256, content_digest, file_count, total_bytes, state, published_by, created_at]
+      properties:
+        publication_id: {type: string}
+        institution_id: {type: string}
+        course_id: {type: string}
+        version_id: {type: string}
+        course_version: {type: integer, minimum: 1}
+        artifact_id: {type: string}
+        package_id: {type: string}
+        content_package_version: {type: string}
+        lesson_plan_versions: {type: array, items: {type: string}}
+        knowledge_index_version:
+          type: string
+          description: 'The pinned index identity (DEC-DATA-005); "unindexed" until V0-014 builds index content'
+        teaching_graph_version: {type: [string, 'null']}
+        index_version_id: {type: string}
+        package_prefix: {type: string, description: 'Object-store prefix the publication pins (packages/<package_id>)'}
+        manifest_sha256: {type: string, description: 'Envelope digest as sealed (provenance)'}
+        content_digest: {type: string, description: 'Digest over the sealed content; must never change'}
+        file_count: {type: integer}
+        total_bytes: {type: integer}
+        state: {type: string, enum: [PUBLISHED, SUPERSEDED]}
+        superseded_by: {type: [string, 'null']}
+        published_by: {type: string}
+        created_at: {type: string}
+        created:
+          type: boolean
+          description: 'Present on the publish response: false when the request replayed an existing publication'
+        integrity: {$ref: '#/components/schemas/PublicationIntegrity'}
+    PublishedVersion:
+      description: 'The publish response: the publication plus whether this call created it.'
+      allOf:
+        - {$ref: '#/components/schemas/Publication'}
+        - type: object
+          required: [created]
+          properties:
+            created: {type: boolean}
+    PublicationPage:
+      type: object
+      required: [course_id, publications]
+      properties:
+        course_id: {type: string}
+        publications:
+          type: array
+          description: Newest first; superseded publications included
+          items: {$ref: '#/components/schemas/Publication'}
+    PublicationIntegrity:
+      description: >-
+        Result of re-checking a published package against the digest recorded at
+        seal time (opt-in with `?verify=true`). VERIFIED means the pinned content
+        is exactly what was published; MISMATCH means something overwrote or
+        dropped part of it, and `issues` names which validator codes fired —
+        `PUBLICATION_BLOCKED` is not returned, because a caller asking for a
+        verdict wants the verdict.
+      type: object
+      required: [state, package_id, expected_digest, observed_digest, file_count, issues]
+      properties:
+        state: {type: string, enum: [VERIFIED, MISMATCH, MISSING]}
+        package_id: {type: string}
+        expected_digest: {type: string}
+        observed_digest: {type: string}
+        file_count: {type: integer}
+        issues: {type: array, items: {type: string}}

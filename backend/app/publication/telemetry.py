@@ -134,4 +134,182 @@ class ReviewTelemetry:
         )
 
 
-__all__ = ["ReviewMetrics", "ReviewTelemetry"]
+# -- the publication transition (V0-008) ------------------------------------------
+
+publication_logger = logging.getLogger("mentora.publication.publish")
+
+
+@dataclass
+class PublicationMetrics:
+    """Counters for the seal/index/commit flow.
+
+    One counter per outcome the flow can have, plus one per stage, so an operator
+    can see *where* publications stop and how often one is replayed rather than
+    created (``DEC-RUNTIME-003`` idempotency is a designed outcome, not an error).
+    """
+
+    stages_sealed: int = 0
+    stages_indexed: int = 0
+    stages_committed: int = 0
+    publications_created: int = 0
+    publications_replayed: int = 0
+    publications_blocked: int = 0
+    seal_failures: int = 0
+    index_failures: int = 0
+    commit_conflicts: int = 0
+    supersessions: int = 0
+    integrity_checks: int = 0
+    integrity_failures: int = 0
+
+    def to_dict(self) -> dict[str, int]:
+        return dict(self.__dict__)
+
+
+@dataclass
+class PublicationTelemetry:
+    """Emits one structured record per stage/outcome and keeps counters.
+
+    Follows :class:`ReviewTelemetry` and
+    ``docs/architecture/20_OBSERVABILITY_COST_AND_CAPACITY.md``: tenant, artifact,
+    version, package and the version *tuple* — identities and counts only. Slide
+    text, notes and reviewer prose are not part of the publication transition and
+    are never recorded.
+    """
+
+    metrics: PublicationMetrics = field(default_factory=PublicationMetrics)
+    _logger: logging.Logger = field(default=publication_logger, repr=False)
+
+    def emit(self, event: str, **fields: Any) -> dict[str, Any]:
+        record = {"event": event, **fields}
+        try:
+            self._logger.info(json.dumps(record, sort_keys=True, default=str))
+        except (TypeError, ValueError):  # pragma: no cover - telemetry must never break publishing
+            self._logger.info("event=%s", event)
+        return record
+
+    def record_stage(
+        self,
+        *,
+        stage: str,
+        outcome: str,
+        institution_id: str,
+        version_id: str,
+        artifact_id: str,
+        package_id: str,
+        content_package_version: str,
+        detail: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """One stage of the flow, whether it succeeded or refused."""
+
+        return self.emit(
+            "publication.stage",
+            stage=stage,
+            outcome=outcome,
+            institution_id=institution_id,
+            version_id=version_id,
+            artifact_id=artifact_id,
+            package_id=package_id,
+            content_package_version=content_package_version,
+            detail=detail,
+        )
+
+    def record_publish(
+        self,
+        *,
+        publication_id: str,
+        institution_id: str,
+        course_id: str,
+        version_id: str,
+        course_version: int,
+        artifact_id: str,
+        package_id: str,
+        content_package_version: str,
+        knowledge_index_version: str,
+        teaching_graph_version: Optional[str],
+        file_count: int,
+        total_bytes: int,
+        scene_count: Optional[int],
+        created: bool,
+        superseded: int = 0,
+    ) -> dict[str, Any]:
+        if created:
+            self.metrics.publications_created += 1
+        else:
+            self.metrics.publications_replayed += 1
+        self.metrics.supersessions += superseded
+        return self.emit(
+            "publication.published",
+            publication_id=publication_id,
+            institution_id=institution_id,
+            course_id=course_id,
+            version_id=version_id,
+            course_version=course_version,
+            artifact_id=artifact_id,
+            package_id=package_id,
+            content_package_version=content_package_version,
+            knowledge_index_version=knowledge_index_version,
+            teaching_graph_version=teaching_graph_version,
+            files=file_count,
+            bytes=total_bytes,
+            scenes=scene_count,
+            created=created,
+            superseded=superseded,
+        )
+
+    def record_blocked(
+        self,
+        *,
+        stage: str,
+        issue_code: str,
+        institution_id: str,
+        version_id: str,
+        artifact_id: str,
+        package_id: str,
+        content_package_version: str,
+    ) -> dict[str, Any]:
+        self.metrics.publications_blocked += 1
+        if stage == "SEALING":
+            self.metrics.seal_failures += 1
+        elif stage == "INDEXING":
+            self.metrics.index_failures += 1
+        elif stage == "COMMITTING":
+            self.metrics.commit_conflicts += 1
+        return self.emit(
+            "publication.blocked",
+            stage=stage,
+            issue_code=issue_code,
+            institution_id=institution_id,
+            version_id=version_id,
+            artifact_id=artifact_id,
+            package_id=package_id,
+            content_package_version=content_package_version,
+        )
+
+    def record_integrity(
+        self,
+        *,
+        institution_id: str,
+        publication_id: str,
+        package_id: str,
+        state: str,
+        file_count: int,
+    ) -> dict[str, Any]:
+        self.metrics.integrity_checks += 1
+        if state != "VERIFIED":
+            self.metrics.integrity_failures += 1
+        return self.emit(
+            "publication.integrity_checked",
+            institution_id=institution_id,
+            publication_id=publication_id,
+            package_id=package_id,
+            state=state,
+            files=file_count,
+        )
+
+
+__all__ = [
+    "PublicationMetrics",
+    "PublicationTelemetry",
+    "ReviewMetrics",
+    "ReviewTelemetry",
+]

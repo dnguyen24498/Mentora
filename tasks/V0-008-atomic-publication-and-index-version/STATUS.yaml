@@ -1,9 +1,17 @@
 id: V0-008
 title: "Atomic publication and index version"
 week: W4
-status: TODO
+status: DONE
 depends_on: ["V0-006", "V0-007"]
-started_at: null
-completed_at: null
+started_at: "2026-10-17"
+completed_at: "2026-10-17"
 commit: null
 blockers: []
+notes:
+  - "Design: SEALING/INDEXING/COMMITTING are in-process stages that are never persisted. One commit transaction writes the knowledge-index version record, the publication row and the outbox row, performs the guarded APPROVED->PUBLISHED status change and marks superseded publications. So 'partial failure never exposes published version' holds by construction (no staging row to leak), and a refusal writes nothing."
+  - "Identity is content: (version_id, content_package_version), UNIQUE per tenant. A duplicate or concurrent publish returns the first publication with created=false (DEC-RUNTIME-003). A correction is a new course version; the older publication becomes SUPERSEDED with a superseded_by link, never deleted (DEC-CONTENT-005)."
+  - "Seal = re-validate the stored package + manifest_sha256 (envelope/provenance) + content_digest (path+sha256 of the manifest's listed files, sorted; the verify basis, so a rewritten created_at is not a false alarm). ?verify=true re-checks the pinned prefix and reports VERIFIED/MISMATCH/MISSING."
+  - "Index pin: IndexBuilder ABC + BaselineIndexBuilder declares the package's own knowledge_index_version ('unindexed', status UNINDEXED) and records the published content_digest it is compatible with. DEC-TECH-008 stays OPEN; V0-014 replaces the builder. No vector/search technology is presented as decided."
+  - "Outbox: row written in the same transaction (event course.version.published), dispatched_at NULL and no dispatcher/broker - delivery technology is OPEN (DEC-TECH-001)."
+  - "Refusals are classified (errors.py, no new ErrorCode member): 409 PUBLICATION_BLOCKED with issue_code NOT_APPROVED / STALE_APPROVAL / WRONG_STATE / the validator's own code (e.g. CHECKSUM_MISMATCH) / INDEX_FAILED, all raised before the transaction so the version stays retryable (DEC-RELIABILITY-002)."
+  - "Real deck (16.7 MB, 28 slides): publish file_count=57, total_bytes=36,542,049, index pin 'unindexed', verify VERIFIED, replay created=false, and after an overwrite of a pinned asset verify reports MISMATCH with CHECKSUM_MISMATCH. Backend 383 passed (was 364)."

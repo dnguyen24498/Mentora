@@ -49,7 +49,7 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render (mode-selected) -> gate. |
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
-| `app/publication/` | Teacher review of a built package (V0-007): the read-only projection (`review.py`) plus the write path (`workflow.py`, `repository.py`, `draft.py`) — approve/reject and draft lesson-order revisions. Publication state transitions are V0-008. |
+| `app/publication/` | Teacher review of a built package (V0-007, `review.py`/`workflow.py`/`draft.py`) **and** the atomic publication transition (V0-008, `service.py`/`seal.py`/`index.py`/`outbox.py`): seal (checksums + digests) → index-version pin → one commit transaction → published-version retrieval. |
 | `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
@@ -70,6 +70,10 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /artifacts/{artifactId}/review-package/review-state` — the current decision, the newest draft revision, the draft count, the course-version status, and whether the decision is `stale` (recorded for a different content version).
 - `POST /artifacts/{artifactId}/review-package/drafts` — **append a draft revision** of the lesson order. The body's array order is the proposed order and every entry must name a section that already exists in the package, so a draft can only reorder and re-script; structural fields are inherited from the package. `400` with an `issue_code` (`EMPTY_DRAFT`, `UNKNOWN_SECTION`, `DUPLICATE_SECTION`, `MISSING_SECTION`, `INVALID_SCRIPT`) when it is not a rearrangement, `409 REVISION_CONFLICT` when a concurrent save won the revision.
 - `GET /artifacts/{artifactId}/review-package/drafts` — draft revision history, newest first.
+- `POST /course-versions/{versionId}/publish` — **V0-008**: seal the built package (verify checksums/references, record the manifest and content digests), establish the compatible knowledge-index version, and commit the publication + index pin + outbox event in **one transaction**; returns the publication with `created`. Idempotent on `(versionId, content_package_version)`: a replay returns the same publication with `created: false`. `409 PUBLICATION_BLOCKED` with an `issue_code` (`NOT_APPROVED`, `STALE_APPROVAL`, `WRONG_STATE`, the validator's code, `INDEX_FAILED`) when the version must not be published; nothing is written. `404` when no package is built.
+- `GET /course-versions/{versionId}/publication` — the version's newest publication (`404` when unpublished). `?verify=true` re-reads the pinned package and re-checks it against the digest sealed at publish time, adding an `integrity` report (`VERIFIED`/`MISMATCH`/`MISSING`).
+- `GET /publications/{publicationId}` — one publication by identity, **including a superseded one** (a session pinned to it keeps reading it). Another institution's is `404`, not `403` (the lookup is tenant-scoped and does not leak existence). `?verify=true` as above.
+- `GET /courses/{courseId}/publications` — the course's publication history, newest first, superseded ones included (`?limit=`, default 50).
 - `GET /renderer` — the default render mode, every available mode, the active theme, and the requested mode's identity/capability/circuit-breaker health (`?mode=`, V0-019).
 - `GET /artifacts/{artifactId}` — artifact metadata (the Teacher Studio uses `filename` for its page title).
 - `GET /health`.
@@ -321,9 +325,9 @@ break the browser). For normal development the frontend runs on its own server a
   the two things a teacher can *change*, and neither touches the package:
   a **decision** (approve/reject) and a **draft revision** of the lesson order.
   Approving moves the course version to `APPROVED` and rejecting returns it to
-  `REVIEW_REQUIRED` — review states only;
-  `APPROVED → SEALING → INDEXING → COMMITTING → PUBLISHED`, the pinned index and
-  the outbox are V0-008. A decision binds to the `content_package_version` it
+  `REVIEW_REQUIRED` — review states only. The publication transition
+  (`APPROVED → SEALING → INDEXING → COMMITTING → PUBLISHED`), the pinned index and
+  the outbox are V0-008 (below). A decision binds to the `content_package_version` it
   reviewed, so a rebuild under different content/config reports it as `stale`
   rather than letting it pass as current. Drafts are append-only revisions
   (`UNIQUE (artifact_id, revision)`), their structural fields (`scene_id`,
@@ -339,3 +343,58 @@ break the browser). For normal development the frontend runs on its own server a
   and an edited script are never logged. Reviewer identity is client-supplied and
   is **not** an authorization control: roles arrive with the identity work in
   `docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md`.
+- **Atomic publication (V0-008).** `app/publication/service.py` runs the three
+  stages and then one commit. The stages are **in-process and never persisted**, so
+  there is no staging row a crash could leave behind: "partial publication is
+  invisible" holds by construction, not by compensation. **SEALING** (`seal.py`)
+  re-validates the stored package and computes two digests — `manifest_sha256`
+  (the envelope, kept for provenance) and `content_digest` (path + SHA-256 of every
+  manifest-listed file, sorted), which is the *verify* basis, so a legitimate
+  rewrite of the manifest (a new `created_at`) is not a false alarm. **INDEXING**
+  goes through the replaceable `IndexBuilder` interface (`index.py`):
+  `BaselineIndexBuilder` establishes the index-version identity a publication must
+  pin (`DEC-DATA-005`) and builds no index content — a Baseline Content Package is
+  usable without enrichment (`DEC-CONTENT-002`) and the search/vector technology is
+  `OPEN` (`DEC-TECH-008`), so it pins `unindexed` and records the published
+  `content_digest` as the content it is compatible with. V0-014 replaces the
+  builder; the record, the pin and the transaction do not move. **COMMITTING**
+  (`repository.py::PublicationRepository.commit`) is one transaction that writes
+  the index-version row, the publication row and the transactional-outbox row,
+  performs the guarded `APPROVED → PUBLISHED` status change (the row count is the
+  guard) and marks superseded publications — so a visible publication always has
+  its pin and its event.
+  - **Identity is content**, `(version_id, content_package_version)`, unique per
+    tenant: a replay returns the *same* publication with `created: false`, and two
+    concurrent publishes of one version produce exactly one (the loser re-reads the
+    winner; an unrecoverable race is a classified `COMMIT_CONFLICT`). The existence
+    check runs *before* the approval check, because a replay arrives when the
+    version is already `PUBLISHED`, which is not the `APPROVED` precondition.
+  - **A correction is a new course version** — new package, new publication.
+    Publishing it marks the course's strictly older publications, and any other
+    publication of the same version, `SUPERSEDED` with a `superseded_by` link.
+    Nothing is deleted: `DEC-CONTENT-005` pins all compatible versions, and
+    `GET /publications/{id}` serves a superseded one to the session reading it.
+  - **Refusals are classified and write nothing** (`errors.py`): `409
+    PUBLICATION_BLOCKED` with `NOT_APPROVED`, `STALE_APPROVAL`, `WRONG_STATE`, the
+    validator's own code (e.g. `CHECKSUM_MISMATCH`) or `INDEX_FAILED`. Every one is
+    raised before the transaction, so the version stays retryable
+    (`DEC-RELIABILITY-002`).
+  - **The seal is the read half of immutability**: `?verify=true` on either read
+    endpoint re-reads the *pinned* prefix (not the one the current renderer
+    implies) and reports `VERIFIED`/`MISMATCH`/`MISSING` against the recorded
+    digest rather than erroring.
+  - Durable state: `publications`, `knowledge_index_versions` and
+    `publication_outbox` in `app/db/schema.sql` (PostgreSQL reference
+    `database/migrations/0003_atomic_publication.sql`). The outbox row is written
+    but **not dispatched** — delivery technology is `OPEN` (`DEC-TECH-001`), so
+    `dispatched_at` stays null until a later task adds a sender.
+    `app/publication/telemetry.py` emits `publication.stage`,
+    `publication.published`, `publication.blocked` and
+    `publication.integrity_checked` with the version tuple and counts only — never
+    slide text, notes or a review reason. Covered by
+    `tests/test_publication_publish.py` (19): the happy path, the index pin and its
+    provenance, the outbox event (and its JSON-Schema contract), duplicate and
+    concurrent publish, a crash at each stage (nothing published, retry succeeds),
+    checksum and index failure, a stale/absent approval, publishing writing no
+    bytes, a correction leaving the old package readable, tamper detection, tenant
+    isolation, and telemetry.
