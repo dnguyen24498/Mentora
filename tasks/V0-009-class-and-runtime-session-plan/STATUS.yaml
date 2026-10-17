@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-008"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: null
+commit: "99e8110"
 blockers: []
 notes:
   - "Module home is backend/app/classroom/ (service.py, repository.py, models.py, catalog.py, snapshot.py, telemetry.py, router.py, errors.py). The task family's own allowlists put V0-010 -> classroom/, V0-013 -> classroom/timeline/, V1-004 -> classroom/turn/, so the empty reserved placeholders class_management/, session/, student/ are superseded and not used."

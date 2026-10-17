@@ -63,7 +63,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-**Link to commit/PR:** `COMMIT_HASH`.
+**Link to commit/PR:** `99e8110`.
 
 **What was built.** `app/classroom/` is a new package: `service.py` (schedule,
 start, snapshot read, enroll, join), `repository.py` (tenant-scoped persistence plus
