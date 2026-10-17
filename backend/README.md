@@ -121,15 +121,20 @@ break the browser). For normal development the frontend runs on its own server a
   therefore defines the `DocumentRenderer` interface, a required test double, and
   two dependency-free local implementations behind it (`renderers/factory.py`
   selects by mode) — neither is ever reported as native/compatible:
-  - **`themed` (default, V0-019 v3)** — `ThemedSvgRenderer` **re-lays the content
-    out**: placement is the platform's and content is the author's
+  - **`themed` (default, V0-019 v4)** — `ThemedSvgRenderer` **keeps the author's
+    grouping and re-authors the look**: the grouping and content are the author's,
+    the arrangement within each group and the appearance are the platform's
     (`renderers/flow.py` + `renderers/textmetrics.py` + `renderers/mentora_theme.py`),
-    reporting `THEMED_RENDERED`. The extracted objects become flow blocks (a
-    merged list of paragraphs, a table, a row of pictures) placed in **one
-    readable column in reading order** by a single measuring pass over a cursor:
+    reporting `THEMED_RENDERED`. A binary widest-gap XY-cut over the source boxes
+    recovers the slide's rows and columns (an icon stays beside its label; a column
+    is only cut when both sides are a substantial share of the region), and each
+    recovered cell is folded into flow blocks (a merged list of paragraphs, a
+    table, a row of pictures) placed by a single measuring pass over a cursor:
     position and measurement are the same computation, so blocks cannot overlap by
     construction (`tests/test_flow_layout.py` asserts the invariant pairwise over
-    the emitted geometry). A heading is hoisted (kicker/title/subtitle over one
+    the emitted geometry). A row cell that draws more than one block becomes a
+    card: the content is inset and a flat surface panel (no border) is painted
+    behind it. A heading is hoisted (kicker/title/subtitle over one
     hairline rule) and the page number lives in a reserved bottom strip the flow
     may not enter. The look is entirely the platform's: its type stack, its type
     scale, its palette; no source typeface, colour, fill or geometry is
@@ -183,26 +188,35 @@ break the browser). For normal development the frontend runs on its own server a
   - The renderer identity is bumped to `2.0.0` and the IR schema to
     `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
     reused after this change.
-- **Themed slide rendering (V0-019 v3, the default mode).** `ThemedSvgRenderer`
-  re-authors the *layout* of each slide while keeping every word, cell and picture
-  the author put on it. It shares only the `_Canvas`/`_attr`/`_num` helpers with
-  the structural renderer; its geometry is `flow.py`'s, not the source's:
-  - **Content is the author's**: the IR objects are folded into flow blocks — a
+- **Themed slide rendering (V0-019 v4, the default mode).** `ThemedSvgRenderer`
+  re-authors the *look* of each slide while keeping the *grouping* and every word,
+  cell and picture the author put on it. It shares only the
+  `_Canvas`/`_attr`/`_num` helpers with the structural renderer; its geometry is
+  `flow.py`'s, not the source's:
+  - **The grouping is the author's**: the IR objects keep their source boxes, and
+    a binary widest-gap XY-cut (`flow.structure`) recovers the slide's rows and
+    columns. A cell holds the objects the author grouped together, so an icon
+    stays beside its label and a card keeps its parts. A column is only cut when
+    both sides are a substantial share of the region width
+    (`theme.min_column_share`), so a narrow icon column never splits from its
+    label; a full-width object spans the region and forbids a column cut through
+    it. Same-key neighbours (one bullet per text box) are re-joined into one run.
+  - **Content is the author's**: each recovered cell is folded into flow blocks — a
     list of paragraphs (level indent, bullet markers when the source resolved one,
     bold/italic runs), a table (empty rows/columns dropped, source column
     proportions kept), a row of pictures (≤4 per row, aspect from the file
     header), a panel for a chart/SmartArt. A text-less decorative shape is dropped
-    (it is not content). Consecutive same-emphasis text boxes merge into one list:
-    art-directed decks write each bullet in its own box, and treating each box as
-    a block would spend the page on gaps.
-  - **Placement is the platform's**: one column in reading order, measured and
-    placed in the same pass, so a block always advances the cursor and can never
-    overlap the next. A hoisted heading (kicker/title/subtitle + one hairline rule)
-    sits above it and the page number below it, in a strip the flow cannot enter.
+    (it is not content).
   - **The look is the platform's**: the theme's type stack, its type scale, its
     palette (`mentora_theme.py`). Source sizes only choose a *row* (`lead`/`body`/
     `caption`, relative to the slide's most common size), so an art-directed
     statistic still reads as one. No source colour, fill, stroke or box is drawn.
+    A cell that draws more than one block becomes a **card**: the content is inset
+    and a flat `theme.surface` rounded panel (no border) is painted behind it.
+  - **Placement is the platform's**: within a cell, blocks are measured and placed
+    in the same pass, so a block always advances the cursor and can never overlap
+    the next. A hoisted heading (kicker/title/subtitle + one hairline rule) sits
+    above the body and the page number below it, in a strip the flow cannot enter.
   - **The gate is content completeness**: nothing is re-selected, re-ordered or
     dropped. Content that does not fit even at the smallest readable scale is
     still drawn in full and flagged `TEXT_OVERFLOW:<scene>` (degraded for review,
@@ -213,7 +227,7 @@ break the browser). For normal development the frontend runs on its own server a
     table biased slightly wide), so a line may break a word early — it can never
     push a block into its neighbour. There is no bundled font to license or embed.
   - The theme is versioned and folded into the renderer's config hash; the
-    renderer identity is `mentora-themed-svg@3.0.0`, so themed and faithful
+    renderer identity is `mentora-themed-svg@4.0.0`, so themed and faithful
     packages can never be confused.
 - Rendering is deterministic and content-addressed: identical bytes + identical
   renderer identity/config produce byte-identical SVG, so recompiles reuse one

@@ -1,5 +1,5 @@
 id: V0-019
-title: "Themed slide rendering (re-lay the content out in the platform theme)"
+title: "Themed slide rendering (keep the author's grouping, re-lay the look in the platform theme)"
 week: W4
 status: DONE
 depends_on: ["V0-005", "V0-006", "V0-018"]
@@ -11,14 +11,17 @@ blockers:
 revisions:
   - "v1 (7b5e8a0): themed mode re-authored the content by classifying each slide into an archetype and re-flowing the IR. On a real art-directed deck this collided and was unreadable. Superseded by v2."
   - "v2 (d969f88): themed mode kept the author's layout and re-styled it in the platform theme (renderer mentora-themed-svg@2.0.0). This removed the collisions v1 introduced but inherited the source deck's own. Superseded by v3."
-  - "v3: themed mode re-lays the content out as one readable column in the platform theme (flow.py + textmetrics.py + a px mentora_theme.py + a standalone ThemedSvgRenderer); renderer identity mentora-themed-svg@3.0.0, theme mentora-default v3.0.0."
+  - "v3 (ae68632): themed mode re-laid the content out as one readable column in the platform theme (flow.py + textmetrics.py + a px mentora_theme.py + a standalone ThemedSvgRenderer); renderer identity mentora-themed-svg@3.0.0, theme mentora-default v3.0.0. Superseded by v4."
+  - "v4: v3's single column destroyed the author's grouping (an icon row and its label row were emitted as two separate rows). v4 recovers the source geometry's rows and columns (flow.structure, a binary widest-gap XY-cut) and re-authors only the look inside each cell, with flat card surfaces for multi-object cells; renderer identity mentora-themed-svg@4.0.0, theme mentora-default v4.0.0."
 notes:
-  - "Product decision: placement is the platform's and content is the author's. The flow measures and places in a single pass over a cursor, so two blocks cannot overlap by construction; the platform's page number sits in a strip the flow may not enter, so chrome cannot cover content either."
+  - "Product decision: the grouping is the author's, the content is the author's, the look is the platform's. The author's rows and columns are recovered from the source boxes and kept; type, size, colour, fill, spacing and exact geometry are re-authored. The flow measures and places in a single pass over a cursor, so two blocks cannot overlap by construction; across a row the cells take disjoint x-intervals; and the platform's page number sits in a strip the flow may not enter, so chrome cannot cover content either."
+  - "The structure is recovered by a binary widest-gap XY-cut capped at MAX_STRUCTURE_DEPTH. A column split is only taken when both sides are at least theme.min_column_share of the region width, so a narrow icon column never splits from its label; a full-width object forbids a column cut through it. Same-key neighbours coalesce back into one run, and same-axis nesting flattens."
+  - "A row cell that draws more than one block becomes a card: the content is inset by theme.card_pad_px and a flat theme.surface rounded panel is emitted before the content. Surfaces are backgrounds, not content, so they are excluded from the no-overlap geometry."
   - "Nothing is lost: no re-selection, re-ordering or clipping. Every paragraph, list level, table cell and picture is drawn. Content that cannot fit even at the smallest readable scale is still drawn in full, flagged TEXT_OVERFLOW:<scene>, degraded for review, and the page number is omitted so nothing is covered."
   - "Source hierarchy survives without copying the source's type scale: the slide's own sizes choose one of three theme rows (lead/body/caption, relative to the slide's most common size), and bold/italic runs are kept."
   - "Consecutive same-emphasis text boxes merge into one list: art-directed decks write each bullet in its own text box, and treating each box as a block would spend the page on gaps."
   - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning is content completeness, not visual fidelity to the source."
   - "Charts/SmartArt cannot be redrawn from the IR: they become a labelled panel and degrade with UNSUPPORTED_OBJECT:<kind>, requiring review."
   - "Text metrics are estimated from a font-free advance table (textmetrics.py), so a line may break a word early; it can never collide with its neighbour or push a block into the next."
-  - "The theme is folded into the renderer config hash and the package cache key binds the renderer identity (name@version = mentora-themed-svg@3.0.0), so a themed package can never collide with a faithful one."
+  - "The theme is folded into the renderer config hash and the package cache key binds the renderer identity (name@version = mentora-themed-svg@4.0.0), so a themed package can never collide with a faithful one."
   - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."

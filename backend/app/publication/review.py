@@ -48,15 +48,14 @@ MISSING_FONT_PREFIX = "MISSING_FONT:"
 THEMED_RENDERER_ID = "mentora-themed-svg"
 
 #: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. The
-#: **default** mode (V0-019) re-lays the extracted content out as one readable
-#: column and styles it in the platform theme, so the UI must say plainly which
-#: part is whose.
+#: **default** mode (V0-019) keeps the author's grouping and re-lays the content
+#: out in the platform theme, so the UI must say plainly which part is whose.
 THEMED_RENDER_NOTICE = (
-    "Slides are re-laid out by the platform into one readable column in the "
-    "Mentora theme (its layout, typeface, palette and page number): the content "
-    "is the deck's, the placement and appearance are the platform's. No native "
-    "PowerPoint render is produced; a production renderer technology is still an "
-    "open decision (DEC-TECH-005)."
+    "Slides are re-laid out by the platform in the Mentora theme (its layout, "
+    "typeface, palette and page number): the deck's grouping and content are the "
+    "author's, the arrangement within each group and the appearance are the "
+    "platform's. No native PowerPoint render is produced; a production renderer "
+    "technology is still an open decision (DEC-TECH-005)."
 )
 
 #: ``RENDER_PLACEHOLDER_NOTICE`` (V0-018) describes the ``faithful`` mode.

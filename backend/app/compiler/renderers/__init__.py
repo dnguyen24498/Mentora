@@ -5,8 +5,8 @@
 implementations are shipped while ``DEC-TECH-005`` (native PowerPoint rendering)
 is OPEN, selected by mode (``renderers/factory.py``):
 
-* ``ThemedSvgRenderer`` — re-lays the extracted content out as one readable
-  column in the platform theme (``renderers/flow.py``); the **default** mode
+* ``ThemedSvgRenderer`` — recovers the author's grouping and re-lays the content
+  out in the platform theme (``renderers/flow.py``); the **default** mode
   (V0-019).
 * ``StructuralSvgRenderer`` — reproduces the source deck's own styling and
   placement; the ``faithful`` mode (V0-018).

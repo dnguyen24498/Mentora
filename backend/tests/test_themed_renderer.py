@@ -5,9 +5,11 @@ default to:
 
 * **the content is the author's** — every paragraph, list level, table cell and
   picture survives the re-layout; nothing is silently dropped or truncated;
-* **the layout is the platform's** — one readable column, heading hoisted, page
-  number in its own reserved strip, and *no two drawn texts overlap* even when
-  the source frames do (asserted over the produced SVG, not argued);
+* **the grouping is the author's** — the source rows and columns are recovered, so
+  an icon stays on the row of its own label and a card keeps its parts;
+* **the layout is the platform's** — each cell flows in reading order, heading
+  hoisted, page number in its own reserved strip, and *no two drawn texts overlap*
+  even when the source frames do (asserted over the produced SVG, not argued);
 * **the look is the platform's** — its type stack, its type scale, its palette,
   its chrome; no source typeface, colour, fill or geometry is reproduced;
 * **the font problem is gone** — an unavailable source font can no longer degrade
@@ -27,6 +29,7 @@ import pytest
 
 from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.media import document_media_refs, read_media_parts
+from app.compiler.renderers import flow
 from app.compiler.renderers.base import (
     RenderBudget,
     RenderConfig,
@@ -169,7 +172,7 @@ def test_the_theme_is_bound_into_the_renderer_identity(object_store):
     )
 
     assert plain.identity().config_hash != restyled.identity().config_hash
-    assert plain.theme_identity() == {"name": "mentora-default", "version": "3.0.0"}
+    assert plain.theme_identity() == {"name": "mentora-default", "version": "4.0.0"}
 
 
 def test_a_themed_scene_never_reports_a_missing_font(themed_renderer, object_store):
@@ -627,3 +630,142 @@ def test_the_same_input_renders_byte_identically(themed_renderer, object_store):
     _, second = _render(themed_renderer, deck)
 
     assert _svg(object_store, first.scene(0)) == _svg(object_store, second.scene(0))
+
+
+# -- grouping: the author's rows and columns survive the re-layout -----------------
+#: Slide 21 of the real deck is a card grid: each card is a badge beside its title,
+#: then an icon beside its label. Flattening that into one column put every icon on
+#: its own line, which reads as nonsense; these tests pin the recovered grouping.
+_EMU = 9525
+
+
+def _px(value: float) -> int:
+    return int(round(value * _EMU))
+
+
+def _picture(shape_id: int, name: str, *, x: float, y: float, size: float, rel_id: str) -> str:
+    return (
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{shape_id}" name="{name}"/>'
+        f"<p:cNvPicPr/><p:nvPr/></p:nvPicPr>"
+        f'<p:blipFill><a:blip r:embed="{rel_id}"/></p:blipFill>'
+        f'<p:spPr><a:xfrm><a:off x="{_px(x)}" y="{_px(y)}"/>'
+        f'<a:ext cx="{_px(size)}" cy="{_px(size)}"/></a:xfrm></p:spPr></p:pic>'
+    )
+
+
+def _card_grid() -> bytes:
+    return themed_pptx(
+        [
+            text_shape(
+                2,
+                "Title",
+                text="Kết quả đạt được",
+                placeholder="title",
+                x=_px(56),
+                y=_px(40),
+                cx=_px(1168),
+                cy=_px(60),
+            ),
+            _picture(3, "Badge A", x=60, y=200, size=24, rel_id="rIdImg"),
+            text_shape(4, "Label A", text="Đào tạo", x=_px(95), y=_px(196), cx=_px(200), cy=_px(40)),
+            _picture(5, "Icon A", x=60, y=250, size=21, rel_id="rIdImg"),
+            text_shape(
+                6, "Body A", text="Mở ngành đào tạo thạc sĩ", x=_px(90), y=_px(250), cx=_px(250), cy=_px(80)
+            ),
+            _picture(7, "Badge B", x=500, y=200, size=24, rel_id="rIdImg"),
+            text_shape(
+                8, "Label B", text="Nghiên cứu", x=_px(535), y=_px(196), cx=_px(200), cy=_px(40)
+            ),
+            _picture(9, "Icon B", x=500, y=250, size=21, rel_id="rIdImg"),
+            text_shape(
+                10,
+                "Body B",
+                text="Thực hiện đề tài cấp trường",
+                x=_px(530),
+                y=_px(250),
+                cx=_px(250),
+                cy=_px(80),
+            ),
+        ],
+        image=_png(8, 8),
+    )
+
+
+def _layout_of(renderer, data: bytes):
+    document = PptxExtractor().extract(data)
+    media = read_media_parts(data, document_media_refs(document))
+    scene = document.slides[0]
+    header, body = renderer._content(scene, media)
+    return flow.layout(
+        body=body, header=header, theme=renderer.theme, width=CANVAS_WIDTH, height=CANVAS_HEIGHT
+    )
+
+
+def test_every_icon_is_placed_on_the_row_of_its_own_label(themed_renderer):
+    result = _layout_of(themed_renderer, _card_grid())
+
+    icons = [item for item in result.items if isinstance(item, flow.PlacedPicture)]
+    labels = [item for item in result.items if isinstance(item, flow.PlacedText)]
+
+    assert len(icons) == 4, "the cards' four pictures are still all drawn"
+    for icon in icons:
+        same_row = [
+            label
+            for label in labels
+            if label.box.x >= icon.box.right
+            and min(icon.box.bottom, label.box.bottom) - max(icon.box.y, label.box.y) > 2.0
+        ]
+        assert same_row, f"{icon.box} has no label beside it"
+
+
+def test_a_card_grid_is_drawn_as_surface_panels_without_borders(themed_renderer, object_store):
+    _, report = _render(themed_renderer, _card_grid())
+    svg = _svg(object_store, report.scene(0))
+
+    assert svg.count(f'fill="{_THEME.surface}"') == 2, "one flat fill per card cell"
+    assert re.findall(r"<rect[^>]*stroke", svg) == [], "a card panel is a fill, never a border"
+
+
+def test_a_plain_list_slide_stays_one_column(themed_renderer, object_store):
+    """A full-width object spans the region, so no column can be cut through it."""
+
+    deck = themed_pptx(
+        [
+            text_shape(2, "Title", text="Hạn chế", placeholder="title"),
+            text_shape(3, "One", text="Chỉ tiêu thứ nhất", x=_px(56), y=_px(200), cx=_px(1168), cy=_px(40)),
+            text_shape(4, "Two", text="Chỉ tiêu thứ hai", x=_px(56), y=_px(250), cx=_px(1168), cy=_px(40)),
+            text_shape(5, "Three", text="Chỉ tiêu thứ ba", x=_px(56), y=_px(300), cx=_px(1168), cy=_px(40)),
+        ]
+    )
+    _, report = _render(themed_renderer, deck)
+    svg = _svg(object_store, report.scene(0))
+    result = _layout_of(themed_renderer, deck)
+
+    assert result.surfaces == (), "an ungrouped slide has no card panels"
+    lists = [
+        [line.text for line in item.lines]
+        for item in result.items
+        if isinstance(item, flow.PlacedText)
+    ]
+    assert ["Chỉ tiêu thứ hai", "Chỉ tiêu thứ ba"] in lists, (
+        "consecutive same-emphasis lines stay one list"
+    )
+    for text in ("Chỉ tiêu thứ nhất", "Chỉ tiêu thứ hai", "Chỉ tiêu thứ ba"):
+        assert text in svg
+
+
+def test_grouping_never_drops_a_fragment(themed_renderer, object_store):
+    _, report = _render(themed_renderer, _card_grid())
+    svg = _svg(object_store, report.scene(0))
+
+    for fragment in (
+        "Kết quả đạt được",
+        "Đào tạo",
+        "Mở ngành đào tạo thạc sĩ",
+        "Nghiên cứu",
+        "Thực hiện đề tài cấp trường",
+    ):
+        assert fragment in svg
+    _assert_no_overlap(svg)
+    for box in _drawn_boxes(svg):
+        assert box[0] >= CONTENT_LEFT - 0.5 and box[2] <= CONTENT_RIGHT + 0.5, box

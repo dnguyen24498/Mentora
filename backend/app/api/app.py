@@ -80,8 +80,8 @@ def create_app(
     extraction_service = ExtractionService(repository, object_store, extractor)
     # The renderer is replaceable infrastructure: DEC-TECH-005 (native
     # PowerPoint rendering) is OPEN, so local implementations sit behind the
-    # DocumentRenderer interface. V0-019 makes ``themed`` (re-lay the extracted
-    # content out as one readable column in the platform theme) the default and
+    # DocumentRenderer interface. V0-019 makes ``themed`` (recover the author's
+    # grouping and re-lay the content out in the platform theme) the default and
     # keeps ``faithful`` (reproduce the source slide's own styling) as an
     # explicit mode. Tests inject their own factory, which then serves every mode.
     render_config = RenderConfig()
@@ -234,8 +234,8 @@ def create_app(
     ) -> dict:
         """Extract, render every slide, and run the fidelity gate (V0-005).
 
-        ``mode`` selects the render mode (V0-019): ``themed`` (default) re-lays
-        the extracted content out as one readable column in the platform theme,
+        ``mode`` selects the render mode (V0-019): ``themed`` (default) recovers
+        the author's grouping and re-lays the content out in the platform theme,
         ``faithful`` reproduces the source slide's own styling and placement.
         """
 

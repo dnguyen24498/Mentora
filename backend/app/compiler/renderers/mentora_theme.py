@@ -53,7 +53,7 @@ class MentoraTheme:
     """Palette, typeface stack, type scale, and grid for the platform look."""
 
     name: str = "mentora-default"
-    version: str = "3.0.0"
+    version: str = "4.0.0"
 
     # -- palette (sRGB; the theme paints flat, opaque surfaces) ----------------
     background: str = "#FFFFFF"
@@ -104,6 +104,22 @@ class MentoraTheme:
     rule_gap_px: float = 11.0
     #: Gap between two body blocks.
     item_gap_px: float = 14.0
+    #: Gap between two groups stacked vertically (a banner above a card row).
+    group_gap_px: float = 22.0
+    #: Gap between two cells placed side by side (a row of cards).
+    column_gap_px: float = 26.0
+    #: Inset of a cell's content inside the card fill drawn behind it.
+    card_pad_px: float = 16.0
+    #: Smallest share of a row's width one cell may take, so the source's own
+    #: proportions cannot starve a column.
+    min_cell_share: float = 0.05
+    #: Smallest empty band between two source boxes that counts as structure. Below
+    #: this the boxes are treated as one region (in reading order).
+    min_split_gap_px: float = 4.0
+    #: Smallest share of a region's width a side of a vertical split may take. A
+    #: narrower side (an icon beside its label) is read as a row instead, so the icon
+    #: stays with the text it belongs to.
+    min_column_share: float = 0.12
     #: Gap between two paragraphs of the same text block.
     paragraph_gap_px: float = 6.0
     #: Indent step for one list level (the bullet glyph sits in this step).
@@ -154,6 +170,12 @@ class MentoraTheme:
             "heading_gap_px": self.heading_gap_px,
             "rule_gap_px": self.rule_gap_px,
             "item_gap_px": self.item_gap_px,
+            "group_gap_px": self.group_gap_px,
+            "column_gap_px": self.column_gap_px,
+            "card_pad_px": self.card_pad_px,
+            "min_cell_share": self.min_cell_share,
+            "min_split_gap_px": self.min_split_gap_px,
+            "min_column_share": self.min_column_share,
             "paragraph_gap_px": self.paragraph_gap_px,
             "list_indent_px": self.list_indent_px,
             "table_pad_x_px": self.table_pad_x_px,

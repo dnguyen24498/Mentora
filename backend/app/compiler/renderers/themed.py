@@ -1,32 +1,40 @@
 """Platform-themed renderer (V0-019): the content, re-laid out in the theme.
 
 This is the default render mode. It reads the extracted **content** — the text,
-tables and pictures of a slide, in reading order — and rebuilds the slide in the
-platform's own layout and look:
+tables and pictures of a slide — and rebuilds the slide in the platform's own
+layout and look:
 
-* ``renderers/flow.py`` lays the content out as **one readable column**: a hoisted
-  heading, then the body blocks top-to-bottom, fitted by a type-scale ladder.
+* ``renderers/flow.py`` recovers the author's **grouping** from the source
+  geometry (a card row stays a row of cards, an icon stays beside its label) and
+  then lays each cell out in the theme, fitted by a type-scale ladder.
 * ``renderers/mentora_theme.py`` owns the typeface, the palette and the chrome.
-* This module is the bridge: it turns a scene into flow blocks, draws the flow's
-  geometry as SVG, and applies the fidelity gate.
+* This module is the bridge: it turns a scene into flow items and blocks, draws the
+  flow's geometry as SVG, and applies the fidelity gate.
 
-Why the author's layout is *not* reproduced
--------------------------------------------
+Why the author's layout is *not* reproduced (and why it is not flattened either)
+-------------------------------------------------------------------------------
 V0-019 first copied the author's geometry and restyled it. On real, art-directed
 decks that is what makes slides unreadable: source text frames overlap each other,
 sit outside the safe area, or hold more text than they can show, and copying that
-onto a different typeface reproduces the problem instead of fixing it. The
-platform therefore imposes its *own* grid. The trade-off is explicit and is the
-product decision: **placement is the platform's, content is the author's.**
+onto a different typeface reproduces the problem instead of fixing it.
+
+Flattening the slide into one column fixes the collisions but destroys the
+*grouping*, and grouping is content: a three-card summary read as one column
+becomes a meaningless list of fragments with every icon on its own line. So the
+decks' rows and columns are recovered from the source boxes and kept, while
+everything the platform is entitled to own — type, size, colour, fill, spacing and
+the exact geometry — is re-authored. The product decision is: **the grouping is the
+author's, the content is the author's, the look is the platform's.**
 
 Consequences
 ------------
 * **The font problem disappears.** The theme owns its typefaces, so
   ``missing_fonts()`` is empty by construction: an unavailable source font can no
   longer degrade a themed scene.
-* **Overlap is structurally impossible.** The flow places blocks on a cursor
-  (:mod:`app.compiler.renderers.flow`), and the platform's page number sits in a
-  strip the flow may not enter — so the chrome can never cover content either.
+* **Overlap is structurally impossible.** Within a region the flow places blocks on
+  a cursor; across a row the cells take disjoint x-intervals. The platform's page
+  number sits in a strip the flow may not enter — so the chrome can never cover
+  content either.
 * **Completeness is the gate.** Nothing is dropped: text keeps its paragraphs,
   emphasis, lists and tables, and a picture that cannot be drawn becomes a
   labelled panel with a warning rather than a blank. Content that does not fit
@@ -149,6 +157,38 @@ def _emphasis(size: float, base: float) -> str:
     return "body"
 
 
+def _entry_key(entry: "_Entry", base: float) -> str:
+    """The structure key an entry merges under: adjacent equal keys are one run."""
+
+    if entry.kind == "text":
+        return f"text:{_emphasis(entry.size, base)}"
+    return entry.kind
+
+
+def _blocks_of(node: flow.Node):
+    """Every flow block a structure holds, in layout order."""
+
+    if isinstance(node, flow.Leaf):
+        yield from node.blocks
+    elif isinstance(node, flow.Row):
+        for cell in node.cells:
+            yield from _blocks_of(cell)
+    else:
+        for child in node.children:
+            yield from _blocks_of(child)
+
+
+def _picture_blocks(node: flow.Node) -> int:
+    return sum(1 for block in _blocks_of(node) if isinstance(block, flow.PictureBlock))
+
+
+def _has_text(node: flow.Node) -> bool:
+    return any(
+        isinstance(block, (flow.TextBlock, flow.TableBlock, flow.PanelBlock))
+        for block in _blocks_of(node)
+    )
+
+
 def _bullet_marker(paragraph: TextParagraph, *, listed: bool) -> Optional[str]:
     bullet = paragraph.bullet or {}
     if bullet:
@@ -209,7 +249,7 @@ class ThemedSvgRenderer(DocumentRenderer):
     """Draws the extracted content as a platform-styled SVG (the default mode)."""
 
     renderer_id = "mentora-themed-svg"
-    renderer_version = "3.0.0"
+    renderer_version = "4.0.0"
     engine = "mentora-theme-svg"
     fidelity_ceiling = FIDELITY_THEMED
     degraded_fidelity = FIDELITY_DEGRADED
@@ -237,13 +277,14 @@ class ThemedSvgRenderer(DocumentRenderer):
             supported_kinds=self.supported_kinds,
             available_fonts=tuple(sorted(self.theme.available_fonts)),
             reasons=(
-                "themed renderer: the extracted content is re-laid out as one "
-                f"readable column and styled in the platform theme "
-                f"'{self.theme.name}' v{self.theme.version}",
+                "themed renderer: the extracted content is re-laid out in the "
+                f"platform theme '{self.theme.name}' v{self.theme.version}, keeping "
+                "the source slide's rows and columns as grouping",
                 "the theme owns its typefaces, so unavailable source fonts do not "
                 "degrade a themed scene",
-                "placement is the platform's and content is the author's: the "
-                "source slide's own geometry is not reproduced",
+                "the look is the platform's and the content is the author's: the "
+                "source slide's own fonts, sizes, colours, fills and exact geometry "
+                "are not reproduced",
                 "charts and SmartArt cannot be redrawn from the IR and require review",
                 "native PowerPoint rendering is an OPEN decision (DEC-TECH-005)",
             ),
@@ -346,8 +387,8 @@ class ThemedSvgRenderer(DocumentRenderer):
         width, height = float(self.config.width_px), float(self.config.height_px)
         canvas = _Canvas(width, height, scene, media, self.config, warnings)
 
-        header, blocks = self._content(scene, media)
-        result = flow.layout(blocks=blocks, header=header, theme=theme, width=width, height=height)
+        header, structure = self._content(scene, media)
+        result = flow.layout(body=structure, header=header, theme=theme, width=width, height=height)
         if result.overflow:
             warnings.append(f"{TEXT_OVERFLOW_PREFIX}{scene.scene_id}")
 
@@ -358,6 +399,9 @@ class ThemedSvgRenderer(DocumentRenderer):
             f'<rect x="0" y="0" width="{_num(width)}" height="{_num(height)}" '
             f'fill="{_attr(theme.background)}"/>',
         ]
+        # Card fills are backgrounds: they are drawn first, behind the content.
+        for surface in result.surfaces:
+            body.append(self._draw_surface(surface))
         for item in result.items:
             body.append(self._draw(canvas, item))
         if not result.overflow:
@@ -441,6 +485,14 @@ class ThemedSvgRenderer(DocumentRenderer):
             f'y2="{_num(box.y)}" stroke="{_attr(self.theme.border)}" stroke-width="1"/>'
         )
 
+    def _draw_surface(self, box: flow.Box) -> str:
+        """A card fill behind a grouped cell: the theme's flat surface, no border."""
+
+        return (
+            f'<rect x="{_num(box.x)}" y="{_num(box.y)}" width="{_num(box.width)}" '
+            f'height="{_num(box.height)}" rx="10" fill="{_attr(self.theme.surface)}"/>'
+        )
+
     def _draw_table(self, item: flow.PlacedTable) -> str:
         theme = self.theme
         parts: list[str] = []
@@ -516,8 +568,13 @@ class ThemedSvgRenderer(DocumentRenderer):
     # -- content extraction -----------------------------------------------------
     def _content(
         self, scene: SlideScene, media: Mapping[str, bytes]
-    ) -> tuple[flow.Header, tuple[flow.Block, ...]]:
-        """Turn a scene into (heading, body blocks), both in reading order."""
+    ) -> tuple[flow.Header, flow.Node]:
+        """Turn a scene into (heading, body structure).
+
+        The body entries are grouped into the author's rows and columns from their
+        source boxes (:func:`flow.structure`), then each leaf is folded into flow
+        blocks. Grouping never changes *what* is drawn — only what sits beside what.
+        """
 
         entries: list[_Entry] = []
         for obj in sorted(scene.objects, key=lambda o: o.reading_order):
@@ -525,7 +582,7 @@ class ThemedSvgRenderer(DocumentRenderer):
             if entry is not None:
                 entries.append(entry)
         if not entries:
-            return flow.Header(), ()
+            return flow.Header(), flow.Leaf(())
 
         title_index = self._title_index(entries)
         if title_index is None:
@@ -540,11 +597,41 @@ class ThemedSvgRenderer(DocumentRenderer):
             )
             skip = {title_index, kicker_index, subtitle_index} - {None}
             body = [entry for index, entry in enumerate(entries) if index not in skip]
-        return header, tuple(self._budget_pictures(header, self._blocks(body)))
 
-    def _budget_pictures(
-        self, header: flow.Header, blocks: list[flow.Block]
-    ) -> list[flow.Block]:
+        base = _nominal_size(body)
+        items = [
+            flow.Item(box=self._source_box(entry.obj, scene), key=_entry_key(entry, base))
+            for entry in body
+        ]
+        structure = flow.resolve(
+            flow.structure(
+                items,
+                min_gap=self.theme.min_split_gap_px,
+                min_column_share=self.theme.min_column_share,
+            ),
+            lambda indices: flow.Leaf(tuple(self._blocks([body[i] for i in indices], base))),
+        )
+        return header, self._budget_pictures(header, structure)
+
+    def _source_box(self, obj: ShapeObject, scene: SlideScene) -> flow.Box:
+        """The object's box on the render canvas — used *only* to detect grouping.
+
+        The geometry is read, never reproduced: it says which boxes sit beside which,
+        and the platform then decides what that arrangement actually looks like.
+        """
+
+        width, height = float(self.config.width_px), float(self.config.height_px)
+        if obj.bounds is None:
+            return flow.Box(0.0, 0.0, width, height)
+        normalized = obj.bounds.normalized(scene.width, scene.height)
+        return flow.Box(
+            (normalized["x"] or 0.0) * width,
+            (normalized["y"] or 0.0) * height,
+            (normalized["width"] or 1.0) * width,
+            (normalized["height"] or 1.0) * height,
+        )
+
+    def _budget_pictures(self, header: flow.Header, body: flow.Node) -> flow.Node:
         """Divide the slide's whole picture budget between its picture blocks.
 
         The budget is a *slide* budget, not a per-block one: a deck that interleaves
@@ -553,22 +640,28 @@ class ThemedSvgRenderer(DocumentRenderer):
         the whole body; a mixed slide keeps pictures to their share.
         """
 
-        indices = [
-            index for index, block in enumerate(blocks) if isinstance(block, flow.PictureBlock)
-        ]
-        if not indices:
-            return blocks
+        count = _picture_blocks(body)
+        if not count:
+            return body
         width, height = float(self.config.width_px), float(self.config.height_px)
-        body = flow.reference_body_height(header, self.theme, width, height)
-        mixed = any(
-            isinstance(block, (flow.TextBlock, flow.TableBlock, flow.PanelBlock))
-            for block in blocks
-        )
-        share = body * (self.theme.picture_budget if mixed else 1.0) / len(indices)
-        for index in indices:
-            block = blocks[index]
-            blocks[index] = flow.PictureBlock(block.images, max_height=share)
-        return blocks
+        reference = flow.reference_body_height(header, self.theme, width, height)
+        share = reference * (self.theme.picture_budget if _has_text(body) else 1.0) / count
+
+        def rescale(node: flow.Node) -> flow.Node:
+            if isinstance(node, flow.Leaf):
+                return flow.Leaf(
+                    tuple(
+                        flow.PictureBlock(block.images, max_height=share)
+                        if isinstance(block, flow.PictureBlock)
+                        else block
+                        for block in node.blocks
+                    )
+                )
+            if isinstance(node, flow.Row):
+                return flow.Row(tuple(rescale(cell) for cell in node.cells), node.weights)
+            return flow.Stack(tuple(rescale(child) for child in node.children))
+
+        return rescale(body)
 
     def _entry(self, obj: ShapeObject, media: Mapping[str, bytes]) -> Optional[_Entry]:
         if obj.kind == "group" or obj.placeholder in _CHROME_PLACEHOLDERS:
@@ -662,17 +755,17 @@ class ThemedSvgRenderer(DocumentRenderer):
             return max(0.05, bounds.width / bounds.height)
         return 1.4
 
-    def _blocks(self, entries: list[_Entry]) -> list[flow.Block]:
-        """Fold the body entries into flow blocks.
+    def _blocks(self, entries: list[_Entry], base: float) -> list[flow.Block]:
+        """Fold one cell's entries into flow blocks.
 
         Consecutive text entries at the same emphasis are merged into *one* block:
         an art-directed deck writes each bullet in its own text box, and treating
         each box as its own block would spend the whole page on inter-block gaps
         and lose the fact that they are one list. Consecutive pictures are grouped
-        into one row-block instead.
+        into one row-block instead. ``base`` is the *slide's* nominal size, so the
+        emphasis of a fragment does not depend on what happens to be beside it.
         """
 
-        base = _nominal_size(entries)
         blocks: list[flow.Block] = []
         pending: list[flow.Picture] = []
         paragraphs: list[flow.Paragraph] = []

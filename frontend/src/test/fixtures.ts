@@ -71,13 +71,13 @@ export function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPacka
     file_count: 5,
     renderer: {
       name: 'mentora-themed-svg',
-      version: '1.0.0',
+      version: '4.0.0',
       engine: 'mentora-theme-svg',
       config_hash: 'hash',
       data_region: 'local',
     },
     placeholder_notice:
-      "Slides are re-laid out by the platform into one readable column in the Mentora theme (its layout, typeface, palette and page number): the content is the deck's, the placement and appearance are the platform's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
+      "Slides are re-laid out by the platform in the Mentora theme (its layout, typeface, palette and page number): the deck's grouping and content are the author's, the arrangement within each group and the appearance are the platform's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       makeSection(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       makeSection(1, 'sec-2', 'ppt/slides/slide2.xml', null),

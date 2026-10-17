@@ -26,8 +26,8 @@ const FIDELITY_STYLE: Record<string, string> = {
   NATIVE_RENDERED: 'bg-emerald-100 text-emerald-700',
   COMPATIBLE_RENDERED: 'bg-sky-100 text-sky-700',
   STRUCTURAL_RENDERED: 'bg-slate-100 text-slate-600',
-  // V0-019: the default mode re-lays the slide's content out as one readable
-  // column in the platform theme. It is not a rank on the fidelity-to-source
+  // V0-019: the default mode keeps the deck's grouping and re-lays the content
+  // out in the platform theme. It is not a rank on the fidelity-to-source
   // ladder, so it gets its own colour.
   THEMED_RENDERED: 'bg-indigo-100 text-indigo-700',
   DEGRADED_RENDERED: 'bg-amber-100 text-amber-700',

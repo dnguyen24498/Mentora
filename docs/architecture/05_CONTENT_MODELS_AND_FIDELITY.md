@@ -27,7 +27,7 @@ Scene includes stable ID/source, normalized dimensions/bounds, fallback render, 
 | `NATIVE_RENDERED` | produced by a native/compatible engine (no such engine is accepted yet) |
 | `COMPATIBLE_RENDERED` | produced by a compatible engine (no such engine is accepted yet) |
 | `STRUCTURAL_RENDERED` | the source slide's own geometry and styling reproduced structurally |
-| `THEMED_RENDERED` | the content re-laid out as one readable column in the platform theme |
+| `THEMED_RENDERED` | the content re-laid out in the platform theme (the author's grouping kept, the look re-authored) |
 | `DEGRADED_RENDERED` | renderable, but a human check of meaning is required |
 
 `THEMED_RENDERED` is deliberately **not** on the fidelity-to-source ladder: nothing is claimed about the original appearance, so consumers must not read it as "better" or "worse" than `STRUCTURAL_RENDERED`. It is still an explicit, non-native classification, never a native render. Its content-completeness alarm is `TEXT_OVERFLOW:<scene>`: the scene's content does not fit the page even at the smallest readable type scale. The content is still drawn in full (never truncated) and the scene is degraded for review; the platform omits its own page number on such a scene so nothing is painted over the spill.

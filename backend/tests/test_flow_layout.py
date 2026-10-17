@@ -1,8 +1,12 @@
-"""V0-019: the flow layout — one readable column that cannot overlap.
+"""V0-019: the flow layout — the author's grouping, laid out so it cannot overlap.
 
 The renderer used to copy the author's geometry, which reproduced the author's
-collisions on real decks. These tests pin the replacement contract:
+collisions on real decks; flattening it into one column fixed that but destroyed
+the grouping. These tests pin the replacement contract:
 
+* **the grouping is the author's** — the source boxes are cut into rows and
+  columns, an icon stays beside its label, and a full-width object forbids a
+  column cut through it (see the structure section at the end);
 * **no overlap, ever** — asserted pairwise over the geometry the layout returns,
   not argued from the algorithm;
 * **the chrome strip is reserved** — the page number's band is outside every
@@ -52,7 +56,7 @@ def table(rows: list[list[str]], weights: tuple[float, ...] = ()) -> flow.TableB
 
 def place(*blocks: flow.Block, header: flow.Header | None = None) -> flow.LayoutResult:
     return flow.layout(
-        blocks=blocks,
+        body=flow.Leaf(blocks),
         header=header or flow.Header(),
         theme=THEME,
         width=WIDTH,
@@ -309,5 +313,172 @@ def test_the_same_input_lays_out_identically():
 
 
 def test_fitted_reports_the_overflow_state():
-    assert flow.fitted((text_block("short"),), flow.Header(), THEME, WIDTH, HEIGHT) is True
-    assert flow.fitted((long_block(600),), flow.Header(), THEME, WIDTH, HEIGHT) is False
+    assert (
+        flow.fitted(flow.Leaf((text_block("short"),)), flow.Header(), THEME, WIDTH, HEIGHT) is True
+    )
+    assert (
+        flow.fitted(flow.Leaf((long_block(600),)), flow.Header(), THEME, WIDTH, HEIGHT) is False
+    )
+
+
+# -- structure (what sits beside what) ---------------------------------------------
+#: The layout keeps the author's *grouping*; these tests pin how it is recovered.
+def boxed(x: float, y: float, right: float, bottom: float, key: str = "text:body") -> flow.Item:
+    return flow.Item(box=flow.Box(x, y, right - x, bottom - y), key=key)
+
+
+def shaped(*items: flow.Item) -> flow.Structure:
+    return flow.structure(
+        items, min_gap=THEME.min_split_gap_px, min_column_share=THEME.min_column_share
+    )
+
+
+def describe(node: flow.Structure) -> str:
+    """A compact, readable description of the recovered structure."""
+
+    if isinstance(node, flow.Run):
+        return "Run(" + ",".join(str(index) for index in node.indices) + ")"
+    if isinstance(node, flow.Row):
+        return "Row(" + ",".join(describe(cell) for cell in node.cells) + ")"
+    return "Stack(" + ",".join(describe(child) for child in node.children) + ")"
+
+
+def place_structure(body: flow.Node, header: flow.Header | None = None) -> flow.LayoutResult:
+    return flow.layout(
+        body=body, header=header or flow.Header(), theme=THEME, width=WIDTH, height=HEIGHT
+    )
+
+
+def test_a_region_with_no_gap_is_one_run():
+    items = (boxed(0, 0, 100, 40), boxed(0, 0, 100, 40), boxed(0, 0, 100, 40))
+
+    assert describe(shaped(*items)) == "Run(0,1,2)"
+
+
+def test_two_side_by_side_cells_are_recovered_as_a_row():
+    items = (
+        boxed(0, 0, 100, 40),
+        boxed(0, 60, 100, 100),
+        boxed(300, 0, 400, 40),
+        boxed(300, 60, 400, 100),
+    )
+
+    assert describe(shaped(*items)) == "Row(Run(0,1),Run(2,3))"
+
+
+def test_a_narrow_side_is_read_as_rows_not_columns():
+    """An icon is a sliver beside its label: it must stay in the label's row."""
+
+    items = (
+        boxed(0, 0, 20, 20, key="picture"),
+        boxed(30, 0, 300, 30),
+        boxed(0, 40, 20, 60, key="picture"),
+        boxed(30, 40, 300, 70),
+    )
+
+    assert describe(shaped(*items)) == "Stack(Row(Run(0),Run(1)),Row(Run(2),Run(3)))"
+
+
+def test_a_row_of_cards_is_one_flat_row():
+    items = tuple(
+        item
+        for column in range(3)
+        for item in (
+            boxed(column * 400, 0, column * 400 + 300, 40),
+            boxed(column * 400, 60, column * 400 + 300, 100),
+        )
+    )
+
+    assert describe(shaped(*items)) == "Row(Run(0,1),Run(2,3),Run(4,5))"
+
+
+def test_a_full_width_line_is_not_glued_into_the_row_below_it():
+    items = (boxed(0, 0, 400, 20), boxed(0, 40, 180, 100), boxed(220, 40, 400, 100))
+
+    assert describe(shaped(*items)) == "Stack(Run(0),Row(Run(1),Run(2)))"
+
+
+def test_adjacent_lines_of_one_list_are_rejoined():
+    """A whitespace split inside a list is not a split by meaning."""
+
+    items = (boxed(0, 0, 400, 20), boxed(0, 30, 400, 50), boxed(0, 60, 400, 80))
+
+    assert describe(shaped(*items)) == "Run(0,1,2)"
+
+
+def test_different_keys_are_not_rejoined():
+    items = (boxed(0, 0, 400, 20, key="text:lead"), boxed(0, 30, 400, 50, key="text:body"))
+
+    assert describe(shaped(*items)) == "Stack(Run(0),Run(1))"
+
+
+def test_structure_is_a_pure_function_of_the_boxes():
+    items = (boxed(0, 0, 100, 40), boxed(300, 0, 400, 40), boxed(0, 60, 400, 100))
+
+    assert describe(shaped(*items)) == describe(shaped(*items))
+
+
+def test_row_cells_get_distinct_columns_and_never_overlap():
+    body = flow.Row(
+        cells=(
+            flow.Leaf((text_block("Left column with several words in it"),)),
+            flow.Leaf((text_block("Right column with several words in it"),)),
+        ),
+        weights=(3.0, 1.0),
+    )
+    result = place_structure(body)
+
+    assert_no_overlap(result)
+    left, right = result.items
+    assert left.box.right <= right.box.x
+    assert left.box.width > 2.0 * right.box.width, "the source proportions are kept"
+
+
+def test_a_multi_block_cell_is_drawn_as_a_card_behind_its_content():
+    body = flow.Row(
+        cells=(
+            flow.Leaf((text_block("Card one"), flow.PictureBlock((picture(2.0),)))),
+            flow.Leaf((text_block("Card two"), flow.PictureBlock((picture(2.0),)))),
+        ),
+        weights=(1.0, 1.0),
+    )
+    result = place_structure(body)
+
+    assert len(result.surfaces) == 2, "each grouped cell gets one fill"
+    for surface in result.surfaces:
+        assert surface not in result.boxes(), "a fill is a background, not content"
+        for placed in result.boxes():
+            inside = (
+                surface.x <= placed.x
+                and surface.y <= placed.y
+                and surface.right >= placed.right
+                and surface.bottom >= placed.bottom
+            )
+            assert inside or not surface.overlaps(placed)
+
+
+def test_a_single_block_cell_gets_no_card_fill():
+    body = flow.Row(
+        cells=(
+            flow.Leaf((text_block("Iconless label"),)),
+            flow.Leaf((text_block("Another label"),)),
+        ),
+        weights=(1.0, 1.0),
+    )
+
+    assert place_structure(body).surfaces == ()
+
+
+def test_row_height_is_the_tallest_cell():
+    body = flow.Row(
+        cells=(
+            flow.Leaf((text_block("short"),)),
+            flow.Leaf((long_block(4),)),
+        ),
+        weights=(1.0, 1.0),
+    )
+    result = place_structure(body)
+    short, tall = result.items
+
+    assert tall.box.height > short.box.height
+    assert_no_overlap(result)

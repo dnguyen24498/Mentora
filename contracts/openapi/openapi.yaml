@@ -38,8 +38,8 @@ paths:
         Deterministic compile stage (V0-005): structural extraction, a fallback
         render for every slide with explicit fidelity, and the fidelity
         publication gate. Idempotent and re-runnable; renders are
-        content-addressed. V0-019: `mode=themed` (default) re-lays the slide's
-        content out as one readable column in the platform theme; `mode=faithful`
+        content-addressed. V0-019: `mode=themed` (default) keeps the slide's
+        grouping and re-lays its content out in the platform theme; `mode=faithful`
         reproduces the source slide's own styling. Neither claims a native PowerPoint render.
       parameters:
         - {in: path, name: artifactId, required: true, schema: {type: string}}
@@ -283,8 +283,8 @@ components:
       name: mode
       required: false
       description: >-
-        Render mode (V0-019). `themed` (default) re-lays the slide's content out
-        as one readable column in the platform theme; `faithful` reproduces the source
+        Render mode (V0-019). `themed` (default) keeps the slide's grouping and
+        re-lays its content out in the platform theme; `faithful` reproduces the source
         slide's own styling. An unknown value is rejected with INVALID_REQUEST
         (issue_code UNKNOWN_RENDER_MODE).
       schema: {type: string, enum: [themed, faithful]}

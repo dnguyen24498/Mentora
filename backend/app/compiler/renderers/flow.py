@@ -1,19 +1,33 @@
-"""Content-first flow layout for the platform theme (V0-019).
+"""Grouping-preserving flow layout for the platform theme (V0-019).
 
 The ``themed`` mode does **not** reproduce the author's slide: a real deck's
 geometry is art-directed for the author's fonts on the author's grid, and copying
 it onto the platform's typeface and palette is what produced overlapping, ugly
-slides. Instead the extracted content is *re-laid out*: one readable column, in
-reading order, in the platform's own type scale.
+slides. It does not flatten the slide into one column either: a deck's *grouping*
+is content, not decoration — three cards stay three cards, an icon stays beside
+its own label — and pulling that apart is what makes a re-flow read as nonsense.
+
+So the layout keeps the author's **grouping** and owns everything else. The
+structure is recovered from the source geometry alone (:func:`structure`): a
+whitespace gap that spans a region splits it, the wider gap winning, so a region
+becomes a :class:`Stack` (a horizontal gap, top-to-bottom) or a :class:`Row` (a
+vertical gap, side-by-side) and every cell recurses. The platform then re-measures
+and re-styles each cell in its own type scale: the author's fonts, sizes, colours,
+fills and exact positions are never copied.
 
 Why this cannot overlap
 -----------------------
-The whole layout is produced by **one measuring pass over a cursor**: every block
-is measured (wrapped lines → a height), placed at the cursor, and the cursor
-advances by exactly that measured height. Position and measurement are the same
-computation, so a block can only touch the next one if the cursor did not move —
-which it always does. ``tests/test_flow_layout.py`` asserts the invariant
-pairwise over the emitted geometry rather than trusting the argument.
+Within a region the layout is **one measuring pass over a cursor**: every block is
+measured (wrapped lines → a height), placed at the cursor, and the cursor advances
+by exactly that measured height. Across a :class:`Row` the cells are laid out into
+**disjoint x-intervals** whose widths sum to the region. Both rules hold
+recursively, so a block can only touch its neighbour if neither held —
+``tests/test_flow_layout.py`` asserts the invariant pairwise over the emitted
+geometry rather than trusting the argument.
+
+A row whose cells each hold more than one block is drawn as a *card* (a flat
+``theme.surface`` panel, no border): the author asked for a grid, and the flat fill
+is how the theme says "these belong together".
 
 The trade-off is honest and bounded: because the metrics are estimated
 (``textmetrics.py``, no bundled font), a line may break a word early. It can
@@ -119,6 +133,53 @@ class PanelBlock:
 
 
 Block = Union[TextBlock, TableBlock, PictureBlock, PanelBlock]
+
+
+# -- structure (what belongs with what) --------------------------------------------
+@dataclass(frozen=True)
+class Item:
+    """One content item with the source geometry the structure is derived from."""
+
+    box: "Box"
+    #: Adjacent items with the same key belong to one run (a list, a picture
+    #: strip). ``""`` never merges.
+    key: str = ""
+
+
+@dataclass(frozen=True)
+class Run:
+    """A vertical run of items that belong together (resolves to a ``Leaf``)."""
+
+    indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class Leaf:
+    """A region's content: the blocks of one cell, laid out top to bottom."""
+
+    blocks: tuple[Block, ...]
+
+
+@dataclass(frozen=True)
+class Row:
+    """Side-by-side cells, sized in proportion to the source's own columns."""
+
+    cells: tuple["Node", ...]
+    #: The source extents the cells' widths are proportional to; empty = equal.
+    weights: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class Stack:
+    """A vertical sequence of groups, separated by the theme's group gap."""
+
+    children: tuple["Node", ...]
+
+
+#: A resolved layout node: its leaves carry the themed blocks.
+Node = Union[Leaf, Row, Stack]
+#: ``structure()``'s output, before its runs are resolved to leaves.
+Structure = Union[Run, Row, Stack]
 
 
 @dataclass(frozen=True)
@@ -246,11 +307,211 @@ class LayoutResult:
     #: True when the content did not fit even at ``theme.min_scale``: the renderer
     #: flags the scene and leaves the bottom strip clear instead of covering it.
     overflow: bool = False
+    #: Card fills, drawn behind the content. They are *backgrounds*: they contain
+    #: their cell's boxes, so they are excluded from the no-overlap invariant.
+    surfaces: tuple[Box, ...] = ()
 
     def boxes(self) -> tuple[Box, ...]:
         """Every placed box, for the no-overlap invariant."""
 
         return tuple(item.box for item in self.items)
+
+
+# -- structure detection -----------------------------------------------------------
+#: How deep the geometry is allowed to nest (a card inside a row inside the body).
+MAX_STRUCTURE_DEPTH = 12
+
+
+def _spans(items: Sequence[Item], indices: Sequence[int], axis: str) -> list[tuple[float, float, int]]:
+    """Each item's interval on one axis, sorted by where it starts."""
+
+    if axis == "x":
+        return sorted((items[i].box.x, items[i].box.right, i) for i in indices)
+    return sorted((items[i].box.y, items[i].box.bottom, i) for i in indices)
+
+
+def _best_split(
+    spans: Sequence[tuple[float, float, int]], min_gap: float
+) -> Optional[tuple[float, list[int], list[int]]]:
+    """The widest empty band on this axis that spans the region.
+
+    Returned as ``(gap, before, after)``: the region is cut there and each side is
+    recursed into. Cutting only at the *widest* band is what keeps a card grid
+    together — a narrower seam between two of a card's own lines can only be reached
+    once the cards themselves have been separated.
+    """
+
+    best: Optional[tuple[float, int]] = None
+    reach = spans[0][1]
+    for cut, (low, _high, _index) in enumerate(spans[1:], start=1):
+        if low - reach > min_gap and (best is None or low - reach > best[0]):
+            best = (low - reach, cut)
+        reach = max(reach, spans[cut][1])
+    if best is None:
+        return None
+    gap, cut = best
+    return gap, [span[2] for span in spans[:cut]], [span[2] for span in spans[cut:]]
+
+
+def _extent(items: Sequence[Item], indices: Sequence[int], axis: str) -> float:
+    """How much room a region's items take on one axis (the source proportion)."""
+
+    if axis == "x":
+        return max(items[i].box.right for i in indices) - min(items[i].box.x for i in indices)
+    return max(items[i].box.bottom for i in indices) - min(items[i].box.y for i in indices)
+
+
+def _columns_are_substantial(
+    items: Sequence[Item], split: tuple[float, list[int], list[int]], indices: Sequence[int], share: float
+) -> bool:
+    """True when both sides of a vertical cut are real columns, not a sliver.
+
+    An icon is a few percent of its card's width. Cutting the icon column off the
+    text column would separate every icon from the label it belongs to, so when a
+    side is that narrow the region is read as *rows* instead: the icon and its
+    label end up in one row, which is the whole point of keeping the grouping.
+    """
+
+    _gap, left, right = split
+    width = _extent(items, indices, "x")
+    if width <= 0.0:
+        return False
+    smallest = min(_extent(items, left, "x"), _extent(items, right, "x"))
+    return smallest >= share * width
+
+
+def _run_key(items: Sequence[Item], run: Structure) -> str:
+    keys = {items[index].key for index in run.indices}
+    return next(iter(keys)) if len(keys) == 1 else ""
+
+
+def _coalesce(items: Sequence[Item], children: Sequence[Structure]) -> tuple[Structure, ...]:
+    """Fold adjacent runs of one key back together: they are one list.
+
+    The gap search splits a list of full-width one-line boxes into a run per line;
+    that is a split by whitespace, not by meaning, so the neighbours are rejoined
+    and the leaf builder gets the list it expects.
+    """
+
+    merged: list[Structure] = []
+    for child in children:
+        if merged and isinstance(child, Run) and isinstance(merged[-1], Run):
+            previous = merged[-1]
+            key = _run_key(items, previous)
+            if key and key == _run_key(items, child):
+                merged[-1] = Run(tuple(sorted(previous.indices + child.indices)))
+                continue
+        merged.append(child)
+    return tuple(merged)
+
+
+def _flatten(items: Sequence[Item], node: Structure) -> Structure:
+    """Fold same-axis nesting together: a row of rows *is* one row of cells.
+
+    Cutting at one band at a time (so a card grid survives) leaves a binary tree;
+    a row of six cells must read as six cells, not as three levels of two, or the
+    card test would see an intermediate "row" as content and the gaps would
+    multiply. Flattening restores the flat row and re-runs the list merge.
+    """
+
+    if isinstance(node, Run):
+        return node
+    if isinstance(node, Row):
+        cells: list[Structure] = []
+        weights: list[float] = []
+        for index, cell in enumerate(node.cells):
+            weight = node.weights[index] if index < len(node.weights) else 0.0
+            inner = _flatten(items, cell)
+            if isinstance(inner, Row) and inner.cells:
+                shares = inner.weights if len(inner.weights) == len(inner.cells) else ()
+                total = sum(shares) or float(len(inner.cells))
+                for position, grandchild in enumerate(inner.cells):
+                    cells.append(grandchild)
+                    weights.append(weight * ((shares[position] if shares else 1.0) / total))
+            else:
+                cells.append(inner)
+                weights.append(weight)
+        if len(cells) == 1:
+            return cells[0]
+        return Row(tuple(cells), tuple(weights))
+
+    children: list[Structure] = []
+    for child in node.children:
+        inner = _flatten(items, child)
+        if isinstance(inner, Stack):
+            children.extend(inner.children)
+        else:
+            children.append(inner)
+    merged = _coalesce(items, tuple(children))
+    if len(merged) == 1:
+        return merged[0]
+    return Stack(merged)
+
+
+def structure(
+    items: Sequence[Item],
+    *,
+    min_gap: float,
+    min_column_share: float = 0.12,
+    max_depth: int = MAX_STRUCTURE_DEPTH,
+) -> Structure:
+    """Recover the author's rows and columns from the source geometry alone.
+
+    A whitespace band spanning the region splits it, and the wider of the two axes
+    wins: a slide's banner comes off the top before its card row splits into cards,
+    and each card's own icon/label rows split *inside* the card. A region with no
+    such band is left as one reading-order run, which is what keeps a plain bullet
+    slide a single column.
+    """
+
+    root = _split(items, tuple(range(len(items))), 0, min_gap, min_column_share, max_depth)
+    return _flatten(items, root)
+
+
+def _split(
+    items: Sequence[Item],
+    indices: tuple[int, ...],
+    depth: int,
+    min_gap: float,
+    min_column_share: float,
+    max_depth: int,
+) -> Structure:
+    if len(indices) <= 1 or depth >= max_depth:
+        return Run(tuple(sorted(indices)))
+
+    x_split = _best_split(_spans(items, indices, "x"), min_gap)
+    y_split = _best_split(_spans(items, indices, "y"), min_gap)
+    if x_split is None and y_split is None:
+        return Run(tuple(sorted(indices)))
+
+    columns = x_split is not None and (
+        y_split is None
+        or _columns_are_substantial(items, x_split, indices, min_column_share)
+    )
+    if columns:
+        _gap, left, right = x_split  # type: ignore[misc]
+        cells = (
+            _split(items, tuple(left), depth + 1, min_gap, min_column_share, max_depth),
+            _split(items, tuple(right), depth + 1, min_gap, min_column_share, max_depth),
+        )
+        return Row(cells, (_extent(items, left, "x"), _extent(items, right, "x")))
+
+    _gap, top, bottom = y_split  # type: ignore[misc]
+    children = (
+        _split(items, tuple(top), depth + 1, min_gap, min_column_share, max_depth),
+        _split(items, tuple(bottom), depth + 1, min_gap, min_column_share, max_depth),
+    )
+    return Stack(_coalesce(items, children))
+
+
+def resolve(node: Structure, leaf) -> Node:
+    """Resolve a structure's runs into leaves (``leaf(indices) -> Leaf``)."""
+
+    if isinstance(node, Run):
+        return leaf(node.indices)
+    if isinstance(node, Row):
+        return Row(tuple(resolve(cell, leaf) for cell in node.cells), node.weights)
+    return Stack(tuple(resolve(child, leaf) for child in node.children))
 
 
 # -- wrapping ----------------------------------------------------------------------
@@ -367,6 +628,7 @@ def wrap_text(text: str, size: float, max_width: float, *, bold: bool = False) -
 class _Placed:
     items: tuple[Placed, ...]
     height: float
+    surfaces: tuple[Box, ...] = ()
 
 
 def _place_header(
@@ -615,15 +877,128 @@ def _place_block(
     return _Placed((PlacedPanel(box=Box(x, y, width, height), label=block.label),), height)
 
 
+def _block_count(node: Node) -> int:
+    """How many blocks a node draws (what decides whether a cell is a card)."""
+
+    if isinstance(node, Leaf):
+        return len(node.blocks)
+    if isinstance(node, Row):
+        return sum(_block_count(cell) for cell in node.cells)
+    return sum(_block_count(child) for child in node.children)
+
+
+def _cell_widths(weights: Sequence[float], available: float, min_share: float) -> list[float]:
+    """Row cell widths in the source's own proportions, renormalized to fit.
+
+    The proportions are the author's (a wide column stays wide) but every cell keeps
+    a readable share, so an extreme source column cannot starve its neighbour.
+    """
+
+    count = len(weights)
+    if not count:
+        return []
+    total = sum(weight for weight in weights if weight > 0.0)
+    raw = [weight / total for weight in weights] if total > 0.0 else [1.0 / count] * count
+    clamped = [max(min_share, share) for share in raw]
+    normalizer = sum(clamped)
+    return [available * share / normalizer for share in clamped]
+
+
+def _place_leaf(
+    node: Leaf,
+    theme: MentoraTheme,
+    x: float,
+    width: float,
+    y: float,
+    scale: float,
+    body_height: float,
+) -> _Placed:
+    items: list[Placed] = []
+    cursor = y
+    for index, block in enumerate(node.blocks):
+        if index:
+            cursor += theme.item_gap_px * scale
+        placed = _place_block(block, theme, x, width, cursor, scale, body_height)
+        items.extend(placed.items)
+        cursor += placed.height
+    return _Placed(tuple(items), cursor - y)
+
+
+def _place_row(
+    node: Row,
+    theme: MentoraTheme,
+    x: float,
+    width: float,
+    y: float,
+    scale: float,
+    body_height: float,
+) -> _Placed:
+    cells = node.cells
+    gap = theme.column_gap_px * scale
+    pad = theme.card_pad_px * scale
+    available = max(1.0, width - gap * (len(cells) - 1))
+    widths = _cell_widths(node.weights, available, theme.min_cell_share)
+    cards = [_block_count(cell) > 1 for cell in cells]
+
+    placed: list[tuple[float, float, bool, _Placed]] = []
+    column_x = x
+    for cell, cell_width, card in zip(cells, widths, cards):
+        inset = pad if card else 0.0
+        inner_width = max(24.0, cell_width - 2 * inset)
+        result = _place_node(cell, theme, column_x + inset, inner_width, y + inset, scale, body_height)
+        placed.append((column_x, cell_width, card, result))
+        column_x += cell_width + gap
+
+    height = max(
+        (result.height + (2 * pad if card else 0.0) for _, _, card, result in placed),
+        default=0.0,
+    )
+    items: list[Placed] = []
+    surfaces: list[Box] = []
+    for column_x, cell_width, card, result in placed:
+        items.extend(result.items)
+        if card:
+            surfaces.append(Box(column_x, y, cell_width, height))
+    return _Placed(tuple(items), height, tuple(surfaces))
+
+
+def _place_node(
+    node: Node,
+    theme: MentoraTheme,
+    x: float,
+    width: float,
+    y: float,
+    scale: float,
+    body_height: float,
+) -> _Placed:
+    if isinstance(node, Leaf):
+        return _place_leaf(node, theme, x, width, y, scale, body_height)
+    if isinstance(node, Row):
+        return _place_row(node, theme, x, width, y, scale, body_height)
+
+    items: list[Placed] = []
+    surfaces: list[Box] = []
+    cursor = y
+    for index, child in enumerate(node.children):
+        if index:
+            cursor += theme.group_gap_px * scale
+        placed = _place_node(child, theme, x, width, cursor, scale, body_height)
+        items.extend(placed.items)
+        surfaces.extend(placed.surfaces)
+        cursor += placed.height
+    return _Placed(tuple(items), cursor - y, tuple(surfaces))
+
+
 @dataclass(frozen=True)
 class _Attempt:
     items: tuple[Placed, ...]
     body_box: Box
     needed: float
+    surfaces: tuple[Box, ...] = ()
 
 
 def _attempt(
-    blocks: Sequence[Block],
+    body: Node,
     header: Header,
     theme: MentoraTheme,
     width: float,
@@ -644,17 +1019,15 @@ def _attempt(
         cursor += theme.header_gap_px * scale
         body_top = cursor
 
-    for index, block in enumerate(blocks):
-        if index:
-            cursor += theme.item_gap_px * scale
-        placed = _place_block(block, theme, content_x, content_width, cursor, scale, body_height_ref)
-        items.extend(placed.items)
-        cursor += placed.height
+    placed = _place_node(body, theme, content_x, content_width, cursor, scale, body_height_ref)
+    items.extend(placed.items)
+    cursor += placed.height
 
     return _Attempt(
         items=tuple(items),
         body_box=Box(content_x, body_top, content_width, max(0.0, content_bottom - body_top)),
         needed=cursor - content_top,
+        surfaces=placed.surfaces,
     )
 
 
@@ -677,25 +1050,28 @@ def reference_body_height(
 
 def layout(
     *,
-    blocks: Sequence[Block],
+    body: Node,
     header: Header,
     theme: MentoraTheme,
     width: float,
     height: float,
 ) -> LayoutResult:
-    """Fit ``blocks`` and ``header`` into one page. Never overlaps; may overflow."""
+    """Fit a body structure and ``header`` into one page.
+
+    Never overlaps; may overflow (which is reported, never hidden).
+    """
 
     available = (height - theme.bottom_zone_px) - theme.margin_px
     body_height_ref = reference_body_height(header, theme, width, height)
 
-    attempt = _attempt(blocks, header, theme, width, height, 1.0, body_height_ref)
+    attempt = _attempt(body, header, theme, width, height, 1.0, body_height_ref)
     if attempt.needed <= available + EPSILON:
-        return LayoutResult(attempt.items, attempt.body_box, 1.0)
+        return LayoutResult(attempt.items, attempt.body_box, 1.0, surfaces=attempt.surfaces)
 
     for scale in LADDER[1:]:
-        attempt = _attempt(blocks, header, theme, width, height, scale, body_height_ref)
+        attempt = _attempt(body, header, theme, width, height, scale, body_height_ref)
         if attempt.needed <= available + EPSILON:
-            return LayoutResult(attempt.items, attempt.body_box, scale)
+            return LayoutResult(attempt.items, attempt.body_box, scale, surfaces=attempt.surfaces)
 
     # Even the ladder floor is too small a scale to hold the content. Shrink
     # continuously as far as the readable floor allows, then report what is left
@@ -709,20 +1085,21 @@ def layout(
         if adjusted >= scale - 1e-6:
             break
         scale = adjusted
-        attempt = _attempt(blocks, header, theme, width, height, scale, body_height_ref)
+        attempt = _attempt(body, header, theme, width, height, scale, body_height_ref)
 
     return LayoutResult(
         attempt.items,
         attempt.body_box,
         scale,
         overflow=attempt.needed > available + EPSILON,
+        surfaces=attempt.surfaces,
     )
 
 
-def fitted(blocks: Sequence[Block], header: Header, theme: MentoraTheme, width: float, height: float) -> bool:
+def fitted(body: Node, header: Header, theme: MentoraTheme, width: float, height: float) -> bool:
     """True when the content fits without overflowing (used by the renderer/tests)."""
 
-    return not layout(blocks=blocks, header=header, theme=theme, width=width, height=height).overflow
+    return not layout(body=body, header=header, theme=theme, width=width, height=height).overflow
 
 
 __all__ = [
@@ -730,7 +1107,10 @@ __all__ = [
     "Box",
     "Block",
     "Header",
+    "Item",
+    "Leaf",
     "LayoutResult",
+    "Node",
     "PanelBlock",
     "Paragraph",
     "Picture",
@@ -740,7 +1120,11 @@ __all__ = [
     "PlacedRule",
     "PlacedTable",
     "PlacedText",
+    "Row",
+    "Run",
     "Span",
+    "Stack",
+    "Structure",
     "TableCell",
     "TableBlock",
     "TextBlock",
@@ -748,6 +1132,8 @@ __all__ = [
     "fitted",
     "layout",
     "reference_body_height",
+    "resolve",
+    "structure",
     "wrap_spans",
     "wrap_text",
 ]
