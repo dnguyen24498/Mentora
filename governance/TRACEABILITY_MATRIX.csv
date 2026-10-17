@@ -154,6 +154,9 @@ DEC-DATA-004,backend/tests/test_publication_publish.py,CODE
 DEC-DATA-004,backend/app/classroom/snapshot.py,CODE
 DEC-DATA-004,backend/app/classroom/service.py,CODE
 DEC-DATA-004,backend/tests/test_class_start.py,CODE
+DEC-DATA-004,backend/app/classroom/aggregate.py,CODE
+DEC-DATA-004,backend/app/classroom/repository.py,CODE
+DEC-DATA-004,backend/tests/classroom/test_classroom_commands.py,CODE
 DEC-DATA-005,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DATA-005,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH
 DEC-DATA-005,docs/architecture/07_PUBLICATION_AND_REVIEW.md,ARCH
@@ -252,6 +255,9 @@ DEC-RUNTIME-001,docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md,ARCH
 DEC-RUNTIME-001,docs/architecture/08_RUNTIME_CONTROL_PLANE.md,ARCH
 DEC-RUNTIME-001,docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md,ARCH
 DEC-RUNTIME-001,docs/product/V1_SCOPE.md,SPEC
+DEC-RUNTIME-001,backend/app/classroom/aggregate.py,CODE
+DEC-RUNTIME-001,backend/app/classroom/service.py,CODE
+DEC-RUNTIME-001,backend/tests/classroom/test_aggregate.py,CODE
 DEC-RUNTIME-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-002,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
 DEC-RUNTIME-002,docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md,ARCH
@@ -262,6 +268,7 @@ DEC-RUNTIME-003,contracts/websocket/PROTOCOL.md,SPEC
 DEC-RUNTIME-003,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-003,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH
 DEC-RUNTIME-003,docs/architecture/08_RUNTIME_CONTROL_PLANE.md,ARCH
+DEC-RUNTIME-003,docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md,ARCH
 DEC-RUNTIME-003,docs/architecture/21_TESTING_CHAOS_AND_ACCEPTANCE.md,ARCH
 DEC-RUNTIME-003,docs/architecture/25_IMPLEMENTATION_CHECKLIST.md,ARCH
 DEC-RUNTIME-003,docs/sequences/ACTOR_FAILOVER.md,SPEC
@@ -294,10 +301,17 @@ DEC-RUNTIME-003,backend/tests/test_publication_publish.py,CODE
 DEC-RUNTIME-003,backend/app/classroom/repository.py,CODE
 DEC-RUNTIME-003,backend/app/classroom/service.py,CODE
 DEC-RUNTIME-003,backend/tests/test_class_start.py,CODE
+DEC-RUNTIME-003,backend/app/classroom/aggregate.py,CODE
+DEC-RUNTIME-003,backend/app/classroom/repository.py,CODE
+DEC-RUNTIME-003,backend/tests/classroom/test_classroom_commands.py,CODE
 DEC-RUNTIME-004,contracts/websocket/PROTOCOL.md,SPEC
 DEC-RUNTIME-004,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-004,docs/architecture/09_CLASSROOM_ACTOR_AND_RECOVERY.md,ARCH
 DEC-RUNTIME-004,docs/architecture/15_FRONTEND_CLASSROOM_AND_STUDIO.md,ARCH
+DEC-RUNTIME-004,backend/app/classroom/aggregate.py,CODE
+DEC-RUNTIME-004,backend/app/classroom/repository.py,CODE
+DEC-RUNTIME-004,backend/tests/classroom/test_aggregate.py,CODE
+DEC-RUNTIME-004,backend/tests/classroom/test_classroom_commands.py,CODE
 DEC-RUNTIME-005,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-005,docs/architecture/12_TIMELINE_PRESENTATION_AND_RESUME.md,ARCH
 DEC-RUNTIME-006,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
@@ -334,6 +348,9 @@ DEC-RUNTIME-007,docs/testing/INVARIANT_AND_CHAOS_TESTS.md,SPEC
 DEC-RUNTIME-007,backend/app/classroom/models.py,CODE
 DEC-RUNTIME-007,backend/app/classroom/service.py,CODE
 DEC-RUNTIME-007,backend/tests/test_class_start.py,CODE
+DEC-RUNTIME-007,backend/app/classroom/aggregate.py,CODE
+DEC-RUNTIME-007,backend/app/classroom/repository.py,CODE
+DEC-RUNTIME-007,backend/tests/classroom/test_aggregate.py,CODE
 DEC-SCORM-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-SCORM-001,docs/architecture/23_LMS_SIS_SCORM_AND_INTEGRATIONS.md,ARCH
 DEC-TURN-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH

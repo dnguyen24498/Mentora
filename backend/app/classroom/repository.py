@@ -412,6 +412,94 @@ class ClassRepository:
         assert session is not None and plan is not None and stored_snapshot is not None
         return session, plan, stored_snapshot
 
+    # -- the per-transition commit point ---------------------------------------------
+    def commit_transition(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: str,
+        expected_state: Optional[str],
+        expected_state_version: int,
+        actor_epoch: int,
+        new_state: str,
+        state_version: int,
+        event_sequence: int,
+        snapshot: dict,
+        snapshot_checksum: str,
+        snapshot_id: Optional[str] = None,
+    ) -> tuple[ClassroomSession, SessionSnapshot]:
+        """Commit one accepted aggregate transition (``DEC-RUNTIME-007`` fencing).
+
+        The guarded ``UPDATE`` fences on the *pre-command* state, version and
+        epoch: if another writer advanced the session between the aggregate's load
+        and this commit, the ``rowcount`` is ``0`` and the transaction aborts —
+        the loser reloads and re-handles rather than clobbering. Then the class
+        mirrors the new state and the snapshot appends, all in one transaction, so
+        a session's counters and its newest snapshot can never disagree
+        (``DEC-DATA-004``).
+
+        Raises :class:`CommitConflict` when the guard lost a race (rolled back,
+        nothing written).
+        """
+
+        snapshot_id = snapshot_id or _new_id()
+        now = _now()
+        try:
+            with transaction(self._conn):
+                cur = self._conn.execute(
+                    "UPDATE classroom_sessions "
+                    "SET state = ?, state_version = ?, event_sequence = ?, snapshot_id = ? "
+                    "WHERE session_id = ? AND institution_id = ? "
+                    "  AND state = ? AND state_version = ? AND actor_epoch = ?",
+                    (
+                        new_state,
+                        state_version,
+                        event_sequence,
+                        snapshot_id,
+                        session_id,
+                        institution_id,
+                        expected_state,
+                        expected_state_version,
+                        actor_epoch,
+                    ),
+                )
+                if cur.rowcount == 0:
+                    raise CommitConflict("session state/version moved under the actor")
+
+                self._conn.execute(
+                    "UPDATE classes SET state = ? WHERE class_id = ? AND institution_id = ?",
+                    (new_state, class_id, institution_id),
+                )
+
+                self._conn.execute(
+                    "INSERT INTO session_snapshots "
+                    "(snapshot_id, institution_id, session_id, class_id, schema_version, state, "
+                    " state_version, event_sequence, actor_epoch, document, checksum, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        snapshot_id,
+                        institution_id,
+                        session_id,
+                        class_id,
+                        str(snapshot["schema_version"]),
+                        new_state,
+                        state_version,
+                        event_sequence,
+                        actor_epoch,
+                        json.dumps(snapshot, sort_keys=True, separators=(",", ":")),
+                        snapshot_checksum,
+                        now,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:  # UNIQUE(session_id, state_version) raced
+            raise CommitConflict(str(exc)) from exc
+
+        session = self.get_session(institution_id, class_id)
+        stored_snapshot = self.latest_snapshot(institution_id, session_id)
+        assert session is not None and stored_snapshot is not None
+        return session, stored_snapshot
+
     # -- join credentials ------------------------------------------------------------
     def record_bootstrap_token(
         self,
@@ -474,6 +562,22 @@ class ClassRepository:
             if cur.rowcount == 0:
                 return None
         return self.get_bootstrap_token(token_sha256)
+
+    def revoke_bootstrap_tokens(self, institution_id: str, session_id: str) -> int:
+        """Terminally revoke every live join credential of a session (``CLASS_END``).
+
+        Ending a class must not leak a join credential that can still authorise, so
+        the end transition revokes the outstanding tokens in the same commit. Only
+        the digest is updated; the raw token was never stored.
+        """
+
+        with transaction(self._conn):
+            cur = self._conn.execute(
+                "UPDATE bootstrap_tokens SET revoked_at = ? "
+                "WHERE institution_id = ? AND session_id = ? AND revoked_at IS NULL",
+                (_now(), institution_id, session_id),
+            )
+            return cur.rowcount
 
 
 __all__ = ["ClassRepository", "CommitConflict"]

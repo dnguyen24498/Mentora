@@ -49,12 +49,22 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, NoReturn, Optional
 
 from app.common.errors import NotFoundError, ValidationError
+from app.classroom.aggregate import (
+    COMMAND_CHECKPOINT,
+    COMMAND_END,
+    COMMAND_NAVIGATE,
+    COMMAND_START,
+    ClassroomAggregate,
+    Command,
+    CommandResult,
+)
 from app.classroom.catalog import RuntimeCatalog, capability_version
 from app.classroom.errors import (
     ISSUE_COMMIT_CONFLICT,
@@ -91,7 +101,6 @@ from app.classroom.models import (
 from app.classroom.repository import ClassRepository, CommitConflict
 from app.classroom.snapshot import (
     first_lesson_position,
-    initial_snapshot,
     snapshot_checksum,
     validate_snapshot,
 )
@@ -133,6 +142,27 @@ class SessionStartResult:
         }
 
 
+@dataclass(frozen=True)
+class CommandOutcome:
+    """What a command dispatch returns: its verdict plus the durable rows.
+
+    A refused command has ``session``/``snapshot`` ``None`` (nothing was written);
+    an accepted one carries the updated session and the snapshot the transition
+    appended (``DEC-DATA-004``: state and snapshot commit together).
+    """
+
+    result: CommandResult
+    session: Optional[ClassroomSession]
+    snapshot: Optional[SessionSnapshot]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "result": self.result.to_dict(),
+            "session": self.session.to_dict() if self.session is not None else None,
+            "snapshot": self.snapshot.to_dict() if self.snapshot is not None else None,
+        }
+
+
 class ClassroomService:
     """Schedules classes, starts sessions by pinning an exact tuple, and authorizes joins."""
 
@@ -156,6 +186,12 @@ class ClassroomService:
         self._telemetry = telemetry or ClassroomTelemetry()
         self._token_ttl = timedelta(seconds=max(1, int(token_ttl_seconds)))
         self._clock = clock or _utcnow
+        # The in-process aggregate registry (DEC-RUNTIME-001: one owner per class).
+        # Idempotency memory lives in the aggregate, so a repeated command returns
+        # the original verdict without a second effect. The durable store is still
+        # the truth; the guarded transition commits fence any other process.
+        self._aggregates: dict[str, ClassroomAggregate] = {}
+        self._locks: dict[str, threading.Lock] = {}
 
     @property
     def telemetry(self) -> ClassroomTelemetry:
@@ -291,7 +327,12 @@ class ClassroomService:
             region=defaults.region,
             created_at="",
         )
-        document = initial_snapshot(plan=plan, session_id=session_id, lesson=lesson)
+        aggregate = ClassroomAggregate.session(
+            plan=plan, session_id=session_id, lesson=lesson, clock=self._clock
+        )
+        started = aggregate.handle(Command.create(COMMAND_START))
+        assert started.accepted, "a freshly built aggregate always accepts START"
+        document = aggregate.snapshot()
         checksum = snapshot_checksum(document)
 
         try:
@@ -327,6 +368,7 @@ class ClassroomService:
                 snapshot_checksum=checksum,
             )
             created = True
+            self._aggregates[class_id] = aggregate
         except CommitConflict:
             # Someone else started this class between our read and our write. Their
             # session is the answer to our request.
@@ -510,6 +552,216 @@ class ClassroomService:
             return False
         return self._repository.revoke_bootstrap_token(institution_id, record.token_sha256) is not None
 
+    # -- the aggregate command path (V0-010) -----------------------------------------
+    def navigate_scene(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        section_index: int,
+        scene_id: str,
+        section_id: Optional[str] = None,
+        scene_step_id: Optional[str] = None,
+        command_id: Optional[str] = None,
+        expected_state_version: Optional[int] = None,
+    ) -> CommandOutcome:
+        """Move the session to a scene/step through the aggregate.
+
+        The target is a *resolved* position — the caller (the timeline controller,
+        V0-013) resolves it against the pinned lesson plan; the aggregate enforces
+        the deterministic invariants (state, version fencing, idempotency), not the
+        content lookup (``DEC-CONTENT-001``: the runtime never parses the source,
+        and the pinned package's plan is the timeline's job).
+        """
+
+        command = Command.create(
+            COMMAND_NAVIGATE,
+            command_id=command_id,
+            expected_state_version=expected_state_version,
+            section_index=section_index,
+            section_id=section_id,
+            scene_id=scene_id,
+            scene_step_id=scene_step_id,
+        )
+        return self._apply_command(institution_id, class_id, command)
+
+    def record_checkpoint(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        label: Optional[str] = None,
+        command_id: Optional[str] = None,
+        expected_state_version: Optional[int] = None,
+    ) -> CommandOutcome:
+        """Record a resume checkpoint at the current position (``DEC-RUNTIME-005``)."""
+
+        command = Command.create(
+            COMMAND_CHECKPOINT,
+            command_id=command_id,
+            expected_state_version=expected_state_version,
+            label=label,
+        )
+        return self._apply_command(institution_id, class_id, command)
+
+    def end_class(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        command_id: Optional[str] = None,
+        expected_state_version: Optional[int] = None,
+    ) -> CommandOutcome:
+        """``ACTIVE/DEGRADED -> COMPLETED``, revoking any live join credential.
+
+        ``ENDING`` is in-process only: the aggregate commits the final checkpoint
+        and the ``COMPLETED`` state in one snapshot, and the service then revokes
+        the outstanding join credentials (``CLASS_END``: "revoke/cancel", "no
+        leaked token").
+        """
+
+        command = Command.create(
+            COMMAND_END,
+            command_id=command_id,
+            expected_state_version=expected_state_version,
+        )
+        outcome = self._apply_command(institution_id, class_id, command)
+        if outcome.result.accepted and outcome.session is not None:
+            self._repository.revoke_bootstrap_tokens(
+                institution_id, outcome.session.session_id
+            )
+        return outcome
+
+    def _apply_command(
+        self, institution_id: str, class_id: str, command: Command
+    ) -> CommandOutcome:
+        """Load (or reuse) the aggregate, handle the command, and commit it.
+
+        The per-class lock is the in-process serialization (``DEC-RUNTIME-001``);
+        the guarded transition is the cross-process fence. On a lost race the
+        aggregate reloads from the newest snapshot and re-handles, bounded, so a
+        stale command is refused with ``STALE_STATE_VERSION`` rather than applied
+        twice (``DEC-RUNTIME-007``).
+        """
+
+        self._repository.get_class(institution_id, class_id)  # 404/403 first
+        lock = self._lock_for(class_id)
+        with lock:
+            for _attempt in range(3):
+                aggregate = self._get_aggregate(institution_id, class_id)
+                prior_state = aggregate.state
+                prior_version = aggregate.state_version
+                result = aggregate.handle(command)
+                if result.duplicate:
+                    # A replayed command has already been answered: return its stored
+                    # verdict and write nothing (one logical effect — DEC-RUNTIME-003).
+                    self._telemetry.record_command(
+                        institution_id=institution_id,
+                        class_id=class_id,
+                        session_id=aggregate.session_id,
+                        command_id=command.command_id,
+                        command_type=command.type,
+                        accepted=result.accepted,
+                        state_version=result.state_version,
+                        issue_code=result.issue_code,
+                        duplicate=True,
+                    )
+                    return CommandOutcome(result, None, None)
+                if not result.accepted:
+                    self._telemetry.record_command(
+                        institution_id=institution_id,
+                        class_id=class_id,
+                        session_id=aggregate.session_id,
+                        command_id=command.command_id,
+                        command_type=command.type,
+                        accepted=False,
+                        state_version=result.state_version,
+                        issue_code=result.issue_code,
+                    )
+                    return CommandOutcome(result, None, None)
+                document = aggregate.snapshot()
+                try:
+                    session, snapshot = self._repository.commit_transition(
+                        institution_id=institution_id,
+                        class_id=class_id,
+                        session_id=aggregate.session_id,
+                        expected_state=prior_state,
+                        expected_state_version=prior_version,
+                        actor_epoch=aggregate.actor_epoch,
+                        new_state=aggregate.state,
+                        state_version=aggregate.state_version,
+                        event_sequence=aggregate.event_sequence,
+                        snapshot=document,
+                        snapshot_checksum=snapshot_checksum(document),
+                    )
+                except CommitConflict:
+                    # Someone else advanced the session; reload and re-handle once.
+                    self._aggregates.pop(class_id, None)
+                    continue
+                self._telemetry.record_command(
+                    institution_id=institution_id,
+                    class_id=class_id,
+                    session_id=session.session_id,
+                    command_id=command.command_id,
+                    command_type=command.type,
+                    accepted=True,
+                    state_version=session.state_version,
+                )
+                return CommandOutcome(result, session, snapshot)
+        # The session kept moving under a concurrent writer; refuse rather than loop.
+        self._telemetry.record_command(
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=aggregate.session_id,
+            command_id=command.command_id,
+            command_type=command.type,
+            accepted=False,
+            state_version=aggregate.state_version,
+            issue_code=ISSUE_COMMIT_CONFLICT,
+        )
+        return CommandOutcome(
+            CommandResult(
+                command_id=command.command_id,
+                accepted=False,
+                issue_code=ISSUE_COMMIT_CONFLICT,
+                state_version=aggregate.state_version,
+                event_sequence=aggregate.event_sequence,
+                events=(),
+            ),
+            None,
+            None,
+        )
+
+    def _get_aggregate(self, institution_id: str, class_id: str) -> ClassroomAggregate:
+        """The class's aggregate: the cached one, or a validated restore.
+
+        Restore validates schema and checksum before use (``DEC-DATA-004``), so a
+        corrupted snapshot is refused rather than replayed.
+        """
+
+        cached = self._aggregates.get(class_id)
+        if cached is not None:
+            return cached
+        session = self._repository.get_session(institution_id, class_id)
+        if session is None:
+            raise ClassStartError(
+                f"class {class_id!r} has not started", issue_code=ISSUE_NOT_STARTED
+            )
+        snapshot = self._repository.latest_snapshot(institution_id, session.session_id)
+        if snapshot is None:  # pragma: no cover - the start transaction writes one
+            raise NotFoundError(f"session {session.session_id!r} has no snapshot")
+        validate_snapshot(
+            snapshot.document,
+            schema_version=snapshot.schema_version,
+            checksum=snapshot.checksum,
+        )
+        aggregate = ClassroomAggregate.restore(snapshot.document, clock=self._clock)
+        self._aggregates[class_id] = aggregate
+        return aggregate
+
+    def _lock_for(self, class_id: str) -> threading.Lock:
+        return self._locks.setdefault(class_id, threading.Lock())
+
     # -- internals -------------------------------------------------------------------
     @staticmethod
     def _hash_token(token: str) -> str:
@@ -656,4 +908,4 @@ class ClassroomService:
         )
 
 
-__all__ = ["STAGE_RESOLVING", "STAGE_VERIFYING", "ClassroomService", "SessionStartResult"]
+__all__ = ["STAGE_RESOLVING", "STAGE_VERIFYING", "ClassroomService", "CommandOutcome", "SessionStartResult"]

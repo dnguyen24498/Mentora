@@ -53,6 +53,13 @@ ISSUE_TOKEN_REVOKED = "TOKEN_REVOKED"
 #: The presented token belongs to an epoch the session has left
 #: (``DEC-RUNTIME-007``: a stale epoch cannot authorize).
 ISSUE_STALE_EPOCH = "STALE_EPOCH"
+#: A command names an ``expected_state_version`` the session has moved past
+#: (``DEC-RUNTIME-007``: state versions fence stale commands).
+ISSUE_STALE_STATE_VERSION = "STALE_STATE_VERSION"
+#: A command would move a session between states the machine forbids.
+ISSUE_INVALID_TRANSITION = "INVALID_TRANSITION"
+#: A command's payload is malformed for its type (a bad navigation target, etc.).
+ISSUE_INVALID_COMMAND = "INVALID_COMMAND"
 
 
 class ClassStartError(ClassNotReadyError):
@@ -84,10 +91,13 @@ __all__ = [
     "ISSUE_CONTENT_DIGEST_MISMATCH",
     "ISSUE_INCOMPATIBLE_CONTENT",
     "ISSUE_INCOMPATIBLE_INDEX",
+    "ISSUE_INVALID_COMMAND",
+    "ISSUE_INVALID_TRANSITION",
     "ISSUE_NOT_ENROLLED",
     "ISSUE_NOT_STARTED",
     "ISSUE_SNAPSHOT_INVALID",
     "ISSUE_STALE_EPOCH",
+    "ISSUE_STALE_STATE_VERSION",
     "ISSUE_TOKEN_EXPIRED",
     "ISSUE_TOKEN_REVOKED",
     "ISSUE_TOKEN_UNKNOWN",

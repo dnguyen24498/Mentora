@@ -1,9 +1,17 @@
 id: V0-010
 title: "In-process Classroom Aggregate"
 week: W5
-status: TODO
+status: DONE
 depends_on: ["V0-009"]
-started_at: null
-completed_at: null
+started_at: "2026-10-17"
+completed_at: "2026-10-17"
 commit: null
 blockers: []
+notes:
+  - "The Classroom Actor's deterministic core is backend/app/classroom/aggregate.py: ClassroomAggregate (the single reducer), Command, Event, CommandResult. Commands START / NAVIGATE_SCENE / CHECKPOINT / END; each accepted command emits one event (classroom.session.started / classroom.scene.changed / classroom.checkpoint.recorded / classroom.session.ended) and increments state_version and event_sequence together. Handling order = dedup -> epoch fence -> state-version fence -> transition -> post-transition invariant check (non-active state has no floor/queue; STT implies floor; at most one floor)."
+  - "All classroom mutations pass through the aggregate: start_class now builds the session, runs START, and commits the aggregate's snapshot (byte-identical to V0-009's initial_snapshot, which was removed in favour of the reducer); navigate_scene / record_checkpoint / end_class are the post-start command entry points. END transitions ACTIVE/DEGRADED -> COMPLETED (ENDING in-process only, never persisted), records a final checkpoint, and revokes the session's live join credentials."
+  - "Idempotency: command-id dedup returns the stored terminal verdict and writes nothing (DEC-RUNTIME-003). The service keeps a per-class in-process aggregate registry + lock (DEC-RUNTIME-001); the durable store stays the truth via ClassRepository.commit_transition, a guarded UPDATE WHERE state=? AND state_version=? AND actor_epoch=? that appends a snapshot and updates session+class in one transaction (DEC-RUNTIME-007). A lost race reloads and re-handles, bounded; a stale command is refused STALE_STATE_VERSION/STALE_EPOCH."
+  - "Recovery (DEC-RUNTIME-004/004): ClassroomAggregate.restore validates schema + checksum before use, so a corrupted snapshot is refused rather than replayed; a restart restores the pinned tuple and scene position from the newest snapshot and the next command continues from that state_version. Snapshot is append-only per (session_id, state_version)."
+  - "Deliberate boundaries (OPEN tech preserved): no broker/actor framework (DEC-TECH-001/002 OPEN); durable cross-restart dedup and the ordered per-class event log/outbox are DEC-DATA-003 and V1-002. The durable snapshot stays runtime-snapshot@1 (V0-009's contracted shape in contracts/openapi/openapi.yaml); the V1 wire envelope (contracts/snapshots/classroom-snapshot.schema.json) and the command/event wire schemas are V1-002's, not V0-010's."
+  - "No new HTTP route: the allowlist excludes contracts/openapi/ and api/app.py, and 'update contracts before changing interfaces' forbids a route without an openapi change. The aggregate is in-process, driven by service methods (the V0-011 frontend shell and the V1 gateway will be the transport)."
+  - "Tests: backend/tests/classroom/test_aggregate.py (13 reducer tests: start, invalid transition, duplicate command accepted+refused, stale epoch/version fence, snapshot round trip, corrupted snapshot) and backend/tests/classroom/test_classroom_commands.py (8 integration tests: navigate/checkpoint/end persist, duplicate writes one snapshot, stale command writes nothing, restart restores tuple+scene, corrupted snapshot refused on restore, end revokes tokens, telemetry identities). Backend suite 426 passed (was 405)."

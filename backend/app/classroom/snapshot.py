@@ -30,14 +30,7 @@ from app.classroom.errors import (
     ClassStartError,
     SnapshotIntegrityError,
 )
-from app.classroom.models import (
-    CLASSROOM_STATE_ACTIVE,
-    INITIAL_ACTOR_EPOCH,
-    INITIAL_EVENT_SEQUENCE,
-    INITIAL_STATE_VERSION,
-    SNAPSHOT_SCHEMA_VERSION,
-    RuntimeSessionPlan,
-)
+from app.classroom.models import SNAPSHOT_SCHEMA_VERSION
 
 #: Every region a snapshot must carry. A document missing one is not replayable,
 #: so its absence is a validation failure rather than a default.
@@ -97,45 +90,6 @@ def first_lesson_position(lesson_plan: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def initial_snapshot(
-    *,
-    plan: RuntimeSessionPlan,
-    session_id: str,
-    lesson: Mapping[str, Any],
-    actor_epoch: int = INITIAL_ACTOR_EPOCH,
-    state_version: int = INITIAL_STATE_VERSION,
-    event_sequence: int = INITIAL_EVENT_SEQUENCE,
-    state: str = CLASSROOM_STATE_ACTIVE,
-) -> dict[str, Any]:
-    """The authoritative snapshot a start commits, at its initial values.
-
-    ``turn`` is empty on purpose: a session starts with no queue entry and no
-    floor, which is how "at most one floor" and "non-active states have no valid
-    floor" hold from the first moment.
-    """
-
-    return {
-        "schema_version": SNAPSHOT_SCHEMA_VERSION,
-        "institution_id": plan.institution_id,
-        "course_id": plan.course_id,
-        "class_id": plan.class_id,
-        "session_id": session_id,
-        "state": state,
-        "actor_epoch": actor_epoch,
-        "state_version": state_version,
-        "event_sequence": event_sequence,
-        "versions": plan.versions,
-        "lesson": dict(lesson),
-        "turn": {"queue": [], "floor": None, "stt_reservation": None},
-        "timeline": {
-            "scene_id": lesson.get("scene_id"),
-            "step_id": lesson.get("scene_step_id"),
-            "checkpoint": None,
-        },
-        "pending_effects": [],
-    }
-
-
 def validate_snapshot(
     document: Mapping[str, Any],
     *,
@@ -180,7 +134,6 @@ __all__ = [
     "REQUIRED_REGIONS",
     "canonical_json",
     "first_lesson_position",
-    "initial_snapshot",
     "snapshot_checksum",
     "validate_snapshot",
 ]

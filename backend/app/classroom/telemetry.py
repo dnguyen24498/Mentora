@@ -19,6 +19,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app.classroom.aggregate import (
+    COMMAND_CHECKPOINT,
+    COMMAND_END,
+    COMMAND_NAVIGATE,
+)
+
 logger = logging.getLogger("mentora.classroom")
 
 
@@ -36,6 +42,12 @@ class ClassroomMetrics:
     joins_denied: int = 0
     snapshots_read: int = 0
     snapshot_failures: int = 0
+    commands_accepted: int = 0
+    commands_rejected: int = 0
+    commands_duplicated: int = 0
+    scenes_changed: int = 0
+    checkpoints_recorded: int = 0
+    sessions_ended: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return dict(self.__dict__)
@@ -184,6 +196,52 @@ class ClassroomTelemetry:
             "class.snapshot_invalid",
             institution_id=institution_id,
             session_id=session_id,
+            issue_code=issue_code,
+        )
+
+    def record_command(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: str,
+        command_id: str,
+        command_type: str,
+        accepted: bool,
+        state_version: int,
+        issue_code: Optional[str] = None,
+        duplicate: bool = False,
+    ) -> dict[str, Any]:
+        """One command's terminal verdict (V0-010): identities and issue codes only.
+
+        ``CLASS_START.md``'s assertion — every terminal path is observable — applies
+        to the aggregate too: a refused command emits its ``issue_code``, a
+        duplicate emits ``duplicate: true``, and an accepted navigation/checkpoint/
+        end bumps its own counter.
+        """
+
+        if duplicate:
+            self.metrics.commands_duplicated += 1
+        elif accepted:
+            self.metrics.commands_accepted += 1
+            if command_type == COMMAND_NAVIGATE:
+                self.metrics.scenes_changed += 1
+            elif command_type == COMMAND_CHECKPOINT:
+                self.metrics.checkpoints_recorded += 1
+            elif command_type == COMMAND_END:
+                self.metrics.sessions_ended += 1
+        else:
+            self.metrics.commands_rejected += 1
+        return self.emit(
+            "class.command",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            command_id=command_id,
+            command_type=command_type,
+            accepted=accepted,
+            duplicate=duplicate,
+            state_version=state_version,
             issue_code=issue_code,
         )
 

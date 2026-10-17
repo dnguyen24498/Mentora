@@ -11,7 +11,7 @@ V0-006,W4,DONE,Baseline scene and CTF builder,V0-004;V0-005,tasks/V0-006-baselin
 V0-007,W4,DONE,Teacher review preview,V0-006,tasks/V0-007-teacher-review-preview
 V0-008,W4,DONE,Atomic publication and index version,V0-006;V0-007,tasks/V0-008-atomic-publication-and-index-version
 V0-009,W5,DONE,Class and runtime session plan,V0-008,tasks/V0-009-class-and-runtime-session-plan
-V0-010,W5,TODO,In-process Classroom Aggregate,V0-009,tasks/V0-010-in-process-classroom-aggregate
+V0-010,W5,DONE,In-process Classroom Aggregate,V0-009,tasks/V0-010-in-process-classroom-aggregate
 V0-011,W5,TODO,Classroom frontend snapshot and event reducer,V0-010,tasks/V0-011-classroom-frontend-snapshot-and-event-reducer
 V0-012,W6,TODO,Neutral TTS provider and deterministic mock,FND-002;V0-010,tasks/V0-012-neutral-tts-provider-and-deterministic-mock
 V0-013,W6,TODO,Timeline narration captions and checkpoints,V0-011;V0-012,tasks/V0-013-timeline-narration-captions-and-checkpoints

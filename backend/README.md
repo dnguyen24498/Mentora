@@ -52,7 +52,7 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007, `review.py`/`workflow.py`/`draft.py`) **and** the atomic publication transition (V0-008, `service.py`/`seal.py`/`index.py`/`outbox.py`): seal (checksums + digests) → index-version pin → one commit transaction → published-version retrieval. |
-| `app/classroom/` | Classes, runtime session plans and sessions (V0-009): schedule a class, start it by resolving and pinning the exact runtime tuple once (`service.py`/`repository.py`/`catalog.py`), build and validate the durable initial snapshot (`snapshot.py`), and authorize joins against the class enrollment. |
+| `app/classroom/` | Classes, runtime session plans and sessions (V0-009): schedule a class, start it by resolving and pinning the exact runtime tuple once (`service.py`/`repository.py`/`catalog.py`), build and validate the durable initial snapshot (`snapshot.py`), and authorize joins against the class enrollment. **V0-010** adds `aggregate.py` — the in-process `ClassroomAggregate` reducer (`START`/`NAVIGATE_SCENE`/`CHECKPOINT`/`END` commands, command-id dedup, epoch/state-version fencing, snapshot round-trip) — with `navigate_scene`/`record_checkpoint`/`end_class` service methods and `repository.py::commit_transition`. |
 | `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
@@ -497,3 +497,35 @@ break the browser). For normal development the frontend runs on its own server a
     `tests/test_class_start.py` (22): the pinned tuple, no-latest-lookup, restart
     survival, the four required failures, concurrency, snapshots, catalog injection,
     token digest/expiry/revocation/epoch, tenancy and telemetry.
+- **In-process Classroom Aggregate (V0-010).** `app/classroom/aggregate.py` is the
+  single deterministic reducer (`ClassroomAggregate` + `Command`/`Event`/`CommandResult`)
+  behind every classroom mutation; the service's `navigate_scene`/`record_checkpoint`/
+  `end_class` are its command entry points, and `start_class` runs the aggregate's
+  `START` and commits the snapshot it produced (byte-identical to V0-009's initial
+  snapshot — `snapshot.py::initial_snapshot` was removed in favour of the reducer).
+  - **One owner, one reducer.** The service caches one aggregate per class behind a
+    per-class lock (`DEC-RUNTIME-001`); the durable store stays the truth.
+  - **Idempotency first** (`DEC-RUNTIME-003`): a repeated `command_id` returns its
+    stored terminal verdict (accepted *or* refused) and writes nothing; a duplicate
+    never reaches the commit point, so exactly one snapshot exists per `state_version`.
+  - **Epoch and version fence stale commands** (`DEC-RUNTIME-007`): a command naming a
+    stale `expected_actor_epoch`/`expected_state_version` is refused (`STALE_EPOCH`/
+    `STALE_STATE_VERSION`) with no effect; the commit's guarded
+    `UPDATE … WHERE state = ? AND state_version = ? AND actor_epoch = ?` is the durable
+    fence for a writer that lost a race (it reloads and re-handles, bounded).
+  - **`END` is the terminal transition.** `ACTIVE/DEGRADED → COMPLETED` (`ENDING`
+    in-process only, never persisted), records a final checkpoint, and revokes the
+    session's live join tokens so an ended class leaks no credential (`CLASS_END`).
+  - **Snapshot round-trip is the recovery story** (`DEC-RUNTIME-004`): `restore`
+    validates schema version + checksum before use, so a restart restores the pinned
+    tuple and scene position from the newest snapshot and the next command continues
+    from that `state_version`; a corrupted snapshot is refused, never replayed.
+  - **Deliberately not here.** No broker or actor framework (`DEC-TECH-001/002` stay
+    `OPEN`); durable cross-restart dedup and the ordered per-class event log/outbox are
+    `DEC-DATA-003` and V1-002. The durable snapshot stays `runtime-snapshot@1` (V0-009's
+    contracted shape); the V1 wire envelope (`contracts/snapshots/classroom-snapshot.schema.json`)
+    and the command/event wire schemas are V1-002's. No new HTTP route (the allowlist
+    excludes `contracts/openapi/` and `api/app.py`; the V0-011 frontend shell and the
+    V1 gateway are the transport). Covered by `tests/classroom/test_aggregate.py` (13
+    reducer tests) and `tests/classroom/test_classroom_commands.py` (8 integration
+    tests); backend suite 426 passed.
