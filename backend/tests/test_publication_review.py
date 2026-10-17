@@ -40,7 +40,7 @@ ALT_HEADERS = {"X-Institution-Id": "inst-2"}
 
 
 def _chart_deck() -> bytes:
-    """A deck whose only object is one the themed renderer cannot re-style."""
+    """A deck whose only object is one the themed renderer cannot redraw."""
 
     return build_pptx(
         [[chart_shape(6, "Scores")]],
@@ -148,7 +148,7 @@ def test_review_declares_how_the_slides_were_rendered(client):
     # DEC-TECH-005 is OPEN: the UI must never imply a native render.
     assert body["placeholder_notice"] == THEMED_RENDER_NOTICE
     assert "DEC-TECH-005" in body["placeholder_notice"]
-    assert "re-styled" in body["placeholder_notice"]
+    assert "re-laid out" in body["placeholder_notice"]
     assert body["renderer"]["engine"] == "mentora-theme-svg"
 
 
@@ -182,7 +182,7 @@ def test_an_unavailable_font_does_not_degrade_a_themed_scene(client):
 
 
 def test_an_unmappable_object_marks_the_scene_and_the_package_for_review(client):
-    """A chart cannot be re-styled into the theme, so it degrades (V0-019)."""
+    """A chart cannot be redrawn in the theme, so it degrades (V0-019)."""
 
     artifact_id = _upload(client, _chart_deck(), "chart.pptx")
     body = _review(client, artifact_id)

@@ -102,8 +102,8 @@ would couple the runtime to the compiler's storage and break
   extraction and are not part of V0-004/V0-006.)
 * `fidelity` is carried from the render stage (`DEC-CONTENT-006`); only the
   schema's values may appear. `STRUCTURAL_RENDERED` reproduces the source slide's
-  own styling (faithful mode); `THEMED_RENDERED` keeps the author's layout and
-  re-styles it in the platform theme (default mode, V0-019) and so is not ranked
+  own styling (faithful mode); `THEMED_RENDERED` re-lays the content out as one
+  readable column in the platform theme (default mode, V0-019) and so is not ranked
   against the source-fidelity values; `DEGRADED_RENDERED` requires a human check of meaning.
   A failed render is a `FAILED` *status*, not a fidelity, and blocks packaging
   instead of entering one.

@@ -26,9 +26,9 @@ const FIDELITY_STYLE: Record<string, string> = {
   NATIVE_RENDERED: 'bg-emerald-100 text-emerald-700',
   COMPATIBLE_RENDERED: 'bg-sky-100 text-sky-700',
   STRUCTURAL_RENDERED: 'bg-slate-100 text-slate-600',
-  // V0-019: the default mode keeps the deck's layout and re-styles it in the
-  // platform theme. It is not a rank on the fidelity-to-source ladder, so it gets
-  // its own colour.
+  // V0-019: the default mode re-lays the slide's content out as one readable
+  // column in the platform theme. It is not a rank on the fidelity-to-source
+  // ladder, so it gets its own colour.
   THEMED_RENDERED: 'bg-indigo-100 text-indigo-700',
   DEGRADED_RENDERED: 'bg-amber-100 text-amber-700',
 }
@@ -435,7 +435,7 @@ export default function TeacherStudio({
         </div>
 
         {/* DEC-TECH-005 is OPEN: the notice (from the server) says exactly how the
-            slides were produced — re-styled in the platform theme, or a
+            slides were produced — re-laid out in the platform theme, or a
             structural render of the source — and never implies a native render. */}
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
           {review.placeholder_notice}

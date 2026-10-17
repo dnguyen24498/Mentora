@@ -30,5 +30,5 @@ V1-008,W12,TODO,Voice question answer and semantic resume,V1-007;V0-015,tasks/V1
 V1-009,W12,TODO,Moderator and accessible realtime controls,V1-003;V1-007,tasks/V1-009-moderator-and-accessible-realtime-controls
 V1-010,W12,TODO,Pilot load chaos observability and release gate,V1-008;V1-009,tasks/V1-010-pilot-load-chaos-observability-and-release-gate
 V0-018,W4,DONE,Faithful slide rendering fidelity,V0-005;V0-006,tasks/V0-018-faithful-slide-rendering
-V0-019,W4,DONE,Themed slide rendering re-style author layout in platform theme,V0-005;V0-006;V0-018,tasks/V0-019-themed-slide-rendering
+V0-019,W4,DONE,Themed slide rendering re-lay content out in platform theme,V0-005;V0-006;V0-018,tasks/V0-019-themed-slide-rendering
 V0-020,W4,DONE,Request-scoped database access concurrency safety,V0-001;V0-004;V0-007,tasks/V0-020-database-concurrency-safety

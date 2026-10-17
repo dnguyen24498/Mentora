@@ -5,10 +5,11 @@
 implementations are shipped while ``DEC-TECH-005`` (native PowerPoint rendering)
 is OPEN, selected by mode (``renderers/factory.py``):
 
-* ``ThemedSvgRenderer`` — keeps the author's layout and re-styles it in the
-  platform theme; the **default** mode (V0-019).
-* ``StructuralSvgRenderer`` — reproduces the source deck's own styling; the
-  ``faithful`` mode (V0-018).
+* ``ThemedSvgRenderer`` — re-lays the extracted content out as one readable
+  column in the platform theme (``renderers/flow.py``); the **default** mode
+  (V0-019).
+* ``StructuralSvgRenderer`` — reproduces the source deck's own styling and
+  placement; the ``faithful`` mode (V0-018).
 
 ``FakeRenderer`` is the required test double.
 """

@@ -1,5 +1,5 @@
 id: V0-019
-title: "Themed slide rendering (re-style the author's layout in the platform theme)"
+title: "Themed slide rendering (re-lay the content out in the platform theme)"
 week: W4
 status: DONE
 depends_on: ["V0-005", "V0-006", "V0-018"]
@@ -9,13 +9,16 @@ commit: "7b5e8a0"
 blockers:
   - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task adds a platform-themed renderer behind the DocumentRenderer interface; it does not accept a renderer technology and never claims a native/compatible render."
 revisions:
-  - "v1 (7b5e8a0): themed mode re-authored the content by re-flowing the IR into a platform layout. On a real art-directed deck this collided and was unreadable (a re-flow must estimate text metrics). Superseded by v2."
-  - "v2: themed mode keeps the author's layout and re-styles it in the platform theme; renderer identity mentora-themed-svg@2.0.0, theme mentora-default v1.1.0."
+  - "v1 (7b5e8a0): themed mode re-authored the content by classifying each slide into an archetype and re-flowing the IR. On a real art-directed deck this collided and was unreadable. Superseded by v2."
+  - "v2 (d969f88): themed mode kept the author's layout and re-styled it in the platform theme (renderer mentora-themed-svg@2.0.0). This removed the collisions v1 introduced but inherited the source deck's own. Superseded by v3."
+  - "v3: themed mode re-lays the content out as one readable column in the platform theme (flow.py + textmetrics.py + a px mentora_theme.py + a standalone ThemedSvgRenderer); renderer identity mentora-themed-svg@3.0.0, theme mentora-default v3.0.0."
 notes:
-  - "Product decision: the default fallback render keeps the author's layout (every object is drawn where and at the size the source put it) and re-styles it in the platform theme, so placement cannot collide by construction. The faithful structural renderer (V0-018) remains available as mode=faithful."
-  - "ThemedSvgRenderer subclasses StructuralSvgRenderer and overrides only the styling seams (_make_canvas, _base_background, _family, _run_color, _run_highlight, _stroke_attrs, _scene_header/_scene_footer), so geometry, pictures, tables, and text fitting are the tested V0-018 code."
-  - "Source colours are mapped by role (map_text/map_fill/map_line), preserving light-on-dark polarity; source highlights are re-tinted. The theme's accent band and footer are drawn only where the source left the strip empty."
-  - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning moves from visual fidelity to content completeness (TEXT_OVERFLOW:<object> per overflowing frame). Nothing is re-selected, re-ordered, or clipped, so no code path can lose content."
-  - "Charts/SmartArt cannot be re-styled: they degrade with UNSUPPORTED_OBJECT:<kind> and require review rather than being silently flattened."
-  - "The theme is folded into the renderer config hash and the package cache key binds the renderer identity (name@version), so a themed package can never collide with a faithful one."
+  - "Product decision: placement is the platform's and content is the author's. The flow measures and places in a single pass over a cursor, so two blocks cannot overlap by construction; the platform's page number sits in a strip the flow may not enter, so chrome cannot cover content either."
+  - "Nothing is lost: no re-selection, re-ordering or clipping. Every paragraph, list level, table cell and picture is drawn. Content that cannot fit even at the smallest readable scale is still drawn in full, flagged TEXT_OVERFLOW:<scene>, degraded for review, and the page number is omitted so nothing is covered."
+  - "Source hierarchy survives without copying the source's type scale: the slide's own sizes choose one of three theme rows (lead/body/caption, relative to the slide's most common size), and bold/italic runs are kept."
+  - "Consecutive same-emphasis text boxes merge into one list: art-directed decks write each bullet in its own text box, and treating each box as a block would spend the page on gaps."
+  - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning is content completeness, not visual fidelity to the source."
+  - "Charts/SmartArt cannot be redrawn from the IR: they become a labelled panel and degrade with UNSUPPORTED_OBJECT:<kind>, requiring review."
+  - "Text metrics are estimated from a font-free advance table (textmetrics.py), so a line may break a word early; it can never collide with its neighbour or push a block into the next."
+  - "The theme is folded into the renderer config hash and the package cache key binds the renderer identity (name@version = mentora-themed-svg@3.0.0), so a themed package can never collide with a faithful one."
   - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."
