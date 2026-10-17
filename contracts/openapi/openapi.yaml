@@ -38,9 +38,12 @@ paths:
         Deterministic compile stage (V0-005): structural extraction, a fallback
         render for every slide with explicit fidelity, and the fidelity
         publication gate. Idempotent and re-runnable; renders are
-        content-addressed. V0-019: `mode=themed` (default) keeps the slide's
-        grouping and re-lays its content out in the platform theme; `mode=faithful`
-        reproduces the source slide's own styling. Neither claims a native PowerPoint render.
+        content-addressed. V0-019 v5: `mode=faithful` (default) reproduces the
+        source slide's own layout and styling, drawing any component it cannot
+        reproduce (an unavailable source font, a chart/SmartArt, an un-inlinable
+        picture) in the platform look in place and recording a warning;
+        `mode=themed` keeps the slide's grouping and re-lays its content out in the
+        platform theme. Neither claims a native PowerPoint render.
       parameters:
         - {in: path, name: artifactId, required: true, schema: {type: string}}
         - $ref: '#/components/parameters/RenderMode'
@@ -60,7 +63,7 @@ paths:
       description: >-
         Deterministic fallback visual for one slide (SVG), re-derived from the
         stored artifact. Tenant-scoped; never serves another tenant's render.
-        `mode` selects the render mode (V0-019, default `themed`).
+        `mode` selects the render mode (V0-019 v5, default `faithful`).
       parameters:
         - {in: path, name: artifactId, required: true, schema: {type: string}}
         - {in: path, name: order, required: true, schema: {type: integer, minimum: 0}}
@@ -283,10 +286,11 @@ components:
       name: mode
       required: false
       description: >-
-        Render mode (V0-019). `themed` (default) keeps the slide's grouping and
-        re-lays its content out in the platform theme; `faithful` reproduces the source
-        slide's own styling. An unknown value is rejected with INVALID_REQUEST
-        (issue_code UNKNOWN_RENDER_MODE).
+        Render mode (V0-019 v5). `faithful` (default) reproduces the source
+        slide's own layout and styling, drawing what it cannot reproduce in the
+        platform look in place; `themed` keeps the slide's grouping and re-lays its
+        content out in the platform theme. An unknown value is rejected with
+        INVALID_REQUEST (issue_code UNKNOWN_RENDER_MODE).
       schema: {type: string, enum: [themed, faithful]}
   schemas:
     Artifact:
@@ -414,8 +418,8 @@ components:
         render_status: {type: string, enum: [RENDERED, FAILED]}
         fallback_asset: {type: [string, 'null'], description: 'Path of the render inside the package'}
         render_url: {type: string, description: 'Endpoint serving this slide, tenant-scoped'}
-        requires_review: {type: boolean, description: 'Degraded fidelity or a missing font'}
-        missing_fonts: {type: array, items: {type: string}}
+        requires_review: {type: boolean, description: 'Degraded fidelity (V0-019 v5: a substituted source font or a platform-look fallback component is a warning, not a review)'}
+        missing_fonts: {type: array, items: {type: string}, description: 'Source fonts not available to the renderer; each was substituted with the platform stack, in the run''s original frame (V0-019 v5)'}
         warnings: {type: array, items: {type: string}}
         notes: {type: [string, 'null'], description: 'Speaker notes, verbatim (DEC-CONTENT-008)'}
         text: {type: array, items: {type: string}}

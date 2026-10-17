@@ -5,10 +5,10 @@ item, the render outcome every slide must produce. This is the executable form o
 "same engine/config gives stable logical output": the classification (fidelity,
 missing fonts, publishability) must be exactly reproducible.
 
-It runs the **default** render mode (V0-019: ``themed``), so the manifest's
-``engine`` block names the renderer the application actually uses. The
-``faithful`` mode's outcomes are asserted by ``tests/test_renderer_fidelity.py``
-and ``tests/test_renderers.py``.
+It runs the **default** render mode (V0-019 v5: ``faithful``), so the manifest's
+``engine`` block names the renderer the application actually uses. The opt-in
+``themed`` re-layout mode's outcomes are asserted by ``tests/test_themed_renderer.py``
+and the publication-review tests.
 """
 
 from __future__ import annotations

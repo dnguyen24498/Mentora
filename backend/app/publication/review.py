@@ -41,6 +41,10 @@ STATE_READY = "READY"
 STATE_REVIEW_REQUIRED = "REVIEW_REQUIRED"
 STATE_BLOCKED = "BLOCKED"
 
+#: ``FONT_SUBSTITUTED:<family>`` is the greppable signal that a source font was
+#: drawn in the platform's type stack (V0-019 v5). ``MISSING_FONT:`` is kept for
+#: older packages and the renderer test double.
+FONT_SUBSTITUTED_PREFIX = "FONT_SUBSTITUTED:"
 MISSING_FONT_PREFIX = "MISSING_FONT:"
 
 #: Renderer identity whose output is a *re-layout* (V0-019) rather than a
@@ -48,21 +52,24 @@ MISSING_FONT_PREFIX = "MISSING_FONT:"
 THEMED_RENDERER_ID = "mentora-themed-svg"
 
 #: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. The
-#: **default** mode (V0-019) keeps the author's grouping and re-lays the content
-#: out in the platform theme, so the UI must say plainly which part is whose.
+#: **default** mode (V0-019 v5) keeps the deck's own layout and draws anything it
+#: cannot reproduce in the platform look, so the UI must say plainly which part is
+#: whose.
+RENDER_PLACEHOLDER_NOTICE = (
+    "Each slide keeps the deck's own layout and styling — this is not a native "
+    "PowerPoint render. Where a component cannot be reproduced (an unavailable "
+    "source font, a chart/SmartArt, a picture that cannot be embedded) it is drawn "
+    "in the Mentora theme's look, in its original place, and listed as a warning. "
+    "A production renderer technology is still an open decision (DEC-TECH-005)."
+)
+
+#: The opt-in ``themed`` mode re-lays the content out entirely.
 THEMED_RENDER_NOTICE = (
     "Slides are re-laid out by the platform in the Mentora theme (its layout, "
     "typeface, palette and page number): the deck's grouping and content are the "
     "author's, the arrangement within each group and the appearance are the "
     "platform's. No native PowerPoint render is produced; a production renderer "
     "technology is still an open decision (DEC-TECH-005)."
-)
-
-#: ``RENDER_PLACEHOLDER_NOTICE`` (V0-018) describes the ``faithful`` mode.
-RENDER_PLACEHOLDER_NOTICE = (
-    "Structural SVG render reproduced from the slide's own styling — not a "
-    "native PowerPoint render. A production renderer technology is still an "
-    "open decision (DEC-TECH-005)."
 )
 
 
@@ -303,17 +310,22 @@ class ReviewService:
     @staticmethod
     def _project_scene(artifact_id: str, document: dict[str, Any]) -> ReviewScene:
         warnings = tuple(str(w) for w in (document.get("warnings") or []))
-        # ``MISSING_FONT:<family>`` is the renderer's greppable degradation
-        # signal; the review surfaces it as a first-class field.
+        # ``FONT_SUBSTITUTED:<family>`` / ``MISSING_FONT:<family>`` are the
+        # renderer's greppable substitution signals; the review surfaces them as a
+        # first-class field.
         missing_fonts = tuple(
-            w[len(MISSING_FONT_PREFIX) :] for w in warnings if w.startswith(MISSING_FONT_PREFIX)
+            w[len(prefix) :]
+            for w in warnings
+            for prefix in (FONT_SUBSTITUTED_PREFIX, MISSING_FONT_PREFIX)
+            if w.startswith(prefix)
         )
         fidelity = document.get("fidelity")
         asset = document.get("fallback_asset")
         # A scene is only in a package if it rendered, and a render always has an
         # asset; anything else is reported as failed rather than as a blank frame.
         render_status = "RENDERED" if asset else "FAILED"
-        requires_review = fidelity == FIDELITY_DEGRADED or bool(missing_fonts)
+        # V0-019 v5: a font substitution is a warning, not a human-required review.
+        requires_review = fidelity == FIDELITY_DEGRADED
 
         text: list[str] = []
         objects = document.get("objects") or []

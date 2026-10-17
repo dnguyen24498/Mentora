@@ -44,7 +44,7 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/courses/` | Course/version/source-artifact/compiler-job models, tenant-scoped repository, `UploadService`. |
 | `app/compiler/models/` | Internal Content IR (`content-ir/1.2.0`): scenes, objects, effective style (fill/line/geometry/text), text runs, media refs, normalized bounds, fidelity, provenance. |
 | `app/compiler/extractors/` | Dependency-free PPTX (OOXML) structural extractor (`PptxExtractor`): theme/master/layout resolution (`theme.py`, `style.py`) + `ooxml.py` part/name helpers. |
-| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + two deterministic local SVG renderers behind a mode factory — themed (default, V0-019) and faithful/structural (V0-005, V0-018) — plus the theme (`mentora_theme.py`) and a required test double. |
+| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + two deterministic local SVG renderers behind a mode factory — faithful/structural (default, V0-005/V0-018) and themed (opt-in, V0-019) — plus the theme (`mentora_theme.py`) and a required test double. |
 | `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005) plus CTF package validation (V0-006). |
 | `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render (mode-selected) -> gate. |
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
@@ -61,7 +61,7 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /courses/{courseId}/materials` — list the course's uploaded presentations, newest first, each with its version number and compiler-job status (used by the frontend file list).
 - `POST /courses/{courseId}/materials` — multipart `file`; returns `202` with artifact/job/version ids. Duplicate bytes (or a repeated `Idempotency-Key`) return the existing record with `created: false`.
 - `POST /artifacts/{artifactId}/extract` — runs structural extraction and returns the Content IR.
-- `POST /artifacts/{artifactId}/compile` — extraction + a fallback render for every slide + the fidelity gate; returns `content_ir`, `render`, `validation`, `job_status`. Idempotent. `?mode=themed|faithful` picks the render mode (V0-019, default `themed`); an unknown mode is `400 INVALID_REQUEST` (`UNKNOWN_RENDER_MODE`).
+- `POST /artifacts/{artifactId}/compile` — extraction + a fallback render for every slide + the fidelity gate; returns `content_ir`, `render`, `validation`, `job_status`. Idempotent. `?mode=faithful|themed` picks the render mode (V0-019 v5, default `faithful`); an unknown mode is `400 INVALID_REQUEST` (`UNKNOWN_RENDER_MODE`).
 - `GET /artifacts/{artifactId}/renders/{order}` — the deterministic fallback visual (SVG) for one slide, re-derived from the stored artifact and tenant-scoped. `?mode=` as above.
 - `POST /artifacts/{artifactId}/review-package` — **V0-007**: builds the Baseline Content Package (V0-006, idempotent) and returns the teacher review view — per-slide render reference, extracted text, notes, warnings/fidelity and the fallback lesson order with safe markers. `409 PUBLICATION_BLOCKED` when the fidelity gate failed, so a blocking failure is never reviewable.
 - `GET /artifacts/{artifactId}/review-package` — the review view of the **stored** package; never re-renders (~20 ms for a 28-slide deck vs ~4 s to build). `404` when nothing is built yet.
@@ -121,7 +121,24 @@ break the browser). For normal development the frontend runs on its own server a
   therefore defines the `DocumentRenderer` interface, a required test double, and
   two dependency-free local implementations behind it (`renderers/factory.py`
   selects by mode) — neither is ever reported as native/compatible:
-  - **`themed` (default, V0-019 v4)** — `ThemedSvgRenderer` **keeps the author's
+  - **`faithful` (default, V0-019 v5)** — `StructuralSvgRenderer` reproduces the
+    **source slide's own layout and styling** (V0-018) and reports
+    `STRUCTURAL_RENDERED`: the effective theme colours and font scheme, backgrounds,
+    preset + `custGeom` shapes, fills/strokes/dashes, rotation/flip, real font sizes
+    with wrap/alignment/bullets, embedded pictures with crop, tables and connectors.
+    A component it cannot reproduce is **drawn in the platform look, in place**
+    (`renderers/mentora_theme.py`), never dropped and never a review blocker:
+    an unavailable source font is *substituted* with the platform's type stack
+    (deterministically — the client's fonts cannot change the asset) and recorded
+    as `FONT_SUBSTITUTED:<family>`, and a frame whose font was substituted is shrunk
+    to stay inside the author's frame instead of spilling over its neighbour; a
+    chart/SmartArt/WordArt/equation/graphic frame becomes a flat platform panel
+    labelled with the object (`UNSUPPORTED_OBJECT:<kind>`); a picture that cannot be
+    inlined (EMF/WMF/TIFF, over budget, bytes withheld) becomes a flat platform
+    panel labelled with the part. Keeping the author's layout also means keeping the
+    author's overlaps: where a source deck's own frames overlap, the overlap is
+    reproduced, exactly as PowerPoint shows it.
+  - **`themed` (opt-in, V0-019 v4)** — `ThemedSvgRenderer` **keeps the author's
     grouping and re-authors the look**: the grouping and content are the author's,
     the arrangement within each group and the appearance are the platform's
     (`renderers/flow.py` + `renderers/textmetrics.py` + `renderers/mentora_theme.py`),
@@ -146,9 +163,7 @@ break the browser). For normal development the frontend runs on its own server a
     a labelled panel and degrades (`UNSUPPORTED_OBJECT:`). The theme is versioned
     and folded into the renderer's config hash, so a theme change is a new
     content-package version.
-  - **`faithful` (V0-018)** — `StructuralSvgRenderer` reproduces the source
-    slide's own styling and reports `STRUCTURAL_RENDERED`.
-  - `?mode=themed|faithful` selects the mode on `POST /artifacts/{id}/compile` and
+  - `?mode=faithful|themed` selects the mode on `POST /artifacts/{id}/compile` and
     `GET /artifacts/{id}/renders/{order}`; `GET /renderer` reports the default, all
     modes, the active theme, and the requested capability (an unknown mode is a
     `400 INVALID_REQUEST`/`UNKNOWN_RENDER_MODE`). The package cache key binds the
@@ -158,37 +173,58 @@ break the browser). For normal development the frontend runs on its own server a
 - **Fidelity gate**: every slide gets a render or an explicit `FAILED`;
   `FAILED`/`CANCELLED`/missing renders make the document non-publishable
   (`PUBLICATION_BLOCKED`, wired into `POST /course-versions/{id}/publish`'s
-  contract for V0-008). Missing fonts and unmodeled objects degrade to
-  `DEGRADED_RENDERED` with greppable warnings (`MISSING_FONT:<family>`,
-  `UNSUPPORTED_OBJECT:<kind>`) and set `requires_review`.
-- **Faithful slide rendering (V0-018).** `DEC-TECH-005` is still `OPEN`, so this
-  is explicitly *not* a native PowerPoint engine: the renderer draws the
-  presentation **from the Content IR**. Fidelity comes from extraction, not from
-  a new dependency — the IR resolves the deck's effective look (theme colours and
-  fonts through `p:clrMap`, slide→layout→master placeholder geometry and
-  `p:txStyles` defaults, backgrounds, fills/lines/gradients/geometry/rotation,
-  run+paragraph formatting, `srcRect` crops, table metrics) and the renderer
-  reproduces it in SVG. Consequences worth knowing:
+  contract for V0-008). `DEGRADED_RENDERED` scenes require review. A component the
+  default renderer draws in the platform look, and a source font it had to
+  substitute, are **warnings** on a structural scene — greppable
+  (`FONT_SUBSTITUTED:<family>`, `UNSUPPORTED_OBJECT:<kind>`, `UNSUPPORTED_MEDIA:`,
+  `MEDIA_BUDGET_EXCEEDED:`, `MEDIA_UNAVAILABLE:`) and disclosed in the review's
+  `missing_fonts`/`warnings`, but they do **not** set `requires_review`, because
+  nothing is missing from the output.
+- **Faithful slide rendering (V0-018, the default mode since V0-019 v5).**
+  `DEC-TECH-005` is still `OPEN`, so this is explicitly *not* a native PowerPoint
+  engine: the renderer draws the presentation **from the Content IR**. Fidelity
+  comes from extraction, not from a new dependency — the IR resolves the deck's
+  effective look (theme colours and fonts through `p:clrMap`, slide→layout→master
+  placeholder geometry and `p:txStyles` defaults, backgrounds,
+  fills/lines/gradients/geometry/rotation, run+paragraph formatting, `srcRect`
+  crops, table metrics) and the renderer reproduces it in SVG. Consequences worth
+  knowing:
   - The IR must stay self-sufficient: a renderer that opened the `.pptx` would
     break `DEC-CONTENT-001`, so image bytes travel separately in
     `RenderRequest.media`, keyed by the IR's `media_ref`.
   - Pictures are inlined as `data:` URIs (the studio shows the SVG through a
     `blob:` `<img>`, where external references cannot resolve). A per-scene raw
     budget (`RenderConfig.max_inline_media_bytes`, 16 MiB) and an output cap
-    (`max_asset_bytes`, 28 MiB) keep one slide from bloating the package.
-    Over-budget or non-inlinable (EMF/WMF/TIFF) pictures render as a labelled
-    placeholder with a `MEDIA_BUDGET_EXCEEDED:`/`UNSUPPORTED_*` warning but do
-    **not** change fidelity — escaping the budget is a rendering limitation, not
-    a meaning change, so the gate's taxonomy (`MISSING_FONT`,
-    `UNSUPPORTED_OBJECT`) is unchanged.
+    (`max_asset_bytes`, 28 MiB) keep one slide from bloating the package. A
+    picture that cannot be inlined (over budget, EMF/WMF/TIFF, or bytes not
+    supplied) is drawn as a **flat platform panel** labelled with the part
+    (`renderers/mentora_theme.py`) and warned about
+    (`MEDIA_BUDGET_EXCEEDED:`/`UNSUPPORTED_MEDIA:`/`MEDIA_UNAVAILABLE:`) — in place,
+    without changing fidelity.
+  - **A component the source cannot be reproduced for is drawn in the platform
+    look, in place** (the product rule is *"same layout as the author's deck;
+    where a component cannot be reproduced, draw it in the platform's default
+    look"*): an unavailable source font is substituted with the platform's type
+    stack — deterministically, so the client's own fonts can never change the asset
+    — and recorded as `FONT_SUBSTITUTED:<family>`; a chart/SmartArt/WordArt/
+    equation/graphic frame is a flat platform panel labelled with the object
+    (`UNSUPPORTED_OBJECT:<kind>`); an unknown preset geometry is its bounding
+    rectangle. None of these lowers the fidelity or sets `requires_review`: the
+    content is complete and the layout is the author's.
   - Text uses estimated glyph advances for word-wrap and auto-shrink (an
     auto-fitting box is never overrun; an `a:noAutofit` box that does not hold its
-    text spills, as PowerPoint spills it); there is no font metric library in the
-    stdlib. Charts, SmartArt, animation and exotic effects remain placeholders.
-  - The renderer identity is bumped to `2.0.0` and the IR schema to
+    text spills, as PowerPoint spills it), and a frame whose font was *substituted*
+    is shrunk to stay inside the author's frame rather than spilling over a
+    neighbouring block — our metrics are not the author's. There is no font metric
+    library in the stdlib, so a substituted typeface can wrap a line a word earlier
+    than PowerPoint would.
+  - Because the author's geometry is kept, the author's *overlaps* are kept too:
+    where a source deck's own frames overlap, the render reproduces the overlap,
+    exactly as PowerPoint shows it.
+  - The renderer identity is bumped to `3.0.0` and the IR schema to
     `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
     reused after this change.
-- **Themed slide rendering (V0-019 v4, the default mode).** `ThemedSvgRenderer`
+- **Themed slide rendering (V0-019 v4, opt-in since v5).** `ThemedSvgRenderer`
   re-authors the *look* of each slide while keeping the *grouping* and every word,
   cell and picture the author put on it. It shares only the
   `_Canvas`/`_attr`/`_num` helpers with the structural renderer; its geometry is
@@ -221,8 +257,9 @@ break the browser). For normal development the frontend runs on its own server a
     dropped. Content that does not fit even at the smallest readable scale is
     still drawn in full and flagged `TEXT_OVERFLOW:<scene>` (degraded for review,
     page number omitted). A chart/SmartArt is a labelled panel plus
-    `UNSUPPORTED_OBJECT:` and review. No LLM rewrites slide text, because that
-    would change meaning.
+    `UNSUPPORTED_OBJECT:` and review — in this mode only; the default mode draws
+    it in the platform look in place and merely warns. No LLM rewrites slide text,
+    because that would change meaning.
   - **Metrics are estimated** (`textmetrics.py`: a font-free Helvetica/Arial advance
     table biased slightly wide), so a line may break a word early — it can never
     push a block into its neighbour. There is no bundled font to license or embed.

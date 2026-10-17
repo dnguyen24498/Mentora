@@ -1,4 +1,4 @@
-"""V0-019: the render-mode registry — ``themed`` is the default, ``faithful`` an option.
+"""V0-019: the render-mode registry — ``faithful`` is the default, ``themed`` an option.
 
 The mode is part of the renderer identity and the package cache key, so the two
 modes can never be confused for one another: they share a ``RenderConfig`` but
@@ -25,15 +25,17 @@ from app.compiler.renderers.structural import StructuralSvgRenderer
 from app.compiler.renderers.themed import ThemedSvgRenderer
 
 
-def test_themed_is_the_default_mode():
-    assert DEFAULT_RENDER_MODE == MODE_THEMED == "themed"
+def test_faithful_is_the_default_mode():
+    """V0-019 v5: the product renders the deck's own layout by default."""
+
+    assert DEFAULT_RENDER_MODE == MODE_FAITHFUL == "faithful"
     assert set(RENDER_MODES) == {"themed", "faithful"}
 
 
 def test_create_renderer_selects_the_implementation(object_store):
     assert isinstance(create_renderer(MODE_THEMED, object_store), ThemedSvgRenderer)
     assert isinstance(create_renderer(MODE_FAITHFUL, object_store), StructuralSvgRenderer)
-    assert isinstance(create_renderer(object_store=object_store), ThemedSvgRenderer)
+    assert isinstance(create_renderer(object_store=object_store), StructuralSvgRenderer)
 
 
 def test_build_renderers_covers_every_mode_with_one_object_store(object_store, render_config):

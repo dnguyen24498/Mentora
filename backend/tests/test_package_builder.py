@@ -49,7 +49,7 @@ CREATED_AT = "2026-01-01T00:00:00+00:00"
 PACKAGE_ID = "pkg-fixed-0001"
 SCENE_PATH = "scenes/000-ppt-slides-slide1-xml.json"
 LESSON_PLAN_PATH = "lesson-plan.json"
-ASSET_PATH = "assets/cf635917c8911e9d57ea9e05a9b92f5cdcbf5742d7a335625ca95b71d7a7e743.svg"
+ASSET_PATH = "assets/9ed032a458d9fea76d5720eaf3d7bcf6cbc042b2c570efd5b772fa1fc5428742.svg"
 
 
 # -- a dependency-free JSON-Schema subset evaluator --------------------------------
@@ -488,11 +488,16 @@ def test_a_file_not_listed_in_the_manifest_is_rejected(package):
 
 
 def test_degraded_fidelity_requires_review(rendered_from_pptx, metadata, object_store):
-    compiled = rendered_from_pptx(
-        build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]]), "brand.pptx"
-    )
+    """A scene the platform itself marks DEGRADED_RENDERED is reviewed, not blocked."""
+
+    compiled = rendered_from_pptx(build_pptx([[text_shape(2, "T", text="hi")]]), "deck.pptx")
+    scene = replace(compiled.document.slides[0], fidelity="DEGRADED_RENDERED")
+    document = replace(compiled.document, slides=[scene])
     report = validate_package(
-        build_from(compiled, metadata, object_store), render_validation=compiled.validation
+        PackageBuilder().build(
+            document, metadata=metadata, assets=assets_for(compiled, object_store)
+        ),
+        render_validation=compiled.validation,
     )
 
     assert report.ok is True, "degraded fidelity is reviewable, not invalid"
@@ -500,6 +505,29 @@ def test_degraded_fidelity_requires_review(rendered_from_pptx, metadata, object_
     assert any(
         i.code in {"DEGRADED_REQUIRES_REVIEW", "RENDER_REQUIRES_REVIEW"} for i in report.issues
     )
+
+
+def test_a_substituted_font_is_a_warning_not_a_review(
+    rendered_from_pptx, metadata, object_store
+):
+    """V0-019 v5: an unavailable source font is drawn in the platform font in place.
+
+    The scene keeps ``STRUCTURAL_RENDERED`` and the package is publishable without a
+    human accepting a "degradation" that isn't visible in the output.
+    """
+
+    compiled = rendered_from_pptx(
+        build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]]), "brand.pptx"
+    )
+    report = validate_package(
+        build_from(compiled, metadata, object_store), render_validation=compiled.validation
+    )
+
+    assert any(
+        w.startswith("FONT_SUBSTITUTED:") for w in compiled.document.slides[0].warnings
+    )
+    assert report.ok is True
+    assert report.requires_review is False
 
 
 def test_render_gate_failure_blocks_packaging(package, rendered):

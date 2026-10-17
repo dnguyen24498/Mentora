@@ -14,7 +14,7 @@ from app.compiler.renderers.base import (
     RendererError,
 )
 from app.compiler.renderers.structural import (
-    MISSING_FONT_PREFIX,
+    FONT_SUBSTITUTED_PREFIX,
     UNSUPPORTED_OBJECT_PREFIX,
     StructuralSvgRenderer,
 )
@@ -64,15 +64,23 @@ def test_rendered_svg_escapes_slide_text(renderer, extractor, object_store):
     assert "&amp;" in svg
 
 
-def test_missing_font_degrades_with_warning(renderer, extractor):
+def test_a_missing_font_is_substituted_in_place(renderer, extractor, object_store):
+    """V0-019 v5: keep the author's box, draw the run in the app's font."""
+
     deck = build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]])
     report = _render(renderer, extractor.extract(deck))
     scene = report.results[0]
+    svg = object_store.get(scene.asset_ref).decode("utf-8")
 
-    assert scene.fidelity == "DEGRADED_RENDERED"
+    assert scene.status is RenderStatus.RENDERED
+    assert scene.fidelity == "STRUCTURAL_RENDERED"
     assert scene.missing_fonts == ("Be Vietnam Pro",)
-    assert f"{MISSING_FONT_PREFIX}Be Vietnam Pro" in scene.warnings
-    assert any("requires review" in w for w in scene.warnings)
+    assert f"{FONT_SUBSTITUTED_PREFIX}Be Vietnam Pro" in scene.warnings
+    # The source family is *not* named in the output: the render cannot depend on
+    # which fonts the client happens to have.
+    assert "Be Vietnam Pro" not in svg
+    assert 'font-family="Noto Sans' in svg
+    assert not any("requires review" in w for w in scene.warnings)
 
 
 def test_available_font_stays_structural(renderer, extractor):

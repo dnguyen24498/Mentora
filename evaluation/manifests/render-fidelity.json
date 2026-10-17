@@ -1,10 +1,10 @@
 {
-  "version": "0.2",
-  "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-019 for the default render mode. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py against the DEFAULT renderer: 'mentora-themed-svg' recovers the source slide's rows and columns as grouping and re-lays each cell out in the platform theme, so it owns its typefaces and unavailable source fonts no longer degrade a scene. Native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here; the faithful structural mode's outcomes are asserted by test_renderer_fidelity.py.",
+  "version": "0.3",
+  "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-019 v5 for the default render mode. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py against the DEFAULT renderer: 'local-structural-svg' reproduces each slide's own layout and styling, and draws anything it cannot reproduce (an unavailable source font, a chart/SmartArt, an un-inlinable picture) in the platform look IN PLACE, recording a warning rather than degrading the scene — so a deck whose fonts are not installed is still publishable. Native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here; the opt-in 'themed' re-layout mode's outcomes are asserted by test_publication_review.py and test_themed_renderer.py.",
   "engine": {
-    "renderer_id": "mentora-themed-svg",
-    "renderer_version": "4.0.0",
-    "fidelity_ceiling": "THEMED_RENDERED",
+    "renderer_id": "local-structural-svg",
+    "renderer_version": "3.0.0",
+    "fidelity_ceiling": "STRUCTURAL_RENDERED",
     "data_region": "local"
   },
   "items": [
@@ -14,7 +14,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -26,7 +26,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -38,7 +38,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -50,10 +50,10 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "DEGRADED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
-        "requires_review": true
+        "requires_review": false
       }
     },
     {
@@ -62,7 +62,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -74,8 +74,11 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
-        "missing_fonts": [],
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [
+          "Bree Serif",
+          "Inter Light"
+        ],
         "publishable": true,
         "requires_review": false
       }
@@ -86,8 +89,10 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
-        "missing_fonts": [],
+        "fidelity": "STRUCTURAL_RENDERED",
+        "missing_fonts": [
+          "VNI-Times"
+        ],
         "publishable": true,
         "requires_review": false
       }
@@ -98,7 +103,7 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
@@ -110,14 +115,20 @@
       "expect": {
         "slides": 1,
         "status": "RENDERED",
-        "fidelity": "THEMED_RENDERED",
+        "fidelity": "STRUCTURAL_RENDERED",
         "missing_fonts": [],
         "publishable": true,
         "requires_review": false
       }
     }
   ],
-  "not_yet_covered": ["smartart", "equation", "semantic_reveal", "scan", "video"],
+  "not_yet_covered": [
+    "smartart",
+    "equation",
+    "semantic_reveal",
+    "scan",
+    "video"
+  ],
   "metrics": [
     "render_similarity",
     "font_issue_count",

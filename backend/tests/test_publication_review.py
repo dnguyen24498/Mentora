@@ -22,9 +22,8 @@ from app.compiler.package_builder.service import PackageBuildService
 from app.compiler.renderers.base import RenderConfig
 from app.compiler.renderers.testing import FakeRenderer
 from app.publication.review import (
+    RENDER_PLACEHOLDER_NOTICE,
     STATE_READY,
-    STATE_REVIEW_REQUIRED,
-    THEMED_RENDER_NOTICE,
     ReviewService,
 )
 from tests.fixtures import (
@@ -97,7 +96,7 @@ def test_review_scene_carries_render_text_notes_and_fidelity(client):
 
     assert scene["order"] == 0
     assert scene["scene_id"] == "ppt/slides/slide1.xml"
-    assert scene["fidelity"] == "THEMED_RENDERED"
+    assert scene["fidelity"] == "STRUCTURAL_RENDERED"
     assert scene["render_status"] == "RENDERED"
     assert scene["text"] == ["Hello world"]
     assert scene["notes"] == "Say hi."
@@ -105,7 +104,7 @@ def test_review_scene_carries_render_text_notes_and_fidelity(client):
     assert scene["missing_fonts"] == []
     assert scene["object_count"] == 1
     assert scene["step_count"] == 1
-    assert scene["renderer"]["name"] == "mentora-themed-svg"
+    assert scene["renderer"]["name"] == "local-structural-svg"
     assert scene["render_url"] == f"/artifacts/{artifact_id}/review-package/renders/0"
 
 
@@ -146,10 +145,10 @@ def test_review_declares_how_the_slides_were_rendered(client):
     body = _review(client, _upload(client))
 
     # DEC-TECH-005 is OPEN: the UI must never imply a native render.
-    assert body["placeholder_notice"] == THEMED_RENDER_NOTICE
+    assert body["placeholder_notice"] == RENDER_PLACEHOLDER_NOTICE
     assert "DEC-TECH-005" in body["placeholder_notice"]
-    assert "re-laid out" in body["placeholder_notice"]
-    assert body["renderer"]["engine"] == "mentora-theme-svg"
+    assert "keeps the deck's own layout" in body["placeholder_notice"]
+    assert body["renderer"]["engine"] == "stdlib-svg"
 
 
 def test_review_is_deterministic_apart_from_the_build_timestamp(client):
@@ -162,9 +161,9 @@ def test_review_is_deterministic_apart_from_the_build_timestamp(client):
     assert first == second
 
 
-# -- degraded fidelity drives the review state -------------------------------------
-def test_an_unavailable_font_does_not_degrade_a_themed_scene(client):
-    """V0-019: the theme owns its typefaces, so a source font cannot degrade it."""
+# -- unavailable components are drawn in place, not blocked -------------------------
+def test_an_unavailable_font_is_substituted_not_degraded(client):
+    """V0-019 v5: the run keeps its box and is drawn in the platform's type stack."""
 
     artifact_id = _upload(
         client,
@@ -176,26 +175,27 @@ def test_an_unavailable_font_does_not_degrade_a_themed_scene(client):
     assert body["state"] == STATE_READY
     assert body["requires_review"] is False
     scene = body["scenes"][0]
-    assert scene["fidelity"] == "THEMED_RENDERED"
-    assert scene["missing_fonts"] == []
-    assert not [w for w in scene["warnings"] if w.startswith("MISSING_FONT:")]
+    assert scene["fidelity"] == "STRUCTURAL_RENDERED"
+    assert scene["missing_fonts"] == ["Be Vietnam Pro"]
+    assert "FONT_SUBSTITUTED:Be Vietnam Pro" in scene["warnings"]
 
 
-def test_an_unmappable_object_marks_the_scene_and_the_package_for_review(client):
-    """A chart cannot be redrawn in the theme, so it degrades (V0-019)."""
+def test_an_unmappable_object_is_drawn_in_the_platform_look(client):
+    """A chart cannot be reproduced, so the app's own panel draws it, in place."""
 
     artifact_id = _upload(client, _chart_deck(), "chart.pptx")
     body = _review(client, artifact_id)
 
-    assert body["state"] == STATE_REVIEW_REQUIRED
-    assert body["requires_review"] is True
-    assert body["publishable"] is True, "degraded fidelity is reviewable, not blocking"
+    assert body["state"] == STATE_READY
+    assert body["requires_review"] is False
+    assert body["publishable"] is True
     scene = body["scenes"][0]
-    assert scene["requires_review"] is True
-    assert scene["fidelity"] == "DEGRADED_RENDERED"
+    assert scene["requires_review"] is False
+    assert scene["fidelity"] == "STRUCTURAL_RENDERED"
     assert scene["missing_fonts"] == []
+    # The object is still named, so the substitution is never silent.
     assert "UNSUPPORTED_OBJECT:chart" in scene["warnings"]
-    assert body["lesson_order"][0]["requires_review"] is True
+    assert body["lesson_order"][0]["requires_review"] is False
 
 
 # -- the cheap read path -----------------------------------------------------------

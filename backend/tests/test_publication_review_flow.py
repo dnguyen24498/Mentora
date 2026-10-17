@@ -48,6 +48,22 @@ def blocked_client(settings):
         yield test_client
 
 
+@pytest.fixture
+def degraded_client(settings):
+    """An app whose renderer cannot represent every object kind, so a scene degrades.
+
+    V0-019 v5 makes the default renderer draw what it cannot reproduce in the
+    platform look, so a *degradation* has to be configured explicitly to exercise
+    the human-review path.
+    """
+
+    def factory(object_store, config: RenderConfig):
+        return FakeRenderer(object_store=object_store, config=config, supported_kinds=("text",))
+
+    with TestClient(create_app(settings, renderer_factory=factory)) as test_client:
+        yield test_client
+
+
 def _deck(slides: int = 3) -> bytes:
     return build_pptx(
         [[text_shape(2, f"S{index}", text=f"Slide {index}")] for index in range(1, slides + 1)],
@@ -175,13 +191,15 @@ def test_a_blocking_render_failure_never_becomes_approvable(blocked_client):
     assert repository.draft_count("university-001", artifact_id) == 0
 
 
-def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(client):
+def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(degraded_client):
     """DEGRADED_RENDERED is human-required, not blocked (DEC-CONTENT-006/008).
 
-    V0-019: the degradation is an object the themed renderer cannot redraw
-    (a chart), not a font — the theme owns its typefaces.
+    V0-019 v5: the default renderer draws an object it cannot reproduce in the
+    platform look instead of degrading, so this app is configured with a renderer
+    that cannot represent a chart at all.
     """
 
+    client = degraded_client
     deck = build_pptx(
         [[chart_shape(6, "Scores")]],
         extra_slide_rels={1: [("rIdChart", REL_CHART, "../charts/chart1.xml")]},
@@ -193,6 +211,7 @@ def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(client):
     assert built["state"] == "REVIEW_REQUIRED"
     assert built["requires_review"] is True
     assert built["publishable"] is True
+    assert built["scenes"][0]["fidelity"] == "DEGRADED_RENDERED"
 
     decision = client.post(
         f"/artifacts/{artifact_id}/review-package/decision",

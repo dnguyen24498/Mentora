@@ -100,7 +100,10 @@ def test_theme_fill_and_inherited_master_text_reach_the_svg(object_store):
     svg = _svg(object_store, _render(object_store, styled_deck()))
 
     assert 'fill="#1B3A8C"' in svg  # theme accent1
-    assert 'font-family="Major Sans, sans-serif"' in svg  # master p:titleStyle
+    # The master's family is unavailable, so it is substituted in place (V0-019 v5)
+    # rather than named first and left to the client's fonts.
+    assert 'font-family="Noto Sans' in svg
+    assert "Major Sans" not in svg
     assert 'font-size="53.33"' in svg  # 40 pt
     assert 'font-weight="bold"' in svg
 
@@ -161,20 +164,21 @@ def test_table_cells_take_their_fill_text_and_column_ratio(object_store):
 
 
 # -- degradation is explicit, never silent -----------------------------------------
-def test_inherited_unavailable_font_degrades_the_scene(object_store):
-    """The gate must see the master's font, not just the slide's declarations."""
+def test_inherited_unavailable_font_is_substituted_not_degraded(object_store):
+    """The gate must see the master's font, and the run must still be drawn."""
 
     report = _render(object_store, styled_deck())
     result = report.scene(0)
 
     assert result.status is RenderStatus.RENDERED
-    assert result.fidelity == "DEGRADED_RENDERED"
-    assert "MISSING_FONT:Major Sans" in result.warnings
+    assert result.fidelity == "STRUCTURAL_RENDERED"
+    assert "FONT_SUBSTITUTED:Major Sans" in result.warnings
     assert result.missing_fonts == ("Major Sans",)
+    assert "Major Sans" not in _svg(object_store, report)
 
 
-def test_an_oversized_picture_degrades_to_a_labelled_placeholder(object_store):
-    """Over-budget media must not fail the scene — it is labelled instead."""
+def test_an_oversized_picture_becomes_a_labelled_platform_panel(object_store):
+    """Over-budget media must not fail the scene — the app's look replaces it."""
 
     config = RenderConfig(max_inline_media_bytes=1)
     report = _render(object_store, styled_deck(), config)
@@ -182,8 +186,12 @@ def test_an_oversized_picture_degrades_to_a_labelled_placeholder(object_store):
     svg = _svg(object_store, report)
 
     assert result.status is RenderStatus.RENDERED
+    assert result.fidelity == "STRUCTURAL_RENDERED"
     assert "MEDIA_BUDGET_EXCEEDED:ppt/media/image1.png" in result.warnings
     assert "data:image" not in svg
+    # The fallback is the platform's own panel, not a foreign grey placeholder.
+    assert 'fill="#F4F7FB"' in svg
+    assert 'font-family="Noto Sans' in svg
     assert ">image1.png</text>" in svg
 
 

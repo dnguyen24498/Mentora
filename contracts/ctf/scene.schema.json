@@ -45,7 +45,7 @@
       "type": "string"
     },
     "fidelity": {
-      "description": "How the fallback asset relates to the source slide. NATIVE/COMPATIBLE/STRUCTURAL measure fidelity *to the source*; THEMED_RENDERED keeps the author's grouping but re-authors the look in the platform theme (the arrangement within each group is the platform's, so there is nothing to be faithful to and it is not ranked against the others); DEGRADED_RENDERED means a check of meaning is required.",
+      "description": "How the fallback asset relates to the source slide. NATIVE/COMPATIBLE/STRUCTURAL measure fidelity *to the source*; STRUCTURAL_RENDERED is the default mode (V0-019 v5) — it reproduces the source slide's own layout and styling and draws any component it cannot reproduce (an unavailable source font, a chart/SmartArt, an un-inlinable picture) in the platform look *in place*, recording a warning rather than degrading; THEMED_RENDERED is the opt-in mode that keeps the author's grouping but re-authors the look in the platform theme (the arrangement within each group is the platform's, so there is nothing to be faithful to and it is not ranked against the others); DEGRADED_RENDERED means a check of meaning is required.",
       "enum": [
         "NATIVE_RENDERED",
         "COMPATIBLE_RENDERED",

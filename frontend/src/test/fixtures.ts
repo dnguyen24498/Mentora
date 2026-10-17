@@ -16,7 +16,7 @@ export function makeScene(order: number, overrides: Partial<ReviewScene> = {}): 
   return {
     order,
     scene_id: sceneId,
-    fidelity: 'THEMED_RENDERED',
+    fidelity: 'STRUCTURAL_RENDERED',
     render_status: 'RENDERED',
     fallback_asset: `assets/${order}.svg`,
     render_url: `/artifacts/${ARTIFACT}/review-package/renders/${order}`,
@@ -47,7 +47,7 @@ export function makeSection(
     scene_step_id: `${sceneId}#step-0`,
     safe_markers: [`${sceneId}#step-0`],
     script,
-    scene_fidelity: 'THEMED_RENDERED',
+    scene_fidelity: 'STRUCTURAL_RENDERED',
     requires_review: false,
   }
 }
@@ -70,14 +70,14 @@ export function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPacka
     scene_count: 2,
     file_count: 5,
     renderer: {
-      name: 'mentora-themed-svg',
-      version: '4.0.0',
-      engine: 'mentora-theme-svg',
+      name: 'local-structural-svg',
+      version: '3.0.0',
+      engine: 'stdlib-svg',
       config_hash: 'hash',
       data_region: 'local',
     },
     placeholder_notice:
-      "Slides are re-laid out by the platform in the Mentora theme (its layout, typeface, palette and page number): the deck's grouping and content are the author's, the arrangement within each group and the appearance are the platform's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
+      "Each slide keeps the deck's own layout and styling — this is not a native PowerPoint render. Where a component cannot be reproduced (an unavailable source font, a chart/SmartArt, a picture that cannot be embedded) it is drawn in the Mentora theme's look, in its original place, and listed as a warning. A production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       makeSection(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       makeSection(1, 'sec-2', 'ppt/slides/slide2.xml', null),

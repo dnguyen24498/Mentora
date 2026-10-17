@@ -136,9 +136,11 @@ def test_telemetry_counts_blocked_publication(stored_artifact, repository, objec
     assert service.telemetry.metrics.publish_blocked == 1
 
 
-def test_compile_marks_missing_fonts_for_review(
+def test_compile_substitutes_a_missing_font_with_a_warning(
     repository, object_store, extractor, upload_service, course, render_config
 ):
+    """V0-019 v5: an unavailable font is drawn in the app's font, not reviewed."""
+
     deck = build_pptx([[text_shape(2, "T", text="hi", font="Be Vietnam Pro")]])
     artifact = upload_service.upload(
         institution_id="inst-1",
@@ -152,10 +154,10 @@ def test_compile_marks_missing_fonts_for_review(
     )
     result = service.compile("inst-1", artifact.artifact_id)
 
-    assert result.document.slides[0].fidelity == "DEGRADED_RENDERED"
+    assert result.document.slides[0].fidelity == "STRUCTURAL_RENDERED"
     assert result.validation.publishable is True
-    assert result.validation.requires_review is True
-    assert any(w.startswith("MISSING_FONT:") for w in result.document.slides[0].warnings)
+    assert result.validation.requires_review is False
+    assert any(w.startswith("FONT_SUBSTITUTED:") for w in result.document.slides[0].warnings)
 
 
 def test_recompile_is_idempotent(stored_artifact, rendering_service, settings):
@@ -212,9 +214,9 @@ def test_compile_endpoint_returns_reports(client):
     assert body["job_status"] == "EXTRACTED"
     assert body["validation"]["publishable"] is True
     assert body["render"]["scenes"][0]["asset_ref"]
-    # V0-019: the default render mode re-lays the content out in the theme.
-    assert body["render"]["scenes"][0]["renderer"]["engine"] == "mentora-theme-svg"
-    assert body["render"]["scenes"][0]["fidelity"] == "THEMED_RENDERED"
+    # V0-019 v5: the default render mode keeps the deck's own layout.
+    assert body["render"]["scenes"][0]["renderer"]["engine"] == "stdlib-svg"
+    assert body["render"]["scenes"][0]["fidelity"] == "STRUCTURAL_RENDERED"
     assert body["content_ir"]["slides"][0]["fallback_asset"]
 
 
@@ -235,14 +237,14 @@ def test_render_endpoint_unknown_slide_is_503(client):
 def test_renderer_endpoint_reports_capability_and_health(client):
     body = client.get("/renderer", headers=HEADERS).json()
 
-    # V0-019: the default mode is ``themed``; ``faithful`` is still offered, and
-    # neither claims a native render (DEC-TECH-005 stays OPEN).
-    assert body["default_mode"] == "themed"
-    assert body["mode"] == "themed"
+    # V0-019 v5: the default mode is ``faithful`` (the deck's own layout);
+    # ``themed`` is still offered, and neither claims a native render.
+    assert body["default_mode"] == "faithful"
+    assert body["mode"] == "faithful"
     assert {m["mode"] for m in body["modes"]} == {"themed", "faithful"}
-    assert body["identity"]["name"] == "mentora-themed-svg"
+    assert body["identity"]["name"] == "local-structural-svg"
     assert body["identity"]["data_region"] == "local"
-    assert body["support"]["fidelity_ceiling"] == "THEMED_RENDERED"
+    assert body["support"]["fidelity_ceiling"] == "STRUCTURAL_RENDERED"
     assert body["theme"]["name"] == "mentora-default"
     assert body["health"]["state"] == "closed"
 

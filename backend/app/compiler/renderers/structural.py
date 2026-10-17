@@ -13,14 +13,36 @@ sizes with word wrapping and alignment, embedded pictures, and table styling.
 
 It is still **not** a native PowerPoint render and is never reported as one
 (``DEC-CONTENT-006``): charts, SmartArt, WordArt, equations, effects, and
-animations remain explicit placeholders/warnings, and text metrics are estimated
-rather than measured. It never reads the original package (``DEC-CONTENT-001``):
-the only inputs are the Content IR and the picture bytes the compiler injects.
+animations are drawn as platform panels (see below), and text metrics are
+estimated rather than measured. It never reads the original package
+(``DEC-CONTENT-001``): the only inputs are the Content IR and the picture bytes
+the compiler injects.
 
-This renderer is the ``faithful`` render mode (V0-019). It reproduces the source
-deck's own resolved styling and placement; the *default* mode is
-``renderers/themed.py``, which re-lays the extracted content out in the platform
-grid instead of copying the author's geometry.
+This renderer is the ``faithful`` render mode and the application **default**
+(V0-019 v5). It reproduces the source deck's own resolved styling and placement;
+``renderers/themed.py`` is the opt-in mode that re-lays the content out in the
+platform grid instead of copying the author's geometry.
+
+Platform fallback for components we cannot reproduce
+----------------------------------------------------
+The product rule is *"same layout as the author's deck; where a component cannot
+be reproduced, draw it in the platform's default look, in place"*. So a component
+this renderer cannot reproduce as authored is not dropped, and it does not degrade
+the scene either — it keeps its exact position and size and is painted with
+``mentora_theme`` (flat surface, muted label, the theme's type stack):
+
+* an **unavailable source font** — the run is drawn in the platform's family
+  (deterministically, so a client that happens to have the source font cannot get
+  a different asset), recorded as ``FONT_SUBSTITUTED:<family>``;
+* a **chart / SmartArt / WordArt / equation / graphic frame** — a flat platform
+  panel labelled with the object, recorded as ``UNSUPPORTED_OBJECT:<kind>``;
+* a **picture that cannot be inlined** (EMF/WMF/TIFF, over budget, bytes not
+  supplied) — a flat platform panel labelled with the part, warning unchanged;
+* an **unknown preset geometry** — drawn as its bounding rectangle.
+
+Because every one of these has a legible platform representation, a scene only
+reports ``DEGRADED_RENDERED`` when something genuinely cannot be drawn; a fallback
+is a *warning* on a ``STRUCTURAL_RENDERED`` scene, not a review blocker.
 """
 
 from __future__ import annotations
@@ -51,9 +73,14 @@ from app.compiler.renderers.base import (
     RendererError,
     SceneRender,
 )
+from app.compiler.renderers.mentora_theme import DEFAULT_THEME, MentoraTheme
 
 #: Emitted as ``MISSING_FONT:<family>`` so warnings stay greppable/metricable.
+#: Still written by the test double; a real render *substitutes* instead.
 MISSING_FONT_PREFIX = "MISSING_FONT:"
+#: ``FONT_SUBSTITUTED:<family>`` — the source family is unavailable, so the run is
+#: drawn in the platform's type stack (V0-019). A warning, not a degradation.
+FONT_SUBSTITUTED_PREFIX = "FONT_SUBSTITUTED:"
 #: Emitted as ``UNSUPPORTED_OBJECT:<kind>``.
 UNSUPPORTED_OBJECT_PREFIX = "UNSUPPORTED_OBJECT:"
 #: ``UNSUPPORTED_MEDIA:<part-or-extension>`` — a picture this build cannot inline.
@@ -132,6 +159,9 @@ class _Canvas:
         self.defs: list[str] = []
         self._ids = 0
         self.inlined_bytes = 0
+        #: How many times a run's typeface had to be substituted (V0-019 v5). Used
+        #: per text frame to decide whether the platform's fit rule applies.
+        self.substitutions = 0
 
     def next_id(self, prefix: str) -> str:
         self._ids += 1
@@ -236,12 +266,21 @@ class StructuralSvgRenderer(DocumentRenderer):
     """Draws a slide from the IR's resolved styling, as one SVG per slide."""
 
     renderer_id = "local-structural-svg"
-    renderer_version = "2.0.0"
+    renderer_version = "3.0.0"
     engine = "stdlib-svg"
     fidelity_ceiling = FIDELITY_STRUCTURAL
 
-    def __init__(self, object_store=None, config: Optional[RenderConfig] = None) -> None:
+    def __init__(
+        self,
+        object_store=None,
+        config: Optional[RenderConfig] = None,
+        *,
+        theme: Optional[MentoraTheme] = None,
+    ) -> None:
         super().__init__(config=config, object_store=object_store)
+        #: The platform look used *only* for components this renderer cannot
+        #: reproduce (V0-019). The source's own styling is what is drawn elsewhere.
+        self.theme = theme or DEFAULT_THEME
 
     # -- interface --------------------------------------------------------------
     def inspect_support(self) -> CapabilityReport:
@@ -253,12 +292,29 @@ class StructuralSvgRenderer(DocumentRenderer):
             supported_kinds=self.supported_kinds,
             available_fonts=tuple(sorted(self.config.available_fonts)),
             reasons=(
-                "structural renderer: theme colours/fonts, fills, pictures and text "
-                "formatting are reproduced, layout metrics are approximate",
-                "charts, SmartArt, effects and animation are placeholders",
+                "structural renderer (default): the slide's own layout, theme "
+                "colours/fonts, fills, pictures and text formatting are reproduced; "
+                "layout metrics are approximate",
+                "a component that cannot be reproduced (an unavailable source font, "
+                "a chart/SmartArt, an un-inlinable picture) is drawn in the platform "
+                "look in place and recorded as a warning, never dropped",
                 "native PowerPoint rendering is an OPEN decision (DEC-TECH-005)",
             ),
         )
+
+    def classify(
+        self, *, missing_fonts: tuple[str, ...], unsupported_kinds: tuple[str, ...]
+    ) -> str:
+        """Always the ceiling: fallbacks replace degradation (V0-019 v5).
+
+        Unlike the historical rule, an unavailable font or an undrawable object no
+        longer lowers the fidelity here, because each is *drawn* in the platform
+        look and only *warned* about. ``DEGRADED_RENDERED`` stays reachable for
+        anything that genuinely cannot be drawn (e.g. a failed asset write).
+        """
+
+        del missing_fonts, unsupported_kinds
+        return self.fidelity_ceiling
 
     # -- per scene --------------------------------------------------------------
     def _attempt_scene(
@@ -276,8 +332,10 @@ class StructuralSvgRenderer(DocumentRenderer):
 
         missing = self.missing_fonts(scene)
         unsupported = self.unsupported_kinds(scene)
-        warnings: list[str] = [f"{MISSING_FONT_PREFIX}{f}" for f in missing]
-        warnings += [f"{UNSUPPORTED_OBJECT_PREFIX}{kind}" for kind in unsupported]
+        # An unavailable font is *substituted* in ``_family`` (which records
+        # ``FONT_SUBSTITUTED:``); an unsupported object is drawn as a platform
+        # panel below. Both are warnings on a structural render, not degradations.
+        warnings: list[str] = [f"{UNSUPPORTED_OBJECT_PREFIX}{kind}" for kind in unsupported]
 
         try:
             payload = self._svg(request.document, scene, request.media, warnings)
@@ -592,14 +650,7 @@ class StructuralSvgRenderer(DocumentRenderer):
         transform: str,
     ) -> str:
         label = _basename(obj.media_ref) or obj.name or "image"
-        body = (
-            f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
-            f'fill="#eef2f7" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>'
-            f'<text x="{_num(x + w / 2)}" y="{_num(y + h / 2)}" text-anchor="middle" '
-            f'font-family="{_attr(canvas.config.font_family)}" font-size="12" fill="#64748b">'
-            f"{escape(label)}</text>"
-        )
-        return f'<g{transform}>{body}</g>' if transform else body
+        return self._platform_panel(canvas, x, y, w, h, label, transform)
 
     def _placeholder(
         self,
@@ -612,12 +663,41 @@ class StructuralSvgRenderer(DocumentRenderer):
         transform: str,
     ) -> str:
         label = f"{obj.kind}: {obj.name or _basename(obj.media_ref)}"
+        warning = f"{UNSUPPORTED_OBJECT_PREFIX}{obj.kind}"
+        if warning not in canvas.warnings:
+            canvas.warnings.append(warning)
+        return self._platform_panel(canvas, x, y, w, h, label, transform)
+
+    def _platform_panel(
+        self,
+        canvas: _Canvas,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        label: str,
+        transform: str,
+    ) -> str:
+        """The app's default look for a component the source cannot be reproduced for.
+
+        V0-019: the slide keeps the author's layout, and anything this renderer
+        cannot reproduce (a chart/SmartArt, a picture it cannot inline, an
+        unavailable font) is painted in the platform theme *in place* — flat
+        surface, one hairline border, the theme's own type stack — so the deck
+        reads as one document instead of showing a foreign grey box. The warning
+        still names the object; only the pixels are the platform's.
+        """
+
+        theme = self.theme
+        scale = h / theme.panel_px if theme.panel_px else 1.0
+        size = max(9.0, theme.panel_label_px * min(1.0, scale))
         body = (
             f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
-            f'fill="#f5f3ff" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4 3"/>'
-            f'<text x="{_num(x + 6)}" y="{_num(y + 16)}" '
-            f'font-family="{_attr(canvas.config.font_family)}" font-size="12" fill="#6d28d9">'
-            f"{escape(label)}</text>"
+            f'rx="8" fill="{_attr(theme.surface)}" stroke="{_attr(theme.border)}" '
+            f'stroke-width="1"/>'
+            f'<text x="{_num(x + w / 2)}" y="{_num(y + h / 2 + size / 3)}" '
+            f'text-anchor="middle" font-family="{_attr(theme.font_stack)}" '
+            f'font-size="{_num(size)}" fill="{_attr(theme.muted)}">{escape(label)}</text>'
         )
         return f'<g{transform}>{body}</g>' if transform else body
 
@@ -753,6 +833,7 @@ class StructuralSvgRenderer(DocumentRenderer):
         available_h = max(4.0, h - inset_t - inset_b)
         base_scale = float(obj.font_scale or 1.0)
 
+        substitutions_before = canvas.substitutions
         layout = self._layout_text(
             canvas,
             content,
@@ -763,8 +844,16 @@ class StructuralSvgRenderer(DocumentRenderer):
             default_size_pt,
         )
         # Auto-shrink (``a:normAutofit``/``a:spAutoFit`` behaviour): PowerPoint
-        # never overflows a text box, so neither do we.
-        if layout["height"] > available_h and obj.autofit in (None, "shrink", "resize"):
+        # never overflows a text box, so neither do we. V0-019 v5 adds one case:
+        # when this frame's typeface had to be *substituted*, the platform's font
+        # is not the author's, so its metrics are not the author's either — the
+        # frame and its content are kept, but the text is shrunk to stay inside the
+        # frame instead of spilling over a neighbouring block. A frame the source
+        # font already fits is left at its authored size.
+        substituted = canvas.substitutions > substitutions_before
+        if layout["height"] > available_h and (
+            obj.autofit in (None, "shrink", "resize") or substituted
+        ):
             scale = base_scale
             for _ in range(6):
                 if layout["height"] <= available_h or scale <= 0.4:
@@ -919,9 +1008,23 @@ class StructuralSvgRenderer(DocumentRenderer):
         return None
 
     def _family(self, canvas: _Canvas, family: Optional[str]) -> str:
+        """The ``font-family`` for a run (V0-019: the app's font, in place).
+
+        An unavailable source family is *substituted* with the platform's type
+        stack rather than merely listed first, so the asset does not depend on
+        which fonts the client happens to have — one deck, one render. The
+        substitution is recorded as ``FONT_SUBSTITUTED:<family>``.
+        """
+
         if not family:
-            return canvas.config.font_family
-        return f"{family}, {canvas.config.font_family}"
+            return self.theme.font_stack
+        if family in canvas.config.available_fonts:
+            return f"{family}, {self.theme.font_stack}"
+        canvas.substitutions += 1
+        warning = f"{FONT_SUBSTITUTED_PREFIX}{family}"
+        if warning not in canvas.warnings:
+            canvas.warnings.append(warning)
+        return self.theme.font_stack
 
     @staticmethod
     def _run_color(runs: list) -> str:

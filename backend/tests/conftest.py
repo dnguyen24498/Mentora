@@ -65,12 +65,12 @@ def render_config() -> RenderConfig:
 
 @pytest.fixture
 def renderer(object_store, render_config) -> StructuralSvgRenderer:
-    """The *faithful* (structural) renderer.
+    """The *faithful* (structural) renderer — the application default since v5.
 
-    Kept as the default fixture because ``tests/test_renderers.py`` and
-    ``tests/test_renderer_fidelity.py`` assert structural-renderer behaviour
-    (font degradation, the structural ceiling). The renderer the application uses
-    by default is :func:`default_renderer` (V0-019: themed).
+    ``tests/test_renderers.py`` and ``tests/test_renderer_fidelity.py`` assert
+    structural-renderer behaviour (font substitution, the structural ceiling); the
+    renderer the application uses by default is :func:`default_renderer`, which is
+    this same mode (V0-019 v5).
     """
 
     return StructuralSvgRenderer(object_store, render_config)
@@ -87,10 +87,10 @@ def themed_renderer(object_store, render_config) -> ThemedSvgRenderer:
 
 
 @pytest.fixture
-def default_renderer(themed_renderer) -> ThemedSvgRenderer:
-    """The renderer the application uses by default (V0-019: themed mode)."""
+def default_renderer(renderer) -> StructuralSvgRenderer:
+    """The renderer the application uses by default (V0-019 v5: faithful mode)."""
 
-    return themed_renderer
+    return renderer
 
 
 @pytest.fixture

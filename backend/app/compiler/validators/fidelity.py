@@ -170,15 +170,27 @@ def _check_render(
                 scene_order=scene.order,
             )
         )
-    if render.fidelity in FIDELITY_REQUIRES_REVIEW or render.missing_fonts:
+    if render.fidelity in FIDELITY_REQUIRES_REVIEW:
         issues.append(
             ValidationIssue(
                 code="DEGRADED_REQUIRES_REVIEW",
-                message=(
-                    f"fidelity {render.fidelity} requires review"
-                    + (f"; missing fonts: {', '.join(render.missing_fonts)}" if render.missing_fonts else "")
-                ),
+                message=f"fidelity {render.fidelity} requires review",
                 severity=SEVERITY_REVIEW,
+                scene_order=scene.order,
+            )
+        )
+    if render.missing_fonts:
+        # V0-019 v5: an unavailable source font is *substituted* with the platform
+        # stack and the run is drawn in place, so it is disclosed as a warning
+        # rather than being escalated to a human review.
+        issues.append(
+            ValidationIssue(
+                code="FONT_SUBSTITUTED",
+                message=(
+                    "source fonts substituted with the platform stack: "
+                    + ", ".join(render.missing_fonts)
+                ),
+                severity=SEVERITY_WARNING,
                 scene_order=scene.order,
             )
         )

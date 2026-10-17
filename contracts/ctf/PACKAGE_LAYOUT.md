@@ -102,10 +102,14 @@ would couple the runtime to the compiler's storage and break
   extraction and are not part of V0-004/V0-006.)
 * `fidelity` is carried from the render stage (`DEC-CONTENT-006`); only the
   schema's values may appear. `STRUCTURAL_RENDERED` reproduces the source slide's
-  own styling (faithful mode); `THEMED_RENDERED` keeps the author's grouping but
-  re-authors the look in the platform theme (default mode, V0-019) and so is not
-  ranked against the source-fidelity values; `DEGRADED_RENDERED` requires a human
-  check of meaning.
+  own layout and styling — the **default** mode (V0-019 v5). A component the
+  renderer cannot reproduce (an unavailable source font, a chart/SmartArt, an
+  un-inlinable picture) is drawn in the platform look *in place* and recorded as a
+  scene warning; it does **not** lower the fidelity, because nothing is missing
+  and meaning is not at risk. `THEMED_RENDERED` (opt-in) keeps the author's
+  grouping but re-authors the look in the platform theme, so it is not ranked
+  against the source-fidelity values; `DEGRADED_RENDERED` requires a human check of
+  meaning.
   A failed render is a `FAILED` *status*, not a fidelity, and blocks packaging
   instead of entering one.
 

@@ -174,6 +174,18 @@ renderer.
 - Pinned expectations updated: `evaluation/manifests/render-fidelity.json`
   (engine 2.0.0), `tests/test_package_builder.py` fallback-asset hash.
 
+**Superseded in part by V0-019 v5 (this renderer is now the default mode).**
+
+V0-019 v5 makes this **faithful** mode the platform default and changes its
+fallback policy: an unavailable source font is *substituted* with the platform's
+type stack (`FONT_SUBSTITUTED:<family>`, deterministic, and the frame is shrunk to
+stay inside the author's frame) instead of degrading the scene; a
+chart/SmartArt/graphic frame and an un-inlinable picture are drawn as flat
+platform panels, in place. Those are **warnings** on a `STRUCTURAL_RENDERED` scene,
+so the real deck is no longer `DEGRADED_RENDERED`/`requires_review`. The renderer
+identity is `local-structural-svg@3.0.0`. Everything below is V0-018's output at
+the time, kept as history (see `tasks/V0-019-themed-slide-rendering/`).
+
 **Known limits (unchanged and still honest)**
 
 - Still a **structural** renderer (`STRUCTURAL_RENDERED` ceiling); `DEC-TECH-005`

@@ -1,14 +1,25 @@
-# V0-019: Themed slide rendering (keep the author's grouping, re-lay the look in the platform theme)
+# V0-019: Slide rendering — source-layout default with platform fallbacks (plus the themed re-layout)
 
 **Week:** W4  
-**Status:** DONE (revised v4)  
+**Status:** DONE (revised v5)  
 **Owner:** Solo developer  
 **Target:** V0
 
 ## Objective
 
-Make the **default** fallback render a *themed* slide where **the grouping is the
-author's, the content is the author's and the look is the platform's**: the slide's
+> **v5 (current default).** The product owner rejected the re-layout as unlike
+> their deck: *"generate layout as same as original presentation, but if some
+> components are not compatible please use default format of our app."* The
+> **default** mode is therefore the **source layout** (the V0-018
+> `StructuralSvgRenderer`): it reproduces the author's own layout and styling and
+> paints anything it cannot reproduce — an unavailable source font, a
+> chart/SmartArt, an un-inlinable picture — in the **platform's look, in place**,
+> as a *warning* rather than a degradation. The themed re-layout below is retained
+> as the opt-in `themed` mode (`?mode=themed`).
+
+The `themed` mode (below) makes the fallback render a *themed* slide where **the
+grouping is the author's, the content is the author's and the look is the
+platform's**: the slide's
 rows and columns are recovered from the source geometry, and each cell's text,
 tables and pictures are **re-laid out inside that cell**, in the platform's type
 scale, typeface, palette and chrome (`MentoraTheme`).
@@ -241,7 +252,7 @@ stays `OPEN` — this task accepts no renderer technology.
   through three theme type rows (`lead`/`body`/`caption`) chosen from the slide's
   own sizes. Renderer identity `mentora-themed-svg@3.0.0`, theme
   `mentora-default` v3.0.0. **Superseded by v4.**
-- **v4 (`f528425`, this revision):** v3's single column destroyed the author's
+- **v4 (`f528425`):** v3's single column destroyed the author's
   *grouping* — on the real deck an icon row and its label row were emitted as two
   separate rows, which reads as nonsense. v4 recovers the source geometry's rows
   and columns (`flow.structure`, a binary widest-gap XY-cut) and re-authors only
@@ -249,11 +260,61 @@ stays `OPEN` — this task accepts no renderer technology.
   principle: **the grouping is the author's, the content is the author's, the look
   is the platform's.** Renderer identity `mentora-themed-svg@4.0.0`, theme
   `mentora-default` v4.0.0.
+- **v5 (this revision):** the product owner still did not want the re-layout. The
+  **default flips back to the source layout** and gains a per-component platform
+  fallback: the default mode is `faithful` (`StructuralSvgRenderer`,
+  `local-structural-svg@3.0.0`), which reproduces the author's layout, styling,
+  pictures and tables and draws (a) an unavailable source font as the platform's
+  type stack — deterministically, `FONT_SUBSTITUTED:<family>`, with the frame
+  shrunk to stay inside the author's box — and (b) a chart/SmartArt/graphic frame
+  or an un-inlinable picture as a flat platform panel labelled in place
+  (`UNSUPPORTED_OBJECT:<kind>`, `MEDIA_*`). None of these lowers the fidelity or
+  sets `requires_review`. `themed@4.0.0` is kept as the opt-in mode; the fidelity
+  validator now escalates only `DEGRADED_RENDERED` and reports a font substitution
+  as a warning; `review.render_notice` and the corpus baseline were re-based.
 
 ## Completion Evidence
 
-**Commit:** `f528425` (v4). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
-`ae68632` (v3).
+**Commit:** this revision (v5). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
+`ae68632` (v3), `f528425` (v4).
+
+### v5 — the default (source layout + platform fallback)
+
+**Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **351 passed**
+(the corpus manifest was re-baselined in place; the renderer/fidelity, corpus,
+package-builder, publication and review tests were updated to the new default).
+
+**Frontend:** `npx tsc --noEmit` clean; `npm test` → **38 passed**.
+
+**Real deck** (artifact `1e4c06bc-…`, tenant `university-001`, 28 slides) compiled
+in the default mode (`POST /artifacts/{id}/compile` with no `mode`):
+
+| | v4 default (themed) | v5 default (source layout) |
+| --- | --- | --- |
+| renderer | `mentora-themed-svg@4.0.0` | **`local-structural-svg@3.0.0`** |
+| fidelity | 28 × `THEMED_RENDERED` | **28 × `STRUCTURAL_RENDERED`** |
+| warnings | none | **28 × `FONT_SUBSTITUTED:Be Vietnam Pro`** |
+| review state | `publishable`, not requiring review | **`publishable`, not requiring review** |
+| validation issues | none | 28 × `FONT_SUBSTITUTED` at **warning** severity |
+
+Structural verification of the 28 produced SVGs (`/tmp/opencode/verify_source_v5.py`,
+extractor text vs drawn text: 573 `<text>` elements): **every source text token is
+present on all 28 slides (0 missing)**, no drawn text box leaves the canvas, and
+the only drawn-text overlaps are the **source deck's own overlapping frames**
+(4 slides — a heading's second line inside the body frame's band, the big number
+beside its unit label), which a source-layout render is *supposed* to reproduce.
+One frame on slide 10 spilled out of its card because our substituted font wrapped
+to three lines where the author's font needed two; the v5 fit rule (shrink a
+substituted frame to its own box) removed it. Platform fallback panels were
+verified directly on the `chart` and `media` corpus items (flat `theme.surface`
+panel, hairline `theme.border`, platform type stack, labelled in place).
+
+**Deliberate, documented limits of v5:** the renderer reproduces the author's
+geometry, so the author's own overlaps are reproduced; text metrics are still
+estimated (a substituted typeface can wrap a line a word earlier than PowerPoint
+would); charts/SmartArt are platform panels, not charts.
+
+### v4 evidence (the opt-in `themed` mode)
 
 **Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **350 passed**
 (`test_flow_layout.py` = 34 pure-layout tests, +12 structure/card tests;
@@ -262,7 +323,7 @@ stays `OPEN` — this task accepts no renderer technology.
 **Frontend:** `npx tsc --noEmit` clean; `npm test` → **38 passed**.
 
 **Real deck** (artifact `1e4c06bc-…`, tenant `university-001`, 28 slides),
-recompiled in the default mode:
+recompiled with `?mode=themed`:
 
 | | v1 (re-flow, archetype) | v2 (layout kept) | v3 (one column) | v4 (grouping kept) |
 | --- | --- | --- | --- | --- |
@@ -282,9 +343,10 @@ of its icons sit on the row of their own label. Because cards now stay side by
 side, far less vertical space is spent on gaps: the smallest type scale rose from
 0.49 (v3) to 0.76. No SVG rasterizer exists in this environment, so the SVGs are
 reported for human inspection (`/tmp/opencode/themed_v4/s01..s28.svg`) rather than
-graded visually. `GET /renderer` reports `default_mode=themed`,
+graded visually. `GET /renderer?mode=themed` reports
 `fidelity_ceiling=THEMED_RENDERED`, identity `mentora-themed-svg@4.0.0`, theme
-`mentora-default` v4.0.0.
+`mentora-default` v4.0.0 (the *default* mode reported by `GET /renderer` is now
+`faithful`, `local-structural-svg@3.0.0`, v5).
 
 **Known characteristics (deliberate):**
 
