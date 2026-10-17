@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-005", "V0-006"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: null
+commit: "cc8e9da"
 blockers:
   - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task raises the fidelity of the dependency-free local structural renderer; it does not accept a renderer technology and never reports a native/compatible render."
 notes:
