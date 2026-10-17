@@ -78,7 +78,7 @@ Minimal Vite + React + TypeScript + Tailwind upload UI (the spec's frontend stac
 
 ## Backend persistence note
 
-SQLite is the V0 local/dev equivalent of the durable store required by `DEC-DATA-001` ("PostgreSQL **or equivalent**"). Schema is isolated in `backend/app/db/schema.sql`; the PostgreSQL reference is `database/migrations/0001_baseline.sql`. Keep the repository layer storage-agnostic so PostgreSQL can replace it.
+SQLite is the V0 local/dev equivalent of the durable store required by `DEC-DATA-001` ("PostgreSQL **or equivalent**"). Schema is isolated in `backend/app/db/schema.sql`; the PostgreSQL reference is `database/migrations/0001_baseline.sql`. Keep the repository layer storage-agnostic so PostgreSQL can replace it. Connection handling is `backend/app/db/database.py`: `Database` gives **each thread its own connection** (the API serves sync endpoints from a worker threadpool, and a shared `sqlite3.Connection` lets concurrent requests interleave transactions and cursors — V0-020), with `PRAGMA busy_timeout` so concurrent writers queue. `connect()` still returns a plain connection for single-threaded callers/tests.
 
 ## Provider/interface convention
 

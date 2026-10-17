@@ -1,3 +1,3 @@
-from app.db.database import connect, init_db, transaction
+from app.db.database import Database, init_db, transaction
 
-__all__ = ["connect", "init_db", "transaction"]
+__all__ = ["Database", "connect", "init_db", "transaction"]

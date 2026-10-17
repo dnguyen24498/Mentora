@@ -56,6 +56,10 @@ graph TD
   V0_005 --> V0_019
   V0_006 --> V0_019
   V0_018 --> V0_019
+  V0_020["V0-020 Request-scoped database access"]
+  V0_001 --> V0_020
+  V0_004 --> V0_020
+  V0_007 --> V0_020
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

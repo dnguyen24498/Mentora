@@ -112,6 +112,8 @@ DEC-DATA-001,docs/data/DATA_MODEL_AND_TRANSACTIONS.md,SPEC
 DEC-DATA-001,backend/app/publication/models.py,CODE
 DEC-DATA-001,backend/app/publication/repository.py,CODE
 DEC-DATA-001,database/migrations/0002_review_decisions_and_drafts.sql,SPEC
+DEC-DATA-001,backend/app/db/database.py,CODE
+DEC-DATA-001,backend/tests/test_database_concurrency.py,CODE
 DEC-DATA-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-DATA-002,docs/architecture/03_DOMAIN_OWNERSHIP_AND_VERSIONING.md,ARCH
 DEC-DATA-002,docs/architecture/16_DATA_STORAGE_AND_EVENTS.md,ARCH
@@ -210,6 +212,8 @@ DEC-RELIABILITY-002,docs/operations/MEDIA_OUTAGE_RUNBOOK.md,SPEC
 DEC-RELIABILITY-002,docs/operations/SLO_CAPACITY_AND_ERROR_BUDGET.md,SPEC
 DEC-RELIABILITY-002,docs/product/PRODUCT_REQUIREMENTS.md,SPEC
 DEC-RELIABILITY-002,backend/app/publication/repository.py,CODE
+DEC-RELIABILITY-002,backend/app/db/database.py,CODE
+DEC-RELIABILITY-002,backend/tests/test_database_concurrency.py,CODE
 DEC-RUNTIME-001,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-RUNTIME-001,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
 DEC-RUNTIME-001,docs/architecture/02_ARCHITECTURAL_INVARIANTS.md,ARCH

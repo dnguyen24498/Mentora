@@ -50,7 +50,7 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007): the read-only projection (`review.py`) plus the write path (`workflow.py`, `repository.py`, `draft.py`) — approve/reject and draft lesson-order revisions. Publication state transitions are V0-008. |
-| `app/db/` | SQLite connection + schema/migration application. |
+| `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
 
@@ -85,6 +85,18 @@ break the browser). For normal development the frontend runs on its own server a
   is isolated in `app/db/schema.sql` so the repository layer can target
   PostgreSQL later; the PostgreSQL reference is `database/migrations/0001_baseline.sql`
   and `database/migrations/0002_review_decisions_and_drafts.sql`.
+- **Connections are thread-scoped (V0-020).** FastAPI serves the sync endpoints
+  from a worker threadpool, so requests really do overlap. A `sqlite3.Connection`
+  cannot be shared for that: `BEGIN`/`COMMIT` state and cursors are
+  connection-scoped, so two requests on one connection interleave (one request's
+  `BEGIN` lands inside another's transaction; a cursor is consumed while another
+  thread runs a statement on it). `Database` hands each thread its own connection
+  while repositories keep calling the same `self._conn.execute(...)` and
+  `transaction(self._conn)`. Each connection sets `PRAGMA busy_timeout` (5 s), so a
+  queued writer waits for SQLite's write lock instead of failing with
+  `database is locked` — bounded failure (`DEC-RELIABILITY-001`), not a hang.
+  `tests/test_database_concurrency.py` holds this contract: 240 concurrent
+  read+write requests must all succeed and every reported write must be visible.
 - Extraction lives under `app/compiler/` (modular monolith). Task `V0-004`
   nominally targets a top-level `compiler/` package; within `app/compiler/` the
   layout follows the task's areas (`models/`, `extractors/`, `renderers/`,

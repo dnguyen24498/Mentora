@@ -51,7 +51,7 @@ from app.compiler.service import ExtractionService
 from app.config import Settings
 from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
-from app.db.database import connect, init_db
+from app.db.database import Database, init_db
 from app.publication.repository import ReviewRepository
 from app.publication.review import ReviewService
 from app.publication.router import build_review_router
@@ -67,8 +67,10 @@ def create_app(
     settings = settings or Settings.from_env()
     init_db(settings.database_path)
 
-    conn = connect(settings.database_path)
-    repository = CourseRepository(conn)
+    # Thread-scoped connections: a request's transaction must never share a
+    # connection with another request (the endpoints run in a worker threadpool).
+    database = Database(settings.database_path)
+    repository = CourseRepository(database)
     object_store = LocalObjectStore(settings.object_root)
     upload_service = UploadService(repository, object_store, settings)
     extractor = PptxExtractor(
@@ -102,7 +104,7 @@ def create_app(
     # Review decisions and draft revisions are durable *state*, so they live in
     # the relational store — never in the immutable object store (DEC-DATA-001).
     review_workflow = ReviewWorkflow(
-        review_service, ReviewRepository(conn), repository
+        review_service, ReviewRepository(database), repository
     )
 
     app = FastAPI(title="Mentora API", version="1.0.0")
