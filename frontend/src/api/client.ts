@@ -40,9 +40,25 @@ export interface UploadResult {
   created: boolean
 }
 
+export interface TextRun {
+  text: string
+  font?: string | null
+  size_pt?: number | null
+  bold?: boolean | null
+  italic?: boolean | null
+  underline?: boolean | null
+  color?: { value: string; alpha: number } | null
+}
+
 export interface TextParagraph {
   level: number
   text: string
+  runs?: TextRun[]
+  align?: string | null
+  bullet?: Record<string, unknown> | null
+  margin_left_emu?: number | null
+  space_before_pt?: number | null
+  line_spacing_pt?: number | null
 }
 
 export interface ShapeObject {
@@ -55,6 +71,15 @@ export interface ShapeObject {
   paragraphs: TextParagraph[]
   table?: string[][]
   media_ref?: string | null
+  /** Effective style resolved from the theme/layout/master chain (V0-018). */
+  geometry?: string | null
+  custom_path?: string | null
+  fill?: Record<string, unknown> | null
+  line?: Record<string, unknown> | null
+  rotation?: number | null
+  media_type?: string | null
+  crop?: Record<string, number> | null
+  table_columns?: number[] | null
 }
 
 export interface SlideScene {
@@ -64,6 +89,7 @@ export interface SlideScene {
   objects: ShapeObject[]
   warnings: string[]
   fidelity: string
+  background?: Record<string, unknown> | null
 }
 
 export interface ContentIR {

@@ -1,0 +1,21 @@
+id: V0-018
+title: "Faithful slide rendering fidelity"
+week: W4
+status: DONE
+depends_on: ["V0-005", "V0-006"]
+started_at: "2026-10-17"
+completed_at: "2026-10-17"
+commit: null
+blockers:
+  - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task raises the fidelity of the dependency-free local structural renderer; it does not accept a renderer technology and never reports a native/compatible render."
+notes:
+  - "The IR now carries the deck's *effective* look (content-ir/1.2.0, extractor 1.2.0): theme scheme colours + font scheme with p:clrMap remapping, slide->layout->master placeholder geometry and p:txStyles defaults, slide/layout/master backgrounds, shape fill/line/gradient/geometry/rotation/flip, run+paragraph formatting, group transforms applied (child bounds are absolute slide coordinates), image media refs + srcRect crop, and table metrics/cell styling. New modules: compiler/extractors/{ooxml,theme,style}.py and compiler/media.py."
+  - "The renderer (2.0.0) draws that styling in SVG: backgrounds, gradients, preset + custGeom paths, strokes/dashes, rotation/flip, real font sizes with word-wrap/alignment/bullets/auto-shrink, inlined data: images with crop, table grids, connectors. Image bytes reach it through RenderRequest.media keyed by IR media_ref, so it still never opens the source package (DEC-CONTENT-001)."
+  - "Self-limiting: RenderConfig.max_inline_media_bytes (16 MiB raw, per scene) and max_asset_bytes (28 MiB output). Over-budget or non-inlinable (EMF/WMF/TIFF) pictures become labelled placeholders with MEDIA_BUDGET_EXCEEDED:/UNSUPPORTED_* warnings without changing fidelity, so the gate taxonomy (MISSING_FONT, UNSUPPORTED_OBJECT) stays stable."
+  - "Fidelity is still honest: ceiling STRUCTURAL_RENDERED, degraded when a font is unavailable or an object cannot be drawn. The real 28-slide deck reports DEGRADED_RENDERED with MISSING_FONT:Be Vietnam Pro (typefaces are resolved but no font file is embedded/licensed) and therefore requires review."
+  - "Bugs found by inspecting real output and fixed: theme colour slots were never read (every theme colour resolved to None); line colours nested in a:ln/a:solidFill were dropped (352 strokes in the real deck); srcRect read left/top/right/bottom instead of l/t/r/b; spcPts was treated as a font-size multiple instead of absolute leading; text x was relative to the box instead of absolute; MISSING_FONT ignored fonts inherited from p:txStyles."
+  - "Contracts/docs: contracts/ctf/scene.schema.json documents every new field; RENDER_PLACEHOLDER_NOTICE reworded to 'Structural SVG render reproduced from the slide's own styling - not a native PowerPoint render'; AGENTS.md, backend/README.md and governance/TRACEABILITY_MATRIX.csv updated; frontend IR types extended (no component behaviour change)."
+  - "Tests: backend 275 passed (241 before; +25 test_extractor_styling.py, +9 test_renderer_fidelity.py); frontend 38 passed; tsc --noEmit clean; npm run build OK. New test_renderer_fidelity.py covers resolved style in the SVG, origin-correct text, rotation, no invented outlines, inlined+cropped pictures, table cell fill/column ratio, inherited-font degradation, over-budget media placeholders, and byte-identical repeat renders."
+  - "Verified live via the running API: POST /artifacts/{id}/compile renders 28/28 slides (renderer 2.0.0, 21.6 MB, deterministic asset refs) and GET .../renders/{order} matches a locally rendered SVG byte for byte; POST .../review-package rebuilds the 57-file package at REVIEW_REQUIRED / publishable: true."
+  - "Kept honest: no native/compatible renderer is claimed, charts/SmartArt/animation/3D remain placeholders, text metrics are estimated (no font metric library in the stdlib), and there is no new production dependency."
+  - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."

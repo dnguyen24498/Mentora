@@ -5,6 +5,12 @@ DEC-CONTENT-001,docs/architecture/04_CONTENT_COMPILER.md,ARCH
 DEC-CONTENT-001,docs/architecture/17_SECURITY_PRIVACY_AND_GOVERNANCE.md,ARCH
 DEC-CONTENT-001,docs/product/V0_SCOPE.md,SPEC
 DEC-CONTENT-001,backend/app/compiler/extractors/pptx.py,CODE
+DEC-CONTENT-001,backend/app/compiler/extractors/ooxml.py,CODE
+DEC-CONTENT-001,backend/app/compiler/extractors/theme.py,CODE
+DEC-CONTENT-001,backend/app/compiler/extractors/style.py,CODE
+DEC-CONTENT-001,backend/app/compiler/media.py,CODE
+DEC-CONTENT-001,backend/app/compiler/renderers/base.py,CODE
+DEC-CONTENT-001,backend/app/compiler/render_service.py,CODE
 DEC-CONTENT-001,backend/app/compiler/validators/package.py,CODE
 DEC-CONTENT-002,docs/architecture/00_ARCHITECTURE_BASELINE.md,ARCH
 DEC-CONTENT-002,docs/architecture/01_OVERALL_ARCHITECTURE.md,ARCH
@@ -13,6 +19,8 @@ DEC-CONTENT-002,docs/architecture/06_CTF_TEACHING_GRAPH_AND_LESSON.md,ARCH
 DEC-CONTENT-002,docs/product/PRODUCT_REQUIREMENTS.md,SPEC
 DEC-CONTENT-002,docs/product/V0_SCOPE.md,SPEC
 DEC-CONTENT-002,backend/app/compiler/models/ir.py,CODE
+DEC-CONTENT-002,backend/tests/test_extractor_styling.py,CODE
+DEC-CONTENT-002,contracts/ctf/scene.schema.json,SPEC
 DEC-CONTENT-002,evaluation/manifests/pptx-corpus.json,SPEC
 DEC-CONTENT-002,backend/tests/test_extraction_corpus.py,CODE
 DEC-CONTENT-002,backend/app/compiler/package_builder/builder.py,CODE
@@ -56,6 +64,7 @@ DEC-CONTENT-006,backend/app/compiler/validators/fidelity.py,CODE
 DEC-CONTENT-006,backend/app/compiler/render_service.py,CODE
 DEC-CONTENT-006,evaluation/manifests/render-fidelity.json,SPEC
 DEC-CONTENT-006,backend/tests/test_render_corpus.py,CODE
+DEC-CONTENT-006,backend/tests/test_renderer_fidelity.py,CODE
 DEC-CONTENT-006,backend/app/publication/review.py,CODE
 DEC-CONTENT-006,backend/tests/test_publication_review.py,CODE
 DEC-CONTENT-006,frontend/src/components/TeacherStudio.tsx,CODE

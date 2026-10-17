@@ -49,6 +49,9 @@ graph TD
   V0_015 --> V0_016
   V0_017["V0-017 V0 security accessibility and evaluation gate"]
   V0_016 --> V0_017
+  V0_018["V0-018 Faithful slide rendering fidelity"]
+  V0_005 --> V0_018
+  V0_006 --> V0_018
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

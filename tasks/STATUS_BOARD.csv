@@ -29,3 +29,4 @@ V1-007,W11,TODO,Streaming STT lifecycle,V1-006,tasks/V1-007-streaming-stt-lifecy
 V1-008,W12,TODO,Voice question answer and semantic resume,V1-007;V0-015,tasks/V1-008-voice-question-answer-and-semantic-resume
 V1-009,W12,TODO,Moderator and accessible realtime controls,V1-003;V1-007,tasks/V1-009-moderator-and-accessible-realtime-controls
 V1-010,W12,TODO,Pilot load chaos observability and release gate,V1-008;V1-009,tasks/V1-010-pilot-load-chaos-observability-and-release-gate
+V0-018,W4,DONE,Faithful slide rendering fidelity,V0-005;V0-006,tasks/V0-018-faithful-slide-rendering

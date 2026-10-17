@@ -430,7 +430,8 @@ export default function TeacherStudio({
           </span>
         </div>
 
-        {/* DEC-TECH-005 is OPEN: never present the placeholder as a native render. */}
+        {/* DEC-TECH-005 is OPEN: this is a structural SVG render of the slide's
+            own styling, never presented as a native PowerPoint render. */}
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
           {review.placeholder_notice}
           {review.renderer && (

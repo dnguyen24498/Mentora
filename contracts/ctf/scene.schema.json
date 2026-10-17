@@ -55,10 +55,516 @@
     "renderer": {
       "type": "object"
     },
+    "background": {
+      "description": "Effective slide background (slide wins over layout, layout over master). Null when the deck defines none.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "solid",
+            "gradient",
+            "none"
+          ]
+        },
+        "color": {
+          "$comment": "Resolved sRGB colour (#RRGGBB) plus alpha.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^#[0-9A-F]{6}$"
+            },
+            "alpha": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "angle": {
+          "description": "Linear gradient angle in degrees, clockwise from pointing right.",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stops": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "number",
+                "minimum": 0
+              },
+              "color": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "objects": {
+      "description": "Slide content in paint order. Bounds and text are *effective* values: theme/master/layout inheritance is already resolved, so a renderer never needs the OOXML package (DEC-CONTENT-001).",
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "shape",
+              "picture",
+              "table",
+              "chart",
+              "connector",
+              "group",
+              "graphicFrame"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "placeholder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reading_order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bounds": {
+            "description": "Absolute slide coordinates in EMU. A child of a group is reported in slide space, not group space.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            }
+          },
+          "geometry": {
+            "description": "OOXML preset geometry name, or 'custGeom' when custom_path is set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "custom_path": {
+            "description": "custGeom outline as an SVG path in a unit square (scaled by the object bounds at render time). Null when it could not be resolved exactly.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fill": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "solid",
+                  "gradient",
+                  "none"
+                ]
+              },
+              "color": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "angle": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "stops": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "line": {
+            "description": "Outline. Null means the shape has no outline (an explicit <a:ln/> without a resolvable colour is *not* drawn).",
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "color",
+              "width_emu"
+            ],
+            "properties": {
+              "color": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "width_emu": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "rotation": {
+            "description": "Clockwise rotation in degrees.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "flip_h": {
+            "type": "boolean"
+          },
+          "flip_v": {
+            "type": "boolean"
+          },
+          "anchor": {
+            "description": "Vertical text anchor: t | ctr | b.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "insets": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "left": {
+                "type": "integer"
+              },
+              "top": {
+                "type": "integer"
+              },
+              "right": {
+                "type": "integer"
+              },
+              "bottom": {
+                "type": "integer"
+              }
+            }
+          },
+          "autofit": {
+            "description": "Body autofit mode: none | shrink | resize.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "font_scale": {
+            "description": "Explicit normAutofit font scale (0-1).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "media_ref": {
+            "description": "Package part path of an embedded image; the bytes travel to the renderer out of band.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_type": {
+            "description": "Image MIME type, or null when the format cannot be inlined.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crop": {
+            "description": "srcRect crop as the fraction removed from each edge.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "left": {
+                "type": "number",
+                "minimum": 0
+              },
+              "top": {
+                "type": "number",
+                "minimum": 0
+              },
+              "right": {
+                "type": "number",
+                "minimum": 0
+              },
+              "bottom": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "level",
+                "text",
+                "runs"
+              ],
+              "properties": {
+                "level": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "text": {
+                  "type": "string"
+                },
+                "align": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bullet": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "margin_left_emu": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "indent_emu": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "space_before_pt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "space_after_pt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "line_spacing": {
+                  "description": "Multiple of the font size (a:lnSpc/a:spcPct).",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "line_spacing_pt": {
+                  "description": "Absolute leading in points (a:lnSpc/a:spcPts).",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "runs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "text"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      },
+                      "font": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "size_pt": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "bold": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "italic": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "underline": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "color": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "highlight": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "table": {
+            "description": "Cell text as a plain grid, for search and accessibility.",
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "table_columns": {
+            "description": "Column widths in EMU.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "number"
+            }
+          },
+          "table_rows": {
+            "description": "Row heights in EMU.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "number"
+            }
+          },
+          "table_cells": {
+            "description": "Row-major cells with their fill, merge state, and styled paragraphs.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "paragraphs"
+                ],
+                "properties": {
+                  "paragraphs": {
+                    "type": "array"
+                  },
+                  "fill": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "grid_span": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "row_span": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "h_merge": {
+                    "type": "boolean"
+                  },
+                  "v_merge": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "chart_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       }
     },
     "steps": {

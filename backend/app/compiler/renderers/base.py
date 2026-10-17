@@ -22,9 +22,9 @@ import json
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Callable, ClassVar, Optional
+from typing import Callable, ClassVar, Mapping, Optional
 
 from app.compiler.models.ir import (
     FIDELITY_DEGRADED,
@@ -111,7 +111,12 @@ class RenderConfig:
     deadline_seconds: float = 10.0
     max_attempts: int = 2
     #: Bounded output; a pathological slide must not blow up the object store.
-    max_asset_bytes: int = 4 * 1024 * 1024
+    #: Generous because a faithful render inlines the slide's pictures.
+    max_asset_bytes: int = 28 * 1024 * 1024
+    #: Upper bound on the *raw* picture bytes one slide may inline (base64 adds
+    #: ~1/3). Pictures past the budget render as a labelled placeholder with a
+    #: warning instead of failing the scene.
+    max_inline_media_bytes: int = 16 * 1024 * 1024
     circuit_failure_threshold: int = 5
 
     def canonical(self) -> dict:
@@ -125,6 +130,7 @@ class RenderConfig:
             "deadline_seconds": self.deadline_seconds,
             "max_attempts": self.max_attempts,
             "max_asset_bytes": self.max_asset_bytes,
+            "max_inline_media_bytes": self.max_inline_media_bytes,
             "circuit_failure_threshold": self.circuit_failure_threshold,
         }
 
@@ -343,12 +349,20 @@ class RendererHealth:
 
 @dataclass(frozen=True)
 class RenderRequest:
-    """Everything a renderer needs, including trace propagation."""
+    """Everything a renderer needs, including trace propagation.
+
+    ``media`` carries the bytes of the images the document references, keyed by
+    the ``media_ref`` part path already in the IR. They are supplied by the
+    compiler — the only component allowed to open the source package
+    (``DEC-CONTENT-001``) — so a renderer stays a pure function of its input and
+    never reads the original document itself.
+    """
 
     document: ContentIRDocument
     identity: RendererIdentity
     trace_id: Optional[str] = None
     correlation_id: Optional[str] = None
+    media: Mapping[str, bytes] = field(default_factory=dict)
 
 
 class DocumentRenderer(ABC):

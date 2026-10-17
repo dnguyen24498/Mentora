@@ -76,7 +76,7 @@ function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPackage {
       data_region: 'local',
     },
     placeholder_notice:
-      'Structural placeholder render — not a native PowerPoint render. Renderer technology is an open decision (DEC-TECH-005 / FND-002).',
+      "Structural SVG render reproduced from the slide's own styling — not a native PowerPoint render. A production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       section(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       section(1, 'sec-2', 'ppt/slides/slide2.xml', null),
@@ -185,9 +185,9 @@ describe('TeacherStudio — side-by-side review', async () => {
     expect(within(sideBySide).getByRole('heading', { name: /warnings/i })).toBeTruthy()
   })
 
-  it('says the render is a structural placeholder, not a native render', async () => {
+  it('says the render is a structural render, not a native render', async () => {
     await setup()
-    expect(screen.getByText(/Structural placeholder render/)).toBeTruthy()
+    expect(screen.getByText(/Structural SVG render/)).toBeTruthy()
     expect(screen.getByText(/DEC-TECH-005/)).toBeTruthy()
   })
 })

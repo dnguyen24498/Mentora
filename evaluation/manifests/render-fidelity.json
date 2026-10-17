@@ -1,9 +1,9 @@
 {
   "version": "0.1",
-  "description": "Executable render/fidelity corpus for V0-005. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py. 'engine' is the local structural renderer: native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here.",
+  "description": "Executable render/fidelity corpus for V0-005, re-baselined by V0-018. Each item names a deterministic package builder in backend/tests/corpus.py and the render outcome the pipeline must produce for every slide. Run by backend/tests/test_render_corpus.py. 'engine' is the local structural renderer: it reproduces theme colours/fonts, fills, pictures and text formatting, but native PowerPoint rendering (DEC-TECH-005) is OPEN and deliberately not asserted here.",
   "engine": {
     "renderer_id": "local-structural-svg",
-    "renderer_version": "1.0.0",
+    "renderer_version": "2.0.0",
     "fidelity_ceiling": "STRUCTURAL_RENDERED",
     "data_region": "local"
   },

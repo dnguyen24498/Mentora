@@ -43,11 +43,14 @@ STATE_BLOCKED = "BLOCKED"
 
 MISSING_FONT_PREFIX = "MISSING_FONT:"
 
-#: ``DEC-TECH-005`` is OPEN: the only renderer that exists is a placeholder, and
-#: the review UI must say so rather than implying a faithful render.
+#: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. This
+#: structural renderer reproduces the slide's own geometry, colours, fonts, and
+#: images out of the Content IR, but it is not a native PowerPoint raster, so the
+#: UI must say so rather than implying pixel-identical output.
 RENDER_PLACEHOLDER_NOTICE = (
-    "Structural placeholder render — not a native PowerPoint render. "
-    "Renderer technology is an open decision (DEC-TECH-005 / FND-002)."
+    "Structural SVG render reproduced from the slide's own styling — not a "
+    "native PowerPoint render. A production renderer technology is still an "
+    "open decision (DEC-TECH-005)."
 )
 
 

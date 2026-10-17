@@ -49,7 +49,7 @@ CREATED_AT = "2026-01-01T00:00:00+00:00"
 PACKAGE_ID = "pkg-fixed-0001"
 SCENE_PATH = "scenes/000-ppt-slides-slide1-xml.json"
 LESSON_PLAN_PATH = "lesson-plan.json"
-ASSET_PATH = "assets/8bcf7316637431516bf147f49a13e0f82f3aa8e9d779942d4eb1e3d247e15071.svg"
+ASSET_PATH = "assets/cf635917c8911e9d57ea9e05a9b92f5cdcbf5742d7a335625ca95b71d7a7e743.svg"
 
 
 # -- a dependency-free JSON-Schema subset evaluator --------------------------------

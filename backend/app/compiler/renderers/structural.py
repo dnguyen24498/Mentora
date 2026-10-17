@@ -1,19 +1,29 @@
-"""Deterministic local renderer: Content IR -> SVG fallback asset per slide.
+"""Deterministic local renderer: Content IR -> styled SVG fallback asset per slide.
 
-This is the *local/dev* implementation of the ``DocumentRenderer`` interface
-used while ``DEC-TECH-005`` (native PowerPoint rendering) is OPEN. It is
+This is the *local/dev* implementation of the ``DocumentRenderer`` interface used
+while ``DEC-TECH-005`` (native PowerPoint rendering) is OPEN. It is
 dependency-free (``xml.sax.saxutils`` + the object store) and pure: the same
-document and the same config always produce byte-identical output, which is what
+document, media, and config always produce byte-identical output, which is what
 "same engine/config gives stable logical output" means for the fidelity gate.
 
-It never reads the original package and never executes active content
-(``DEC-CONTENT-001``): the only input is the Content IR.
+V0-018 raises this renderer from grey placeholders to a *faithful structural*
+render: it draws the theme's colours and fonts, the slide background, preset and
+custom geometry, solid/gradient/picture fills, outlines, rotation, real font
+sizes with word wrapping and alignment, embedded pictures, and table styling.
+
+It is still **not** a native PowerPoint render and is never reported as one
+(``DEC-CONTENT-006``): charts, SmartArt, WordArt, equations, effects, and
+animations remain explicit placeholders/warnings, and text metrics are estimated
+rather than measured. It never reads the original package (``DEC-CONTENT-001``):
+the only inputs are the Content IR and the picture bytes the compiler injects.
 """
 
 from __future__ import annotations
 
+import base64
+import math
 import time
-from typing import Optional
+from typing import Any, Mapping, Optional
 from xml.sax.saxutils import escape
 
 from app.compiler.models.ir import (
@@ -21,6 +31,8 @@ from app.compiler.models.ir import (
     ContentIRDocument,
     ShapeObject,
     SlideScene,
+    TableCell,
+    TextParagraph,
 )
 from app.compiler.renderers.base import (
     CancelToken,
@@ -39,6 +51,47 @@ from app.compiler.renderers.base import (
 MISSING_FONT_PREFIX = "MISSING_FONT:"
 #: Emitted as ``UNSUPPORTED_OBJECT:<kind>``.
 UNSUPPORTED_OBJECT_PREFIX = "UNSUPPORTED_OBJECT:"
+#: ``UNSUPPORTED_MEDIA:<part-or-extension>`` — a picture this build cannot inline.
+UNSUPPORTED_MEDIA_PREFIX = "UNSUPPORTED_MEDIA:"
+#: ``MEDIA_UNAVAILABLE:<part>`` — the compiler did not hand the bytes over.
+MEDIA_UNAVAILABLE_PREFIX = "MEDIA_UNAVAILABLE:"
+#: ``MEDIA_BUDGET_EXCEEDED:<part>`` — the picture did not fit the inline budget.
+MEDIA_BUDGET_PREFIX = "MEDIA_BUDGET_EXCEEDED:"
+#: ``UNSUPPORTED_GEOMETRY:<preset>`` — drawn as a rectangle instead.
+UNSUPPORTED_GEOMETRY_PREFIX = "UNSUPPORTED_GEOMETRY:"
+
+#: OOXML's default text colour (theme ``tx1`` = black).
+DEFAULT_TEXT_COLOR = "#000000"
+
+#: ``a:bodyPr`` spec defaults in EMU, used when a shape specifies no insets.
+DEFAULT_INSETS_EMU = {"left": 91440, "top": 45720, "right": 91440, "bottom": 45720}
+
+#: EMU per CSS pixel at the renderer's 96 dpi canvas.
+EMU_PER_PIXEL = 9525
+#: Points per CSS pixel at 96 dpi.
+PT_PER_PIXEL = 0.75
+
+#: Approximate advance widths (em) per character class, used to wrap text. SVG
+#: has no text metrics, and measuring fonts would need a font engine (a new
+#: production dependency), so wrapping is estimated deterministically.
+_NARROW = set("iljtfrI.,:;'!|()[]{}/\\-")
+_WIDE = set("mMwWMW@")
+_UPPER = set("ABCDEFGHIJKLMNOPQRSTUVWXYZĐÁÀẢÃẠĂẤẦẨẪẬÂẾỀỂỄỆÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ")
+_DIGITS = set("0123456789")
+
+#: ``a:prstDash`` -> SVG ``stroke-dasharray``.
+DASH_PATTERNS = {
+    "dash": "6 4",
+    "sysDash": "4 3",
+    "lgDash": "12 6",
+    "dashDot": "6 3 1 3",
+    "lgDashDot": "12 4 1 4",
+    "lgDashDotDot": "12 4 1 4 1 4",
+    "sysDashDot": "4 2 1 2",
+    "sysDashDotDot": "4 2 1 2 1 2",
+    "dot": "1 3",
+    "sysDot": "1 2",
+}
 
 
 def _attr(value: str) -> str:
@@ -47,11 +100,138 @@ def _attr(value: str) -> str:
     return escape(value, {'"': "&quot;", "'": "&apos;"})
 
 
+def _num(value: float) -> str:
+    """Compact, deterministic number formatting."""
+
+    return f"{value:.2f}".rstrip("0").rstrip(".") or "0"
+
+
+class _Canvas:
+    """Mutable SVG assembly state for one slide (ids stay deterministic)."""
+
+    def __init__(
+        self,
+        width: float,
+        height: float,
+        scene: SlideScene,
+        media: Mapping[str, bytes],
+        config: RenderConfig,
+        warnings: list[str],
+    ) -> None:
+        self.width = width
+        self.height = height
+        self.scene = scene
+        self.media = media
+        self.config = config
+        self.warnings = warnings
+        self.defs: list[str] = []
+        self._ids = 0
+        self.inlined_bytes = 0
+
+    def next_id(self, prefix: str) -> str:
+        self._ids += 1
+        return f"{prefix}{self._ids}"
+
+    # -- fills ------------------------------------------------------------------
+    def paint(self, fill: Optional[dict]) -> str:
+        """SVG paint attributes (``fill``/``fill-opacity``) for a ``Fill``."""
+
+        if not fill or fill.get("type") == "none":
+            return 'fill="none"'
+        kind = fill.get("type")
+        if kind == "solid":
+            color = fill.get("color") or {}
+            value = color.get("value") or self.config.background
+            opacity = color.get("alpha")
+            extra = "" if opacity in (None, 1.0) else f' fill-opacity="{_num(float(opacity))}"'
+            return f'fill="{_attr(value)}"{extra}'
+        if kind == "gradient":
+            gradient_id = self._gradient(fill)
+            return f'fill="url(#{gradient_id})"' if gradient_id else f'fill="{self.config.background}"'
+        if kind == "picture":
+            gradient_id = self._picture_fill(fill)
+            return f'fill="url(#{gradient_id})"' if gradient_id else 'fill="none"'
+        return 'fill="none"'
+
+    def _gradient(self, fill: dict) -> Optional[str]:
+        stops = [s for s in (fill.get("stops") or []) if s.get("color")]
+        if not stops:
+            return None
+        gradient_id = self.next_id("grad")
+        angle = math.radians(float(fill.get("angle") or 0.0))
+        dx, dy = math.cos(angle) / 2, math.sin(angle) / 2
+        self.defs.append(
+            f'<linearGradient id="{gradient_id}" x1="{_num(0.5 - dx)}" y1="{_num(0.5 - dy)}" '
+            f'x2="{_num(0.5 + dx)}" y2="{_num(0.5 + dy)}">'
+            + "".join(
+                f'<stop offset="{_num(float(stop.get("position") or 0.0) * 100)}%" '
+                f'stop-color="{_attr((stop.get("color") or {}).get("value") or "#ffffff")}"'
+                + (
+                    ""
+                    if (stop.get("color") or {}).get("alpha") in (None, 1.0)
+                    else f' stop-opacity="{_num(float((stop.get("color") or {}).get("alpha")))}"'
+                )
+                + "/>"
+                for stop in stops
+            )
+            + "</linearGradient>"
+        )
+        return gradient_id
+
+    def _picture_fill(self, fill: dict) -> Optional[str]:
+        href = self.image_href(fill.get("media_ref"))
+        if href is None:
+            return None
+        pattern_id = self.next_id("fillimg")
+        self.defs.append(
+            f'<pattern id="{pattern_id}" patternContentUnits="objectBoundingBox" '
+            f'width="1" height="1"><image href="{_attr(href)}" width="1" height="1" '
+            f'preserveAspectRatio="none"/></pattern>'
+        )
+        return pattern_id
+
+    # -- media ------------------------------------------------------------------
+    def image_href(self, part: Optional[str], *, required: bool = True) -> Optional[str]:
+        """A ``data:`` URI for an image part, honouring the per-slide budget."""
+
+        if not part:
+            if required:
+                self.warnings.append(f"{UNSUPPORTED_MEDIA_PREFIX}unresolved")
+            return None
+        payload = self.media.get(part)
+        if payload is None:
+            if required:
+                self.warnings.append(f"{MEDIA_UNAVAILABLE_PREFIX}{part}")
+            return None
+        if self.inlined_bytes + len(payload) > self.config.max_inline_media_bytes:
+            if required:
+                self.warnings.append(f"{MEDIA_BUDGET_PREFIX}{part}")
+            return None
+        mime = _mime_for(part)
+        if mime is None:
+            if required:
+                self.warnings.append(f"{UNSUPPORTED_MEDIA_PREFIX}{_basename(part)}")
+            return None
+        self.inlined_bytes += len(payload)
+        encoded = base64.b64encode(payload).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+
+
+def _mime_for(part: str) -> Optional[str]:
+    from app.compiler.media import media_type_for_part
+
+    return media_type_for_part(part)
+
+
+def _basename(part: Optional[str]) -> str:
+    return part.rsplit("/", 1)[-1] if part else ""
+
+
 class StructuralSvgRenderer(DocumentRenderer):
-    """Draws boxes/text/tables from IR geometry as an SVG per slide."""
+    """Draws a slide from the IR's resolved styling, as one SVG per slide."""
 
     renderer_id = "local-structural-svg"
-    renderer_version = "1.0.0"
+    renderer_version = "2.0.0"
     engine = "stdlib-svg"
     fidelity_ceiling = FIDELITY_STRUCTURAL
 
@@ -68,7 +248,9 @@ class StructuralSvgRenderer(DocumentRenderer):
             supported_kinds=self.supported_kinds,
             available_fonts=tuple(sorted(self.config.available_fonts)),
             reasons=(
-                "structural renderer: layout fidelity is approximate by design",
+                "structural renderer: theme colours/fonts, fills, pictures and text "
+                "formatting are reproduced, layout metrics are approximate",
+                "charts, SmartArt, effects and animation are placeholders",
                 "native PowerPoint rendering is an OPEN decision (DEC-TECH-005)",
             ),
         )
@@ -93,7 +275,7 @@ class StructuralSvgRenderer(DocumentRenderer):
         warnings += [f"{UNSUPPORTED_OBJECT_PREFIX}{kind}" for kind in unsupported]
 
         try:
-            payload = self._svg(request.document, scene)
+            payload = self._svg(request.document, scene, request.media, warnings)
             if len(payload) > self.config.max_asset_bytes:
                 raise RendererError(
                     RenderErrorCode.OUTPUT_TOO_LARGE,
@@ -131,20 +313,47 @@ class StructuralSvgRenderer(DocumentRenderer):
         )
 
     # -- SVG --------------------------------------------------------------------
-    def _svg(self, document: ContentIRDocument, scene: SlideScene) -> bytes:
-        width, height = self.config.width_px, self.config.height_px
-        parts: list[str] = [
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-            f'viewBox="0 0 {width} {height}" role="img">',
-            f'<title>{escape(scene.scene_id)}</title>',
-            f'<rect x="0" y="0" width="{width}" height="{height}" '
+    def _svg(
+        self,
+        document: ContentIRDocument,
+        scene: SlideScene,
+        media: Mapping[str, bytes],
+        warnings: list[str],
+    ) -> bytes:
+        del document
+        width, height = float(self.config.width_px), float(self.config.height_px)
+        canvas = _Canvas(width, height, scene, media, self.config, warnings)
+        body: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{_num(width)}" '
+            f'height="{_num(height)}" viewBox="0 0 {_num(width)} {_num(height)}" role="img">',
+            f"<title>{escape(scene.scene_id)}</title>",
+            f'<rect x="0" y="0" width="{_num(width)}" height="{_num(height)}" '
             f'fill="{_attr(self.config.background)}"/>',
         ]
+        background = scene.background
+        if background and background.get("type") not in (None, "none"):
+            body.append(self._background(canvas, background))
         for obj in sorted(scene.objects, key=lambda o: o.reading_order):
-            parts.append(self._svg_object(obj, scene))
-        parts.append("</svg>")
-        return "".join(parts).encode("utf-8")
+            body.append(self._object(canvas, obj))
+        defs = "".join(canvas.defs)
+        parts = [body[0], body[1], f"<defs>{defs}</defs>" if defs else "", *body[2:], "</svg>"]
+        return "".join(part for part in parts if part).encode("utf-8")
 
+    def _background(self, canvas: _Canvas, fill: dict) -> str:
+        if fill.get("type") == "picture":
+            href = canvas.image_href(fill.get("media_ref"))
+            if href is None:
+                return ""
+            return (
+                f'<image x="0" y="0" width="{_num(canvas.width)}" height="{_num(canvas.height)}" '
+                f'preserveAspectRatio="none" href="{_attr(href)}"/>'
+            )
+        return (
+            f'<rect x="0" y="0" width="{_num(canvas.width)}" height="{_num(canvas.height)}" '
+            f'{canvas.paint(fill)}/>'
+        )
+
+    # -- geometry ---------------------------------------------------------------
     def _px_bounds(self, obj: ShapeObject, scene: SlideScene) -> tuple[float, float, float, float]:
         width, height = float(self.config.width_px), float(self.config.height_px)
         norm = (
@@ -157,92 +366,659 @@ class StructuralSvgRenderer(DocumentRenderer):
         box_w = (norm["width"] if norm["width"] is not None else 1.0) * width
         box_h = (norm["height"] if norm["height"] is not None else 0.06) * height
         # Keep everything inside the canvas so a bad source cannot produce
-        # off-canvas geometry.
+        # off-canvas geometry. Bounds may legitimately extend past the slide
+        # (PowerPoint allows it), so clamp rather than drop.
         x = max(0.0, min(x, width))
         y = max(0.0, min(y, height))
-        box_w = max(1.0, min(box_w, width - x))
-        box_h = max(1.0, min(box_h, height - y))
+        box_w = max(0.5, min(box_w, width - x))
+        box_h = max(0.5, min(box_h, height - y))
         return x, y, box_w, box_h
 
-    def _svg_object(self, obj: ShapeObject, scene: SlideScene) -> str:
-        x, y, box_w, box_h = self._px_bounds(obj, scene)
-        out: list[str] = []
+    def _transform(self, obj: ShapeObject, x: float, y: float, w: float, h: float) -> str:
+        """Rotation/flip about the shape centre, matching ``a:xfrm`` semantics."""
 
-        if obj.kind == "picture":
-            out.append(self._rect(x, y, box_w, box_h, stroke="#94a3b8", fill="#f1f5f9"))
-            out.append(self._label(x, y, self._basename(obj.media_ref) or obj.name or "image", 11))
-        elif obj.kind == "chart":
-            out.append(self._rect(x, y, box_w, box_h, stroke="#7c3aed", fill="#f5f3ff"))
-            out.append(self._label(x + 6, y + 14, f"chart: {self._basename(obj.media_ref) or obj.name}", 12))
-        elif obj.kind == "table":
-            out.append(self._table(obj, x, y, box_w, box_h))
-        elif obj.kind == "connector":
-            out.append(
-                f'<line x1="{x:.2f}" y1="{y:.2f}" x2="{x + box_w:.2f}" y2="{y + box_h:.2f}" '
-                f'stroke="#475569" stroke-width="1.5"/>'
-            )
-        elif obj.kind == "group":
-            out.append(
-                f'<rect x="{x:.2f}" y="{y:.2f}" width="{box_w:.2f}" height="{box_h:.2f}" '
-                f'fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 3"/>'
-            )
-        else:
-            out.append(self._rect(x, y, box_w, box_h, stroke="#e2e8f0", fill="none"))
-
-        out.extend(self._svg_paragraphs(obj, x, y, box_w, box_h))
-        return "".join(out)
-
-    def _svg_paragraphs(
-        self, obj: ShapeObject, x: float, y: float, box_w: float, box_h: float
-    ) -> list[str]:
         parts: list[str] = []
-        # Line height scales with the object so text stays inside its box.
-        line_height = 18.0
-        available = max(1, int(box_h // line_height))
-        for index, para in enumerate(obj.paragraphs[:available]):
-            size = max(10, 16 - 2 * para.level)
-            family = (para.runs[0].font if para.runs and para.runs[0].font else None) or (
-                self.config.font_family
-            )
-            text_x = x + 6 + 12 * para.level
-            text_y = y + line_height * (index + 1)
+        if obj.rotation:
             parts.append(
-                f'<text x="{text_x:.2f}" y="{text_y:.2f}" '
-                f'font-family="{_attr(family)}" font-size="{size}">{escape(para.text)}</text>'
+                f"rotate({_num(obj.rotation)} {_num(x + w / 2)} {_num(y + h / 2)})"
             )
-        return parts
+        if obj.flip_h or obj.flip_v:
+            sx = -1 if obj.flip_h else 1
+            sy = -1 if obj.flip_v else 1
+            parts.append(
+                f"translate({_num(x + w / 2)} {_num(y + h / 2)}) scale({sx} {sy}) "
+                f"translate({_num(-(x + w / 2))} {_num(-(y + h / 2))})"
+            )
+        return f' transform="{" ".join(parts)}"' if parts else ""
 
-    def _table(self, obj: ShapeObject, x: float, y: float, box_w: float, box_h: float) -> str:
-        rows = obj.table or []
-        if not rows:
-            return self._rect(x, y, box_w, box_h, stroke="#0f766e", fill="#f0fdfa")
-        computed = min(len(rows), 12)  # bounded: do not emit a huge document
-        row_h = box_h / computed
-        parts = [self._rect(x, y, box_w, box_h, stroke="#0f766e", fill="#ffffff")]
-        for row_index, row in enumerate(rows[:computed]):
-            row_y = y + row_h * row_index
-            parts.append(self._rect(x, row_y, box_w, row_h, stroke="#99f6e4", fill="none"))
-            cell_w = box_w / max(1, len(row))
-            for cell_index, cell in enumerate(row):
-                parts.append(
-                    f'<text x="{x + cell_w * cell_index + 4:.2f}" y="{row_y + row_h - 4:.2f}" '
-                    f'font-family="{_attr(self.config.font_family)}" font-size="11">'
-                    f"{escape(str(cell))}</text>"
-                )
-        return "".join(parts)
+    def _stroke_attrs(self, canvas: _Canvas, line: Optional[dict]) -> str:
+        if not line:
+            return ""
+        color = (line.get("color") or {})
+        value = color.get("value")
+        if value is None:
+            value = "#1f2937"
+        width_px = max(0.5, float(line.get("width_emu") or 12700) / EMU_PER_PIXEL)
+        attrs = [f'stroke="{_attr(value)}"', f'stroke-width="{_num(width_px)}"']
+        opacity = color.get("alpha")
+        if opacity not in (None, 1.0):
+            attrs.append(f'stroke-opacity="{_num(float(opacity))}"')
+        dash = DASH_PATTERNS.get(str(line.get("dash") or "solid"))
+        if dash:
+            attrs.append(f'stroke-dasharray="{dash}"')
+        return " " + " ".join(attrs)
 
-    def _rect(self, x: float, y: float, width: float, height: float, *, stroke: str, fill: str) -> str:
-        return (
-            f'<rect x="{x:.2f}" y="{y:.2f}" width="{width:.2f}" height="{height:.2f}" '
-            f'fill="{_attr(fill)}" stroke="{_attr(stroke)}" stroke-width="1"/>'
-        )
+    def _shape_body(self, canvas: _Canvas, obj: ShapeObject, x: float, y: float, w: float, h: float) -> str:
+        """The fill/stroke element(s) for a shape's geometry ("" when invisible)."""
 
-    def _label(self, x: float, y: float, text: str, size: int) -> str:
-        return (
-            f'<text x="{x + 4:.2f}" y="{y + 14:.2f}" '
-            f'font-family="{_attr(self.config.font_family)}" font-size="{size}">{escape(text)}</text>'
-        )
+        paint = canvas.paint(obj.fill)
+        stroke = self._stroke_attrs(canvas, obj.line)
+        if not obj.line and not obj.custom_path and paint == 'fill="none"':
+            # Text boxes and layout rulers carry no fill and no outline; an
+            # invisible rectangle for each of them is pure payload noise.
+            return ""
+        if obj.custom_path:
+            element = (
+                f'<path d="{_attr(obj.custom_path)}" '
+                f'transform="translate({_num(x)} {_num(y)}) scale({_num(w)} {_num(h)})" '
+                f'vector-effect="non-scaling-stroke"'
+            )
+            return f"{element} {paint}{stroke}/>"
+        preset = obj.geometry or "rect"
+        geometry = self._geometry(preset, x, y, w, h)
+        if geometry is None:
+            # A shape we do not model still gets a visible structural body.
+            canvas.warnings.append(f"{UNSUPPORTED_GEOMETRY_PREFIX}{preset}")
+            geometry = (
+                f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+                f'rx="{_num(min(w, h) * 0.08)}"'
+            )
+        if preset == "line":
+            return geometry + stroke + "/>"
+        return geometry + f" {paint}{stroke}/>"
 
     @staticmethod
-    def _basename(part: str | None) -> str:
-        return part.rsplit("/", 1)[-1] if part else ""
+    def _geometry(preset: str, x: float, y: float, w: float, h: float) -> Optional[str]:
+        """SVG element (without closing) for a DrawingML preset geometry."""
+
+        cx, cy = x + w / 2, y + h / 2
+        if preset in ("rect", "rectangle"):
+            return f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}"'
+        if preset in ("roundRect", "round1Rect", "round2SameRect", "round2DiagRect"):
+            radius = min(w, h) * 0.16
+            return (
+                f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+                f'rx="{_num(radius)}" ry="{_num(radius)}"'
+            )
+        if preset in ("ellipse", "circle"):
+            return (
+                f'<ellipse cx="{_num(cx)}" cy="{_num(cy)}" rx="{_num(w / 2)}" ry="{_num(h / 2)}"'
+            )
+        if preset == "triangle":
+            return (
+                f'<polygon points="{_num(cx)},{_num(y)} {_num(x + w)},{_num(y + h)} '
+                f'{_num(x)},{_num(y + h)}"'
+            )
+        if preset == "rtTriangle":
+            return (
+                f'<polygon points="{_num(x)},{_num(y)} {_num(x)},{_num(y + h)} '
+                f'{_num(x + w)},{_num(y + h)}"'
+            )
+        if preset == "diamond":
+            return (
+                f'<polygon points="{_num(cx)},{_num(y)} {_num(x + w)},{_num(cy)} '
+                f'{_num(cx)},{_num(y + h)} {_num(x)},{_num(cy)}"'
+            )
+        if preset == "pentagon":
+            points = _regular_polygon(cx, cy, w / 2, h / 2, 5, -90)
+            return f'<polygon points="{points}"'
+        if preset == "hexagon":
+            points = _regular_polygon(cx, cy, w / 2, h / 2, 6, 0)
+            return f'<polygon points="{points}"'
+        if preset == "star5":
+            points = _star_points(cx, cy, w / 2, h / 2, 5)
+            return f'<polygon points="{points}"'
+        if preset in ("rightArrow", "leftArrow", "upArrow", "downArrow"):
+            return f'<polygon points="{_arrow_points(preset, x, y, w, h)}"'
+        if preset == "plus":
+            arm_x, arm_y = w * 0.33, h * 0.33
+            return (
+                f'<polygon points="{_num(x + arm_x)},{_num(y)} {_num(x + w - arm_x)},{_num(y)} '
+                f'{_num(x + w - arm_x)},{_num(y + arm_y)} {_num(x + w)},{_num(y + arm_y)} '
+                f'{_num(x + w)},{_num(y + h - arm_y)} {_num(x + w - arm_x)},{_num(y + h - arm_y)} '
+                f'{_num(x + w - arm_x)},{_num(y + h)} {_num(x + arm_x)},{_num(y + h)} '
+                f'{_num(x + arm_x)},{_num(y + h - arm_y)} {_num(x)},{_num(y + h - arm_y)} '
+                f'{_num(x)},{_num(y + arm_y)} {_num(x + arm_x)},{_num(y + arm_y)}"'
+            )
+        if preset in ("line", "straightConnector1"):
+            return (
+                f'<line x1="{_num(x)}" y1="{_num(y)}" x2="{_num(x + w)}" y2="{_num(y + h)}" '
+                f'fill="none"'
+            )
+        return None
+
+    # -- objects ----------------------------------------------------------------
+    def _object(self, canvas: _Canvas, obj: ShapeObject) -> str:
+        x, y, w, h = self._px_bounds(obj, canvas.scene)
+        transform = self._transform(obj, x, y, w, h)
+
+        if obj.kind == "group":
+            # Children are emitted separately with absolute bounds; the container
+            # itself paints nothing (its own frame is not drawn by PowerPoint).
+            return ""
+
+        if obj.kind == "picture":
+            return self._picture(canvas, obj, x, y, w, h, transform)
+
+        if obj.kind == "table":
+            return self._table(canvas, obj, x, y, w, h, transform)
+
+        if obj.kind in ("chart", "graphicFrame"):
+            return self._placeholder(canvas, obj, x, y, w, h, transform)
+
+        if obj.kind == "connector":
+            return self._connector(canvas, obj, x, y, w, h, transform)
+
+        body = self._shape_body(canvas, obj, x, y, w, h)
+        text = self._text_block(canvas, obj, x, y, w, h)
+        if transform and (body or text):
+            return f'<g{transform}>{body}{text}</g>'
+        return body + text
+
+    def _picture(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        transform: str,
+    ) -> str:
+        if obj.media_type is None:
+            return self._media_placeholder(canvas, obj, x, y, w, h, transform)
+        href = canvas.image_href(obj.media_ref)
+        if href is None:
+            return self._media_placeholder(canvas, obj, x, y, w, h, transform)
+        crop = obj.crop or {}
+        left = float(crop.get("left") or 0.0)
+        top = float(crop.get("top") or 0.0)
+        right = float(crop.get("right") or 0.0)
+        bottom = float(crop.get("bottom") or 0.0)
+        keep_w = max(0.01, 1.0 - left - right)
+        keep_h = max(0.01, 1.0 - top - bottom)
+        inner = ""
+        if left or top or right or bottom:
+            # ``a:srcRect`` semantics: the kept window is scaled to fill the frame.
+            full_w, full_h = w / keep_w, h / keep_h
+            image_x, image_y = x - left * full_w, y - top * full_h
+            clip_id = canvas.next_id("clip")
+            canvas.defs.append(
+                f'<clipPath id="{clip_id}"><rect x="{_num(x)}" y="{_num(y)}" '
+                f'width="{_num(w)}" height="{_num(h)}"/></clipPath>'
+            )
+            inner = (
+                f'<image x="{_num(image_x)}" y="{_num(image_y)}" width="{_num(full_w)}" '
+                f'height="{_num(full_h)}" preserveAspectRatio="none" href="{_attr(href)}" '
+                f'clip-path="url(#{clip_id})"/>'
+            )
+        else:
+            inner = (
+                f'<image x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+                f'preserveAspectRatio="none" href="{_attr(href)}"/>'
+            )
+        parts = [f'<g{transform}>{inner}</g>' if transform else inner]
+        if obj.line:
+            stroke = self._stroke_attrs(canvas, obj.line)
+            parts.append(
+                f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+                f'fill="none"{stroke}/>'
+            )
+        return "".join(parts)
+
+    def _media_placeholder(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        transform: str,
+    ) -> str:
+        label = _basename(obj.media_ref) or obj.name or "image"
+        body = (
+            f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+            f'fill="#eef2f7" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>'
+            f'<text x="{_num(x + w / 2)}" y="{_num(y + h / 2)}" text-anchor="middle" '
+            f'font-family="{_attr(canvas.config.font_family)}" font-size="12" fill="#64748b">'
+            f"{escape(label)}</text>"
+        )
+        return f'<g{transform}>{body}</g>' if transform else body
+
+    def _placeholder(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        transform: str,
+    ) -> str:
+        label = f"{obj.kind}: {obj.name or _basename(obj.media_ref)}"
+        body = (
+            f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+            f'fill="#f5f3ff" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4 3"/>'
+            f'<text x="{_num(x + 6)}" y="{_num(y + 16)}" '
+            f'font-family="{_attr(canvas.config.font_family)}" font-size="12" fill="#6d28d9">'
+            f"{escape(label)}</text>"
+        )
+        return f'<g{transform}>{body}</g>' if transform else body
+
+    def _connector(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        transform: str,
+    ) -> str:
+        x1, y1, x2, y2 = x, y, x + w, y + h
+        if obj.flip_h:
+            x1, x2 = x2, x1
+        if obj.flip_v:
+            y1, y2 = y2, y1
+        stroke = self._stroke_attrs(canvas, obj.line) or ' stroke="#475569" stroke-width="1"'
+        line = (
+            f'<line x1="{_num(x1)}" y1="{_num(y1)}" x2="{_num(x2)}" y2="{_num(y2)}" '
+            f"fill=\"none\"{stroke}/>"
+        )
+        return f'<g{transform}>{line}</g>' if transform else line
+
+    # -- tables -----------------------------------------------------------------
+    def _table(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        transform: str,
+    ) -> str:
+        rows = obj.table or []
+        if not rows:
+            return (
+                f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" '
+                f'fill="#ffffff" stroke="#0f766e" stroke-width="1"/>'
+            )
+        cells = obj.table_cells or []
+        column_count = max(len(row) for row in rows)
+        widths = self._table_sizes(obj.table_columns, column_count, w)
+        heights = self._table_sizes(obj.table_rows, len(rows), h)
+        parts: list[str] = [
+            f'<rect x="{_num(x)}" y="{_num(y)}" width="{_num(w)}" height="{_num(h)}" fill="#ffffff"/>'
+        ]
+        row_y = y
+        for row_index, row in enumerate(rows):
+            row_h = heights[row_index] if row_index < len(heights) else h / max(1, len(rows))
+            column_x = x
+            for column_index, cell_text in enumerate(row):
+                column_w = widths[column_index] if column_index < len(widths) else w / max(1, column_count)
+                cell = self._cell(cells, row_index, column_index)
+                if cell is not None and (cell.h_merge or cell.v_merge):
+                    column_x += column_w
+                    continue
+                span = cell.grid_span if cell is not None else 1
+                spanned_w = sum(
+                    widths[column_index + extra]
+                    for extra in range(span)
+                    if column_index + extra < len(widths)
+                ) or column_w
+                fill = canvas.paint(cell.fill) if cell and cell.fill else 'fill="none"'
+                border = ' stroke="#cbd5e1" stroke-width="1"'
+                parts.append(
+                    f'<rect x="{_num(column_x)}" y="{_num(row_y)}" width="{_num(spanned_w)}" '
+                    f'height="{_num(row_h)}" {fill}{border}/>'
+                )
+                paragraphs = cell.paragraphs if cell is not None else []
+                if not paragraphs and cell_text:
+                    paragraphs = [TextParagraph(level=0, text=cell_text)]
+                parts.append(
+                    self._text_block(
+                        canvas,
+                        obj,
+                        column_x,
+                        row_y,
+                        spanned_w,
+                        row_h,
+                        paragraphs=paragraphs,
+                        default_align="ctr",
+                        default_size_pt=12.0,
+                    )
+                )
+                column_x += spanned_w
+            row_y += row_h
+        body = "".join(parts)
+        return f'<g{transform}>{body}</g>' if transform else body
+
+    @staticmethod
+    def _cell(cells: list[list[TableCell]], row: int, column: int) -> Optional[TableCell]:
+        if row < len(cells) and column < len(cells[row]):
+            return cells[row][column]
+        return None
+
+    @staticmethod
+    def _table_sizes(values: Optional[list[int]], count: int, extent: float) -> list[float]:
+        """Column/row sizes in px: use the source EMU metrics, scaled to the frame."""
+
+        if not values or count <= 0:
+            return [extent / max(1, count)] * max(1, count)
+        total = sum(values)
+        if total <= 0:
+            return [extent / max(1, count)] * max(1, count)
+        return [extent * value / total for value in values]
+
+    # -- text -------------------------------------------------------------------
+    def _text_block(
+        self,
+        canvas: _Canvas,
+        obj: ShapeObject,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        *,
+        paragraphs: Optional[list[TextParagraph]] = None,
+        default_align: Optional[str] = None,
+        default_size_pt: Optional[float] = None,
+    ) -> str:
+        content = obj.paragraphs if paragraphs is None else paragraphs
+        if not content:
+            return ""
+        insets = obj.insets or DEFAULT_INSETS_EMU
+        inset_l = float(insets.get("left", DEFAULT_INSETS_EMU["left"])) / EMU_PER_PIXEL
+        inset_t = float(insets.get("top", DEFAULT_INSETS_EMU["top"])) / EMU_PER_PIXEL
+        inset_r = float(insets.get("right", DEFAULT_INSETS_EMU["right"])) / EMU_PER_PIXEL
+        inset_b = float(insets.get("bottom", DEFAULT_INSETS_EMU["bottom"])) / EMU_PER_PIXEL
+        available_w = max(4.0, w - inset_l - inset_r)
+        available_h = max(4.0, h - inset_t - inset_b)
+        base_scale = float(obj.font_scale or 1.0)
+
+        layout = self._layout_text(
+            canvas,
+            content,
+            x + inset_l,
+            available_w,
+            base_scale,
+            default_align,
+            default_size_pt,
+        )
+        # Auto-shrink (``a:normAutofit``/``a:spAutoFit`` behaviour): PowerPoint
+        # never overflows a text box, so neither do we.
+        if layout["height"] > available_h and obj.autofit in (None, "shrink", "resize"):
+            scale = base_scale
+            for _ in range(6):
+                if layout["height"] <= available_h or scale <= 0.4:
+                    break
+                scale = max(0.4, scale * (available_h / layout["height"]) * 0.98)
+                layout = self._layout_text(
+                    canvas,
+                    content,
+                    x + inset_l,
+                    available_w,
+                    scale,
+                    default_align,
+                    default_size_pt,
+                )
+
+        anchor = obj.anchor or "t"
+        if anchor == "ctr":
+            cursor = y + inset_t + max(0.0, (available_h - layout["height"]) / 2)
+        elif anchor == "b":
+            cursor = y + inset_t + max(0.0, available_h - layout["height"])
+        else:
+            cursor = y + inset_t
+
+        parts: list[str] = []
+        for line in layout["lines"]:
+            line_top = cursor
+            if line_top > y + h + 2:
+                break
+            baseline = line_top + line["size_px"] * 0.82
+            if line.get("highlight"):
+                parts.append(
+                    f'<rect x="{_num(line["x"])}" y="{_num(line_top)}" '
+                    f'width="{_num(line["width"])}" height="{_num(line["line_height"])}" '
+                    f'fill="{_attr(line["highlight"])}"/>'
+                )
+            if line.get("bullet"):
+                parts.append(
+                    f'<text x="{_num(line["x"] - line["size_px"] * 0.9)}" '
+                    f'y="{_num(baseline)}" font-family="{_attr(line["family"])}" '
+                    f'font-size="{_num(line["size_px"])}" fill="{_attr(line["color"])}">'
+                    f"{escape(line['bullet'])}</text>"
+                )
+            attributes = [
+                f'x="{_num(line["x"])}"',
+                f'y="{_num(baseline)}"',
+                f'font-family="{_attr(line["family"])}"',
+                f'font-size="{_num(line["size_px"])}"',
+                f'fill="{_attr(line["color"])}"',
+            ]
+            if line["bold"]:
+                attributes.append('font-weight="bold"')
+            if line["italic"]:
+                attributes.append('font-style="italic"')
+            if line["underline"]:
+                attributes.append('text-decoration="underline"')
+            if line["anchor"] != "start":
+                attributes.append(f'text-anchor="{line["anchor"]}"')
+            parts.append(
+                f'<text {" ".join(attributes)} xml:space="preserve">{escape(line["text"])}</text>'
+            )
+            cursor = line_top + line["line_height"]
+        return "".join(parts)
+
+    def _layout_text(
+        self,
+        canvas: _Canvas,
+        paragraphs: list[TextParagraph],
+        origin_x: float,
+        available_w: float,
+        scale: float,
+        default_align: Optional[str],
+        default_size_pt: Optional[float],
+    ) -> dict[str, Any]:
+        """Wrap and position every paragraph: returns ``{\"lines\", \"height\"}``.
+
+        Line boxes are laid out top-down; the caller turns each line into text
+        (baseline = top + 0.82 em) so vertical anchoring and auto-shrink agree.
+        """
+
+        lines: list[dict[str, Any]] = []
+        total = 0.0
+        for para in paragraphs:
+            align = para.align or default_align or "l"
+            runs = para.runs or []
+            size_pt = default_size_pt
+            for run in runs:
+                if run.size_pt:
+                    size_pt = run.size_pt
+                    break
+            size_px = max(6.0, (size_pt or 18.0) * scale / PT_PER_PIXEL)
+            bold = any(run.bold for run in runs)
+            italic = any(run.italic for run in runs)
+            underline = any(run.underline for run in runs)
+            run_font = next((run.font for run in runs if run.font), None)
+            family = self._family(canvas, run_font)
+            color = self._run_color(runs)
+            highlight = self._run_highlight(runs)
+            bullet = self._bullet_text(para)
+            margin = float(para.margin_left_emu or 0) / EMU_PER_PIXEL
+            indent = margin if align in ("l", "just", "dist") else 0.0
+            wrapped = _wrap(para.text, size_px, max(4.0, available_w - indent), bold)
+            line_height = _line_height(para, size_px)
+            total += float(para.space_before_pt or 0.0) / PT_PER_PIXEL
+            for index, piece in enumerate(wrapped):
+                anchor = {
+                    "l": "start",
+                    "just": "start",
+                    "dist": "start",
+                    "ctr": "middle",
+                    "r": "end",
+                }.get(align, "start")
+                if anchor == "middle":
+                    line_x = origin_x + indent + (available_w - indent) / 2
+                elif anchor == "end":
+                    line_x = origin_x + available_w
+                else:
+                    line_x = origin_x + indent
+                lines.append(
+                    {
+                        "text": piece,
+                        "x": line_x,
+                        "size_px": size_px,
+                        "line_height": line_height,
+                        "family": family,
+                        "color": color,
+                        "bold": bold,
+                        "italic": italic,
+                        "underline": underline,
+                        "anchor": anchor,
+                        "highlight": highlight,
+                        "bullet": bullet if index == 0 else None,
+                        "width": _text_width(piece, size_px, bold),
+                    }
+                )
+                total += line_height
+            total += float(para.space_after_pt or 0.0) / PT_PER_PIXEL
+        return {"lines": lines, "height": total}
+
+    @staticmethod
+    def _bullet_text(para: TextParagraph) -> Optional[str]:
+        bullet = para.bullet or {}
+        if not bullet or bullet.get("none"):
+            return None
+        if bullet.get("char"):
+            return str(bullet["char"])
+        if bullet.get("autonum"):
+            return "•"
+        return None
+
+    def _family(self, canvas: _Canvas, family: Optional[str]) -> str:
+        if not family:
+            return canvas.config.font_family
+        return f"{family}, {canvas.config.font_family}"
+
+    @staticmethod
+    def _run_color(runs: list) -> str:
+        for run in runs:
+            color = run.color or {}
+            if color.get("value"):
+                return str(color["value"])
+        return DEFAULT_TEXT_COLOR
+
+    @staticmethod
+    def _run_highlight(runs: list) -> Optional[str]:
+        for run in runs:
+            highlight = run.highlight or {}
+            if highlight.get("value"):
+                return str(highlight["value"])
+        return None
+
+
+# -- pure geometry helpers ---------------------------------------------------------
+def _regular_polygon(cx: float, cy: float, rx: float, ry: float, sides: int, start_deg: float) -> str:
+    points = []
+    for index in range(sides):
+        angle = math.radians(start_deg + index * 360.0 / sides)
+        points.append(f"{_num(cx + rx * math.cos(angle))},{_num(cy + ry * math.sin(angle))}")
+    return " ".join(points)
+
+
+def _star_points(cx: float, cy: float, rx: float, ry: float, points_count: int) -> str:
+    points = []
+    for index in range(points_count * 2):
+        radius = 1.0 if index % 2 == 0 else 0.382
+        angle = math.radians(-90 + index * 180.0 / points_count)
+        points.append(f"{_num(cx + rx * radius * math.cos(angle))},{_num(cy + ry * radius * math.sin(angle))}")
+    return " ".join(points)
+
+
+def _arrow_points(preset: str, x: float, y: float, w: float, h: float) -> str:
+    """A block arrow as a 7-point polygon, rotated to the requested direction."""
+
+    def point(px: float, py: float) -> str:
+        if preset == "leftArrow":
+            px, py = 1.0 - px, py
+        elif preset == "upArrow":
+            px, py = py, 1.0 - px
+        elif preset == "downArrow":
+            px, py = 1.0 - py, px
+        return f"{_num(x + px * w)},{_num(y + py * h)}"
+
+    return " ".join(
+        [
+            point(0.0, 0.30),
+            point(0.60, 0.30),
+            point(0.60, 0.0),
+            point(1.0, 0.5),
+            point(0.60, 1.0),
+            point(0.60, 0.70),
+            point(0.0, 0.70),
+        ]
+    )
+
+
+def _line_height(para: TextParagraph, size_px: float) -> float:
+    """Line box height in px.
+
+    ``a:lnSpc/a:spcPts`` is an absolute leading in points, so it wins over the
+    multiple form; otherwise 1.2 em (PowerPoint's default single spacing).
+    """
+
+    if para.line_spacing_pt:
+        return max(1.0, float(para.line_spacing_pt) / PT_PER_PIXEL)
+    return size_px * 1.2 * float(para.line_spacing or 1.0)
+
+
+def _text_width(text: str, size_px: float, bold: bool) -> float:
+    total = 0.0
+    for char in text:
+        if char in _NARROW:
+            total += 0.33
+        elif char in _WIDE:
+            total += 0.95
+        elif char in _UPPER:
+            total += 0.68
+        elif char in _DIGITS:
+            total += 0.58
+        elif char == " ":
+            total += 0.30
+        else:
+            total += 0.55
+    return total * size_px * (1.04 if bold else 1.0)
+
+
+def _wrap(text: str, size_px: float, max_width: float, bold: bool) -> list[str]:
+    """Greedy word wrap using estimated advances (deterministic, font-free)."""
+
+    lines: list[str] = []
+    for raw_line in text.split("\n"):
+        if not raw_line:
+            lines.append("")
+            continue
+        current = ""
+        for word in raw_line.split(" "):
+            trial = word if not current else f"{current} {word}"
+            if current and _text_width(trial, size_px, bold) > max_width:
+                lines.append(current)
+                current = word
+            else:
+                current = trial
+        lines.append(current)
+    return lines or [""]

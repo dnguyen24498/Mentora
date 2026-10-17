@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from typing import Optional
 
 from app.common.errors import RendererUnavailableError
+from app.compiler.media import document_media_refs, read_media_parts
 from app.compiler.models.ir import ContentIRDocument, SlideScene
 from app.compiler.renderers.base import (
     CancelToken,
@@ -140,6 +141,11 @@ class RenderingService:
             renderer=identity.to_dict(),
         )
 
+        # Pictures travel with the request: the compiler (which already holds the
+        # package bytes) resolves them, so the renderer never reads the source
+        # (``DEC-CONTENT-001``).
+        media = read_media_parts(data, document_media_refs(document))
+
         budget = RenderBudget(
             self._config.deadline_seconds,
             max_attempts=self._config.max_attempts,
@@ -151,6 +157,7 @@ class RenderingService:
                     identity=identity,
                     trace_id=artifact.sha256[:12],
                     correlation_id=artifact_id,
+                    media=media,
                 ),
                 budget=budget,
                 cancel=cancel,

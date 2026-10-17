@@ -2,9 +2,9 @@
 
 Python backend for the AI Teacher Platform. The V0 vertical implemented so far:
 **secure PPTX ingestion + SQLite-backed persistence + deterministic structural
-extraction + per-slide fallback rendering with an explicit fidelity gate + a
-baseline Content Package + teacher review** (preview, approve/reject, draft
-lesson-order and script edits).
+extraction + per-slide rendering that reproduces the deck's own styling, behind
+an explicit fidelity gate + a baseline Content Package + teacher review**
+(preview, approve/reject, draft lesson-order and script edits).
 
 ## Commands
 
@@ -42,9 +42,9 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/security/` | Upload validation: size limit, filename normalization, extension + magic-byte checks (stable error codes). |
 | `app/storage/` | `ObjectStore` interface + atomic, content-addressed `LocalObjectStore`. |
 | `app/courses/` | Course/version/source-artifact/compiler-job models, tenant-scoped repository, `UploadService`. |
-| `app/compiler/models/` | Internal Content IR (`content-ir/1.1.0`): scenes, objects, text runs, normalized bounds, fidelity, provenance. |
-| `app/compiler/extractors/` | Dependency-free PPTX (OOXML) structural extractor (`PptxExtractor`). |
-| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + deterministic local structural SVG renderer + required test double (V0-005). |
+| `app/compiler/models/` | Internal Content IR (`content-ir/1.2.0`): scenes, objects, effective style (fill/line/geometry/text), text runs, media refs, normalized bounds, fidelity, provenance. |
+| `app/compiler/extractors/` | Dependency-free PPTX (OOXML) structural extractor (`PptxExtractor`): theme/master/layout resolution (`theme.py`, `style.py`) + `ooxml.py` part/name helpers. |
+| `app/compiler/renderers/` | Provider-neutral `DocumentRenderer` adapter + deterministic local structural SVG renderer that reproduces the extracted style (V0-005, V0-018) + required test double. |
 | `app/compiler/validators/` | Scene/package invariants and the fidelity publication gate (V0-005) plus CTF package validation (V0-006). |
 | `app/compiler/render_service.py` | `RenderingService`: artifact -> Content IR -> per-slide render -> gate. |
 | `app/compiler/package_builder/` | Baseline Content Package builder (V0-006): IR + renders -> scenes/lesson plan/manifest, plus `read_package` for reading one back. |
@@ -117,6 +117,32 @@ break the browser). For normal development the frontend runs on its own server a
   contract for V0-008). Missing fonts and unmodeled objects degrade to
   `DEGRADED_RENDERED` with greppable warnings (`MISSING_FONT:<family>`,
   `UNSUPPORTED_OBJECT:<kind>`) and set `requires_review`.
+- **Faithful slide rendering (V0-018).** `DEC-TECH-005` is still `OPEN`, so this
+  is explicitly *not* a native PowerPoint engine: the renderer draws the
+  presentation **from the Content IR**. Fidelity comes from extraction, not from
+  a new dependency — the IR resolves the deck's effective look (theme colours and
+  fonts through `p:clrMap`, slide→layout→master placeholder geometry and
+  `p:txStyles` defaults, backgrounds, fills/lines/gradients/geometry/rotation,
+  run+paragraph formatting, `srcRect` crops, table metrics) and the renderer
+  reproduces it in SVG. Consequences worth knowing:
+  - The IR must stay self-sufficient: a renderer that opened the `.pptx` would
+    break `DEC-CONTENT-001`, so image bytes travel separately in
+    `RenderRequest.media`, keyed by the IR's `media_ref`.
+  - Pictures are inlined as `data:` URIs (the studio shows the SVG through a
+    `blob:` `<img>`, where external references cannot resolve). A per-scene raw
+    budget (`RenderConfig.max_inline_media_bytes`, 16 MiB) and an output cap
+    (`max_asset_bytes`, 28 MiB) keep one slide from bloating the package.
+    Over-budget or non-inlinable (EMF/WMF/TIFF) pictures render as a labelled
+    placeholder with a `MEDIA_BUDGET_EXCEEDED:`/`UNSUPPORTED_*` warning but do
+    **not** change fidelity — escaping the budget is a rendering limitation, not
+    a meaning change, so the gate's taxonomy (`MISSING_FONT`,
+    `UNSUPPORTED_OBJECT`) is unchanged.
+  - Text uses estimated glyph advances for word-wrap and auto-shrink
+    (PowerPoint never overflows a text box); there is no font metric library in
+    the stdlib. Charts, SmartArt, animation and exotic effects remain placeholders.
+  - The renderer identity is bumped to `2.0.0` and the IR schema to
+    `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
+    reused after this change.
 - Rendering is deterministic and content-addressed: identical bytes + identical
   renderer identity/config produce byte-identical SVG, so recompiles reuse one
   asset. Job claiming, leases, checkpoints, and stage persistence are V0-003 and
