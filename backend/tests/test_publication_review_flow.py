@@ -178,7 +178,7 @@ def test_a_blocking_render_failure_never_becomes_approvable(blocked_client):
 def test_a_degraded_render_is_reviewable_and_the_decision_is_auditable(client):
     """DEGRADED_RENDERED is human-required, not blocked (DEC-CONTENT-006/008).
 
-    V0-019: the degradation is an object the themed renderer cannot re-author
+    V0-019: the degradation is an object the themed renderer cannot re-style
     (a chart), not a font — the theme owns its typefaces.
     """
 

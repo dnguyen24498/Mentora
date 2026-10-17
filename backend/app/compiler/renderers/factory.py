@@ -6,9 +6,10 @@ two *local* implementations behind the one ``DocumentRenderer`` interface and
 selects between them by mode:
 
 ``themed`` (default)
-    Re-authors the extracted content in the platform theme
-    (``renderers/themed.py``). The appearance is the platform's, not the source
-    deck's. Nothing is accepted about engine technology — this mode needs none.
+    Keeps the author's layout and re-styles it in the platform theme
+    (``renderers/themed.py``). Placement is the author's; typefaces, palette, and
+    chrome are the platform's. Nothing is accepted about engine technology — this
+    mode needs none.
 ``faithful``
     Reproduces the source deck's own styling as a structural SVG
     (``renderers/structural.py``, V0-018).
@@ -33,7 +34,7 @@ RENDER_MODES: tuple[str, ...] = (MODE_THEMED, MODE_FAITHFUL)
 DEFAULT_RENDER_MODE = MODE_THEMED
 
 RENDER_MODE_LABELS: dict[str, str] = {
-    MODE_THEMED: "Re-authored in the platform theme",
+    MODE_THEMED: "Re-styled in the platform theme (author's layout kept)",
     MODE_FAITHFUL: "Structural reproduction of the source slide",
 }
 

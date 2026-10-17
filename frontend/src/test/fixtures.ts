@@ -77,7 +77,7 @@ export function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPacka
       data_region: 'local',
     },
     placeholder_notice:
-      "Slides are re-authored in the Mentora theme: the extracted content (text, images, tables) is preserved and restyled, so the appearance is the platform's, not the source deck's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
+      "Slides keep the deck's own layout and are re-styled in the Mentora theme (its typeface, palette and footer): the content and its placement are the author's, the appearance is the platform's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       makeSection(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       makeSection(1, 'sec-2', 'ppt/slides/slide2.xml', null),

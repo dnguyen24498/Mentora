@@ -76,7 +76,7 @@ function makePackage(overrides: Partial<ReviewPackage> = {}): ReviewPackage {
       data_region: 'local',
     },
     placeholder_notice:
-      "Slides are re-authored in the Mentora theme: the extracted content (text, images, tables) is preserved and restyled, so the appearance is the platform's, not the source deck's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
+      "Slides keep the deck's own layout and are re-styled in the Mentora theme (its typeface, palette and footer): the content and its placement are the author's, the appearance is the platform's. No native PowerPoint render is produced; a production renderer technology is still an open decision (DEC-TECH-005).",
     lesson_order: [
       section(0, 'sec-1', 'ppt/slides/slide1.xml', 'Explain slide 1'),
       section(1, 'sec-2', 'ppt/slides/slide2.xml', null),
@@ -187,7 +187,7 @@ describe('TeacherStudio — side-by-side review', async () => {
 
   it('says how the slides were rendered, and never implies a native render', async () => {
     await setup()
-    expect(screen.getByText(/re-authored in the Mentora theme/)).toBeTruthy()
+    expect(screen.getByText(/re-styled in the Mentora theme/)).toBeTruthy()
     expect(screen.getByText(/No native PowerPoint render/)).toBeTruthy()
     expect(screen.getByText(/DEC-TECH-005/)).toBeTruthy()
   })

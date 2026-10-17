@@ -121,18 +121,26 @@ break the browser). For normal development the frontend runs on its own server a
   therefore defines the `DocumentRenderer` interface, a required test double, and
   two dependency-free local implementations behind it (`renderers/factory.py`
   selects by mode) — neither is ever reported as native/compatible:
-  - **`themed` (default, V0-019)** — `ThemedSvgRenderer` **re-authors** the
-    extracted content in a platform-controlled theme (`renderers/mentora_theme.py`:
-    palette, type scale, grid, footer) and reports `THEMED_RENDERED`. The theme
-    owns its typefaces, so an unavailable source font can never degrade a scene;
-    the source deck's own layout is deliberately *not* reproduced. Because it is a
-    re-authoring, the gate is re-scoped from visual fidelity to **content
-    completeness**: every text paragraph, picture, and table cell is placed, and
-    `CONTENT_DROPPED:`/`TEXT_OVERFLOW:` degrade the scene instead of content being
-    silently lost. An object that cannot be re-authored (chart, SmartArt) also
-    degrades (`UNSUPPORTED_OBJECT:`), so it asks for review rather than being
-    flattened. The theme is versioned and folded into the renderer's config hash,
-    so a theme change is a new content-package version.
+  - **`themed` (default, V0-019)** — `ThemedSvgRenderer` keeps the **author's
+    layout** and re-styles it in a platform-controlled theme
+    (`renderers/mentora_theme.py`: palette, typeface stack, chrome), reporting
+    `THEMED_RENDERED`. It is a subclass of the structural renderer that overrides
+    only the styling decisions (canvas paint, background, family, run colour,
+    strokes, chrome), so geometry, tables, pictures, and text fitting are the
+    tested V0-018 code. Two consequences: the theme owns its typefaces, so an
+    unavailable source font can never degrade a scene; and placement cannot
+    collide, because every object is drawn in the box the author gave it (a
+    re-flow must *guess* text metrics, and those guesses collided on real,
+    art-directed decks). Source colours are mapped onto the palette **by role**
+    (`map_text`/`map_fill`/`map_line`), so a light-on-dark pair in the source
+    stays light-on-dark and re-colouring cannot hide text. The gate is therefore
+    **content completeness**, and no code path can lose content: nothing is
+    re-selected, re-ordered, or clipped (an `a:noAutofit` text frame spills just
+    as PowerPoint spills it), and a frame that cannot hold its text is reported
+    per object as `TEXT_OVERFLOW:` and degrades the scene for review. An object
+    that cannot be re-styled (chart, SmartArt) also degrades
+    (`UNSUPPORTED_OBJECT:`). The theme is versioned and folded into the renderer's
+    config hash, so a theme change is a new content-package version.
   - **`faithful` (V0-018)** — `StructuralSvgRenderer` reproduces the source
     slide's own styling and reports `STRUCTURAL_RENDERED`.
   - `?mode=themed|faithful` selects the mode on `POST /artifacts/{id}/compile` and
@@ -168,26 +176,39 @@ break the browser). For normal development the frontend runs on its own server a
     **not** change fidelity — escaping the budget is a rendering limitation, not
     a meaning change, so the gate's taxonomy (`MISSING_FONT`,
     `UNSUPPORTED_OBJECT`) is unchanged.
-  - Text uses estimated glyph advances for word-wrap and auto-shrink
-    (PowerPoint never overflows a text box); there is no font metric library in
-    the stdlib. Charts, SmartArt, animation and exotic effects remain placeholders.
+  - Text uses estimated glyph advances for word-wrap and auto-shrink (an
+    auto-fitting box is never overrun; an `a:noAutofit` box that does not hold its
+    text spills, as PowerPoint spills it); there is no font metric library in the
+    stdlib. Charts, SmartArt, animation and exotic effects remain placeholders.
   - The renderer identity is bumped to `2.0.0` and the IR schema to
     `content-ir/1.2.0`; both are part of the cache key, so stale renders are not
     reused after this change.
-- **Themed slide rendering (V0-019, the default mode).** `ThemedSvgRenderer`
-  classifies each slide into an archetype (`title`/`bullets`/`content`/`table`/
-  `media`/`mixed`/`empty` — `classify_scene` is a pure, tested function of the IR)
-  and re-flows its content: a heading block (a title slide is a *hero*: larger and
-  vertically centred), a body flow of paragraphs with theme bullets and preserved
-  emphasis/alignment, pictures framed to their **own aspect ratio** (read from the
-  image header by `compiler/imaging.py`, no image library) and capped so a picture
-  can never overflow on its own, and tables with a themed header row. It
-  **re-flows, never re-selects**: decorative geometry is re-themed away on purpose
-  while every text paragraph, picture, and table cell is placed — no LLM rewrites
-  slide text, because that would change meaning. If content still does not fit, the
-  flow shrinks to a readable floor and then reports `TEXT_OVERFLOW:` and degrades;
-  content is never silently dropped, and `CONTENT_DROPPED:` is the completeness
-  gate's alarm if it ever were.
+- **Themed slide rendering (V0-019, the default mode).** `ThemedSvgRenderer` is
+  the structural renderer with the styling swapped out, so a themed slide has the
+  author's composition and the platform's look:
+  - **Geometry is the source's**: object position and size come from the IR, so
+    nothing is stacked, re-flowed, or re-measured. Two objects can only collide if
+    the author drew them overlapping; the render's own two earlier designs
+    (archetype classification driving a re-flow) are gone, because a re-flow has to
+    estimate text metrics and real, art-directed decks collided.
+  - **Styling is the platform's**: one typeface stack for every run, palette mapped
+    by role (`theme.map_text`/`map_fill`/`map_line` — a dark fill becomes the theme's
+    dark band and its light text stays light), source highlights re-tinted, and
+    platform chrome: a top accent band and a footer (label + slide number) drawn
+    **only when the source left that strip empty**, so the theme can never paint
+    over content.
+  - **The gate is completeness**: nothing is re-selected, re-ordered, or clipped.
+    An `a:noAutofit` frame that cannot hold its text (a whole line lands past the
+    frame's bottom edge) spills the way PowerPoint spills it (drawn, not
+    truncated) and is reported per object as `TEXT_OVERFLOW:<object>` and degraded
+    for review. A chart or SmartArt cannot be re-styled, so it is a labelled
+    placeholder plus `UNSUPPORTED_OBJECT:` and review. No LLM rewrites slide text,
+    because that would change meaning.
+  - A source slide *background colour* is mapped into the palette (so a dark band
+    keeps its polarity and the footer switches to the on-primary ink); a
+    photographic background is kept. The theme is versioned and folded into the
+    renderer's config hash, and the renderer identity is `mentora-themed-svg@2.0.0`,
+    so themed and faithful packages can never be confused.
 - Rendering is deterministic and content-addressed: identical bytes + identical
   renderer identity/config produce byte-identical SVG, so recompiles reuse one
   asset. Job claiming, leases, checkpoints, and stage persistence are V0-003 and

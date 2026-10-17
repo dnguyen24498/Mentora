@@ -1,5 +1,5 @@
 id: V0-019
-title: "Themed slide rendering (re-author in the platform theme)"
+title: "Themed slide rendering (re-style the author's layout in the platform theme)"
 week: W4
 status: DONE
 depends_on: ["V0-005", "V0-006", "V0-018"]
@@ -8,9 +8,14 @@ completed_at: "2026-10-17"
 commit: "7b5e8a0"
 blockers:
   - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task adds a platform-themed renderer behind the DocumentRenderer interface; it does not accept a renderer technology and never claims a native/compatible render."
+revisions:
+  - "v1 (7b5e8a0): themed mode re-authored the content by re-flowing the IR into a platform layout. On a real art-directed deck this collided and was unreadable (a re-flow must estimate text metrics). Superseded by v2."
+  - "v2: themed mode keeps the author's layout and re-styles it in the platform theme; renderer identity mentora-themed-svg@2.0.0, theme mentora-default v1.1.0."
 notes:
-  - "Product decision: the default fallback render is a *re-authoring* of the extracted content in the platform theme, not a reproduction of the source deck. The faithful structural renderer (V0-018) remains available as mode=faithful."
-  - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning moves from visual fidelity to content completeness (CONTENT_DROPPED:/TEXT_OVERFLOW:)."
-  - "Charts/SmartArt cannot be re-authored: they degrade with UNSUPPORTED_OBJECT:<kind> and require review rather than being silently flattened."
-  - "The package cache key now binds the renderer identity (name@version) in addition to the render config hash, so a themed package can never collide with a faithful one."
+  - "Product decision: the default fallback render keeps the author's layout (every object is drawn where and at the size the source put it) and re-styles it in the platform theme, so placement cannot collide by construction. The faithful structural renderer (V0-018) remains available as mode=faithful."
+  - "ThemedSvgRenderer subclasses StructuralSvgRenderer and overrides only the styling seams (_make_canvas, _base_background, _family, _run_color, _run_highlight, _stroke_attrs, _scene_header/_scene_footer), so geometry, pictures, tables, and text fitting are the tested V0-018 code."
+  - "Source colours are mapped by role (map_text/map_fill/map_line), preserving light-on-dark polarity; source highlights are re-tinted. The theme's accent band and footer are drawn only where the source left the strip empty."
+  - "The theme owns its typefaces, so the missing-font degradation disappears for themed scenes by construction; the gate's meaning moves from visual fidelity to content completeness (TEXT_OVERFLOW:<object> per overflowing frame). Nothing is re-selected, re-ordered, or clipped, so no code path can lose content."
+  - "Charts/SmartArt cannot be re-styled: they degrade with UNSUPPORTED_OBJECT:<kind> and require review rather than being silently flattened."
+  - "The theme is folded into the renderer config hash and the package cache key binds the renderer identity (name@version), so a themed package can never collide with a faithful one."
   - "No CI/lint config (FND-001 is still TODO), so tests and tsc are run manually."

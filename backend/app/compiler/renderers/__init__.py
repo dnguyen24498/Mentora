@@ -5,8 +5,8 @@
 implementations are shipped while ``DEC-TECH-005`` (native PowerPoint rendering)
 is OPEN, selected by mode (``renderers/factory.py``):
 
-* ``ThemedSvgRenderer`` — re-authors the content in the platform theme; the
-  **default** mode (V0-019).
+* ``ThemedSvgRenderer`` — keeps the author's layout and re-styles it in the
+  platform theme; the **default** mode (V0-019).
 * ``StructuralSvgRenderer`` — reproduces the source deck's own styling; the
   ``faithful`` mode (V0-018).
 
@@ -47,15 +47,11 @@ from app.compiler.renderers.structural import (
 )
 from app.compiler.renderers.telemetry import RenderMetrics, RenderTelemetry
 from app.compiler.renderers.themed import (
-    CONTENT_DROPPED_PREFIX,
     TEXT_OVERFLOW_PREFIX,
     ThemedSvgRenderer,
-    classify_scene,
-    content_refs,
 )
 
 __all__ = [
-    "CONTENT_DROPPED_PREFIX",
     "CancelToken",
     "CapabilityReport",
     "CircuitOpenError",
@@ -86,7 +82,5 @@ __all__ = [
     "UNSUPPORTED_OBJECT_PREFIX",
     "UnknownRenderModeError",
     "build_renderers",
-    "classify_scene",
-    "content_refs",
     "create_renderer",
 ]

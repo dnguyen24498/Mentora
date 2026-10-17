@@ -16,6 +16,14 @@ It is still **not** a native PowerPoint render and is never reported as one
 animations remain explicit placeholders/warnings, and text metrics are estimated
 rather than measured. It never reads the original package (``DEC-CONTENT-001``):
 the only inputs are the Content IR and the picture bytes the compiler injects.
+
+V0-019 makes this renderer the *geometry* engine for the default ``themed`` mode
+too: ``renderers/themed.py`` subclasses it and overrides only the styling
+decisions (``_make_canvas``, ``_base_background``, ``_family``, ``_run_color``,
+``_run_highlight``, ``_stroke_attrs``, plus the ``_scene_header``/
+``_scene_footer`` chrome hooks; source fills and the slide background are mapped
+through the themed canvas). Themed scenes therefore keep the author's layout,
+which is what makes them collision-free.
 """
 
 from __future__ import annotations
@@ -127,6 +135,10 @@ class _Canvas:
         self.defs: list[str] = []
         self._ids = 0
         self.inlined_bytes = 0
+        #: Source ids of text objects whose text spills past their frame. PowerPoint
+        #: does not clip ``a:noAutofit`` text (the text overflows the shape), so
+        #: neither do we; this records it for ``renderers/themed.py`` to flag.
+        self.overflowed: list[str] = []
 
     def next_id(self, prefix: str) -> str:
         self._ids += 1
@@ -322,22 +334,55 @@ class StructuralSvgRenderer(DocumentRenderer):
     ) -> bytes:
         del document
         width, height = float(self.config.width_px), float(self.config.height_px)
-        canvas = _Canvas(width, height, scene, media, self.config, warnings)
+        canvas = self._make_canvas(width, height, scene, media, warnings)
         body: list[str] = [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{_num(width)}" '
             f'height="{_num(height)}" viewBox="0 0 {_num(width)} {_num(height)}" role="img">',
             f"<title>{escape(scene.scene_id)}</title>",
-            f'<rect x="0" y="0" width="{_num(width)}" height="{_num(height)}" '
-            f'fill="{_attr(self.config.background)}"/>',
+            self._base_background(canvas),
         ]
         background = scene.background
         if background and background.get("type") not in (None, "none"):
             body.append(self._background(canvas, background))
+        body.extend(self._scene_header(canvas))
         for obj in sorted(scene.objects, key=lambda o: o.reading_order):
             body.append(self._object(canvas, obj))
+        body.extend(self._scene_footer(canvas))
         defs = "".join(canvas.defs)
         parts = [body[0], body[1], f"<defs>{defs}</defs>" if defs else "", *body[2:], "</svg>"]
         return "".join(part for part in parts if part).encode("utf-8")
+
+    def _make_canvas(
+        self,
+        width: float,
+        height: float,
+        scene: SlideScene,
+        media: Mapping[str, bytes],
+        warnings: list[str],
+    ) -> "_Canvas":
+        """Build the per-slide canvas (theming seam: ``renderers/themed.py``)."""
+
+        return _Canvas(width, height, scene, media, self.config, warnings)
+
+    def _base_background(self, canvas: "_Canvas") -> str:
+        """The canvas-wide base fill, drawn before any scene content."""
+
+        return (
+            f'<rect x="0" y="0" width="{_num(canvas.width)}" height="{_num(canvas.height)}" '
+            f'fill="{_attr(self.config.background)}"/>'
+        )
+
+    def _scene_header(self, canvas: "_Canvas") -> list[str]:
+        """Scene-level marks drawn after the background (theming seam)."""
+
+        del canvas
+        return []
+
+    def _scene_footer(self, canvas: "_Canvas") -> list[str]:
+        """Scene-level marks drawn after the objects (theming seam)."""
+
+        del canvas
+        return []
 
     def _background(self, canvas: _Canvas, fill: dict) -> str:
         if fill.get("type") == "picture":
@@ -786,8 +831,16 @@ class StructuralSvgRenderer(DocumentRenderer):
         parts: list[str] = []
         for line in layout["lines"]:
             line_top = cursor
-            if line_top > y + h + 2:
+            if line_top > canvas.height:
+                # Past the bottom of the slide: nothing of this line is visible.
                 break
+            if line_top > y + h + 2 and obj.source_id not in canvas.overflowed:
+                # ``a:noAutofit`` means "do not shrink, do not clip": PowerPoint
+                # lets the text spill past the shape, and so do we (a silent
+                # truncation would lose content). Only a *whole line* landing past
+                # the frame is recorded — text whose descenders merely dip a few
+                # pixels past a tight frame is normal typography, not a failure.
+                canvas.overflowed.append(obj.source_id)
             baseline = line_top + line["size_px"] * 0.82
             if line.get("highlight"):
                 parts.append(

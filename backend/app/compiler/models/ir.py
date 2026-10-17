@@ -52,11 +52,12 @@ EXTRACTOR_VERSION = "1.2.0"
 FIDELITY_NATIVE = "NATIVE_RENDERED"
 FIDELITY_COMPATIBLE = "COMPATIBLE_RENDERED"
 FIDELITY_STRUCTURAL = "STRUCTURAL_RENDERED"
-#: Themed re-authoring (V0-019): the scene's *content* (text, pictures, tables)
-#: is preserved and laid out in the platform theme, but the appearance is the
-#: platform's, not the source deck's. It is deliberately **not** on the
-#: fidelity-to-source ladder — there is nothing to be faithful *to* — so
-#: consumers must not read it as "better" or "worse" than ``STRUCTURAL_RENDERED``.
+#: Themed re-styling (V0-019): the scene's *layout* and *content* (text, pictures,
+#: tables) are the author's — every object is drawn where and how big the source
+#: put it — while the *appearance* (typeface, palette, chrome) is the platform's,
+#: not the source deck's. It is deliberately **not** on the fidelity-to-source
+#: ladder — there is nothing to be faithful *to* — so consumers must not read it
+#: as "better" or "worse" than ``STRUCTURAL_RENDERED``.
 FIDELITY_THEMED = "THEMED_RENDERED"
 FIDELITY_DEGRADED = "DEGRADED_RENDERED"
 FIDELITY_VALUES = (

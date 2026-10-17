@@ -26,10 +26,10 @@ Record engine/version/fonts/warnings/provenance and classify native-compatible-s
 
 Two local render modes sit behind the renderer interface while the production renderer technology is `OPEN`:
 
-- **`themed` (default)** re-authors the extracted content in a platform-controlled theme. Its fidelity is `THEMED_RENDERED` — a re-authoring, **not** a rank on the fidelity-to-source ladder — and the gate is re-scoped from visual fidelity to *content completeness*: every text paragraph, picture, and table cell is placed, `CONTENT_DROPPED:`/`TEXT_OVERFLOW:` are reported instead of silent loss, and the theme owns its typefaces so an unavailable source font cannot degrade a scene.
+- **`themed` (default)** keeps the author's layout (every object is drawn where and at the size the source put it) and re-styles it in a platform-controlled theme: typeface, palette, and slide chrome are the platform's, not the source deck's. Its fidelity is `THEMED_RENDERED` — a re-styling, **not** a rank on the fidelity-to-source ladder — and the gate is re-scoped from visual fidelity to *content completeness*: nothing is re-selected, re-ordered, or clipped (an `a:noAutofit` text frame spills exactly as PowerPoint spills it), `TEXT_OVERFLOW:` is reported per object rather than losing lines in silence, and the theme owns its typefaces so an unavailable source font cannot degrade a scene. Source colours are mapped onto the theme palette *by role*, so a light-on-dark pair stays light-on-dark.
 - **`faithful`** reproduces the source slide's own geometry and styling and reports `STRUCTURAL_RENDERED`.
 
-An object that cannot be re-authored (a chart, SmartArt) degrades the scene (`UNSUPPORTED_OBJECT:`) and requires review rather than being silently flattened. The renderer never reads the source package: it receives the Content IR and the picture bytes the compiler injects (`DEC-CONTENT-001`).
+An object that cannot be re-styled (a chart, SmartArt) degrades the scene (`UNSUPPORTED_OBJECT:`) and requires review rather than being silently flattened. The renderer never reads the source package: it receives the Content IR and the picture bytes the compiler injects (`DEC-CONTENT-001`).
 
 ## Vision
 

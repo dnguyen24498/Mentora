@@ -264,10 +264,10 @@ Record engine/version/fonts/warnings/provenance and classify native-compatible-s
 
 Two local render modes sit behind the renderer interface while the production renderer technology is `OPEN`:
 
-- **`themed` (default)** re-authors the extracted content in a platform-controlled theme. Its fidelity is `THEMED_RENDERED` — a re-authoring, **not** a rank on the fidelity-to-source ladder — and the gate is re-scoped from visual fidelity to *content completeness*: every text paragraph, picture, and table cell is placed, `CONTENT_DROPPED:`/`TEXT_OVERFLOW:` are reported instead of silent loss, and the theme owns its typefaces so an unavailable source font cannot degrade a scene.
+- **`themed` (default)** keeps the author's layout (every object is drawn where and at the size the source put it) and re-styles it in a platform-controlled theme: typeface, palette, and slide chrome are the platform's, not the source deck's. Its fidelity is `THEMED_RENDERED` — a re-styling, **not** a rank on the fidelity-to-source ladder — and the gate is re-scoped from visual fidelity to *content completeness*: nothing is re-selected, re-ordered, or clipped (an `a:noAutofit` text frame spills exactly as PowerPoint spills it), `TEXT_OVERFLOW:` is reported per object rather than losing lines in silence, and the theme owns its typefaces so an unavailable source font cannot degrade a scene. Source colours are mapped onto the theme palette *by role*, so a light-on-dark pair stays light-on-dark.
 - **`faithful`** reproduces the source slide's own geometry and styling and reports `STRUCTURAL_RENDERED`.
 
-An object that cannot be re-authored (a chart, SmartArt) degrades the scene (`UNSUPPORTED_OBJECT:`) and requires review rather than being silently flattened. The renderer never reads the source package: it receives the Content IR and the picture bytes the compiler injects (`DEC-CONTENT-001`).
+An object that cannot be re-styled (a chart, SmartArt) degrades the scene (`UNSUPPORTED_OBJECT:`) and requires review rather than being silently flattened. The renderer never reads the source package: it receives the Content IR and the picture bytes the compiler injects (`DEC-CONTENT-001`).
 
 ## Vision
 
@@ -316,10 +316,10 @@ Scene includes stable ID/source, normalized dimensions/bounds, fallback render, 
 | `NATIVE_RENDERED` | produced by a native/compatible engine (no such engine is accepted yet) |
 | `COMPATIBLE_RENDERED` | produced by a compatible engine (no such engine is accepted yet) |
 | `STRUCTURAL_RENDERED` | the source slide's own geometry and styling reproduced structurally |
-| `THEMED_RENDERED` | the extracted *content* re-authored in the platform theme |
+| `THEMED_RENDERED` | the author's layout, re-styled in the platform theme (typeface, palette, chrome) |
 | `DEGRADED_RENDERED` | renderable, but a human check of meaning is required |
 
-`THEMED_RENDERED` is deliberately **not** on the fidelity-to-source ladder: nothing is claimed about the original appearance, so consumers must not read it as "better" or "worse" than `STRUCTURAL_RENDERED`. It is still an explicit, non-native classification, never a native render. A failed render is a `FAILED` *status*, not a fidelity, and blocks publication.
+`THEMED_RENDERED` is deliberately **not** on the fidelity-to-source ladder: nothing is claimed about the original appearance, so consumers must not read it as "better" or "worse" than `STRUCTURAL_RENDERED`. It is still an explicit, non-native classification, never a native render. Its content-completeness alarm is `TEXT_OVERFLOW:<object>`: the author's text frame does not hold its text (an `a:noAutofit` box where a whole line lands past the frame's bottom edge), which is drawn as PowerPoint draws it (spilling, never clipped) and degraded for review. Text that merely dips a few pixels past a tight frame is normal typography and is not degraded. A failed render is a `FAILED` *status*, not a fidelity, and blocks publication.
 
 Instructional animations become visibility/semantic steps; decorative effects may be dropped. Video becomes timestamped ASR, scene-change frames, OCR, visual events, and segments that runtime can play/pause/resume exactly.
 

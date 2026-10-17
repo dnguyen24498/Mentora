@@ -212,7 +212,7 @@ def test_compile_endpoint_returns_reports(client):
     assert body["job_status"] == "EXTRACTED"
     assert body["validation"]["publishable"] is True
     assert body["render"]["scenes"][0]["asset_ref"]
-    # V0-019: the default render mode re-authors the content in the platform theme.
+    # V0-019: the default render mode keeps the deck's layout and re-styles it.
     assert body["render"]["scenes"][0]["renderer"]["engine"] == "mentora-theme-svg"
     assert body["render"]["scenes"][0]["fidelity"] == "THEMED_RENDERED"
     assert body["content_ir"]["slides"][0]["fallback_asset"]

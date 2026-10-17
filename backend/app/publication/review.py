@@ -43,18 +43,19 @@ STATE_BLOCKED = "BLOCKED"
 
 MISSING_FONT_PREFIX = "MISSING_FONT:"
 
-#: Renderer identity whose output is a *re-authoring* (V0-019) rather than a
+#: Renderer identity whose output is a *re-styling* (V0-019) rather than a
 #: reproduction of the source slide.
 THEMED_RENDERER_ID = "mentora-themed-svg"
 
 #: ``DEC-TECH-005`` is OPEN: no production renderer has been decided. The
-#: **default** mode (V0-019) re-authors the content in the platform theme, so the
-#: UI must say plainly that the appearance is the platform's, not the author's.
+#: **default** mode (V0-019) keeps the author's layout and re-styles it in the
+#: platform theme, so the UI must say plainly which part is the platform's.
 THEMED_RENDER_NOTICE = (
-    "Slides are re-authored in the Mentora theme: the extracted content (text, "
-    "images, tables) is preserved and restyled, so the appearance is the "
-    "platform's, not the source deck's. No native PowerPoint render is produced; "
-    "a production renderer technology is still an open decision (DEC-TECH-005)."
+    "Slides keep the deck's own layout and are re-styled in the Mentora theme "
+    "(its typeface, palette and footer): the content and its placement are the "
+    "author's, the appearance is the platform's. No native PowerPoint render is "
+    "produced; a production renderer technology is still an open decision "
+    "(DEC-TECH-005)."
 )
 
 #: ``RENDER_PLACEHOLDER_NOTICE`` (V0-018) describes the ``faithful`` mode.
