@@ -256,7 +256,10 @@ def create_app(
         return Response(
             content=payload,
             media_type="image/svg+xml",
-            headers={"Cache-Control": "private, max-age=60"},
+            # Not versioned by the caller (the URL is per artifact/order/mode) and the
+            # bytes change whenever the deck is recompiled, so this must revalidate
+            # rather than serve a superseded slide from the browser's cache.
+            headers={"Cache-Control": "private, no-cache"},
         )
 
     @app.get("/renderer")

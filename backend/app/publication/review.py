@@ -79,6 +79,23 @@ def render_notice(renderer_name: Optional[str]) -> str:
     return THEMED_RENDER_NOTICE if renderer_name == THEMED_RENDERER_ID else RENDER_PLACEHOLDER_NOTICE
 
 
+def _render_url(artifact_id: str, order: int, asset: Optional[str]) -> str:
+    """The URL the studio loads this slide's visual from, **versioned by the asset**.
+
+    A packaged asset is immutable, but this URL is not: recompiling the deck (a new
+    renderer version, a fixed extractor) changes what the same URL serves. Without
+    the digest the browser would keep showing the superseded slide from its cache —
+    a teacher reviewing a package would silently look at a render that no longer
+    exists in it. The digest is the content-addressed asset's, so the URL changes
+    exactly when the slide's visual does, and a cache hit is always the right image.
+    """
+
+    url = f"/artifacts/{artifact_id}/review-package/renders/{order}"
+    if isinstance(asset, str) and asset.startswith("assets/"):
+        return f"{url}?v={asset[len('assets/'):].rsplit('.', 1)[0]}"
+    return url
+
+
 @dataclass(frozen=True)
 class ReviewScene:
     """One slide as the teacher sees it, straight from the package."""
@@ -343,7 +360,7 @@ class ReviewService:
             fidelity=fidelity,
             render_status=render_status,
             fallback_asset=asset,
-            render_url=f"/artifacts/{artifact_id}/review-package/renders/{order}",
+            render_url=_render_url(artifact_id, order, asset),
             requires_review=requires_review,
             missing_fonts=missing_fonts,
             warnings=warnings,

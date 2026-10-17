@@ -91,7 +91,9 @@ def build_review_router(
         return Response(
             content=payload,
             media_type="image/svg+xml",
-            # A packaged asset is immutable, so it is safe to cache privately.
+            # The packaged asset is immutable *and* the review's ``render_url`` names
+            # it (``?v=<asset digest>``), so a cached response can only ever be this
+            # exact slide. Without the version a recompile would hide behind it.
             headers={"Cache-Control": "private, max-age=300"},
         )
 

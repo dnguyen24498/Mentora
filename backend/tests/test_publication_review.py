@@ -105,7 +105,25 @@ def test_review_scene_carries_render_text_notes_and_fidelity(client):
     assert scene["object_count"] == 1
     assert scene["step_count"] == 1
     assert scene["renderer"]["name"] == "local-structural-svg"
-    assert scene["render_url"] == f"/artifacts/{artifact_id}/review-package/renders/0"
+    # The visual's URL names the packaged asset, so a recompile cannot hide behind
+    # the browser's cache of the previous render.
+    digest = scene["fallback_asset"].removeprefix("assets/").removesuffix(".svg")
+    assert scene["render_url"] == (
+        f"/artifacts/{artifact_id}/review-package/renders/0?v={digest}"
+    )
+
+
+def test_the_render_url_version_follows_the_asset(client):
+    """A different visual ⇒ a different URL (cache-safe by construction)."""
+
+    first = _upload(client, build_pptx([[text_shape(2, "T", text="Hello world")]]))
+    second = _upload(client, build_pptx([[text_shape(2, "T", text="Goodbye world")]]))
+
+    first_scene = _review(client, first)["scenes"][0]
+    second_scene = _review(client, second)["scenes"][0]
+
+    assert first_scene["fallback_asset"] != second_scene["fallback_asset"]
+    assert first_scene["render_url"] != second_scene["render_url"]
 
 
 def test_review_lesson_order_matches_the_scenes(client):

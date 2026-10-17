@@ -417,7 +417,7 @@ components:
           enum: [NATIVE_RENDERED, COMPATIBLE_RENDERED, STRUCTURAL_RENDERED, THEMED_RENDERED, DEGRADED_RENDERED, null]
         render_status: {type: string, enum: [RENDERED, FAILED]}
         fallback_asset: {type: [string, 'null'], description: 'Path of the render inside the package'}
-        render_url: {type: string, description: 'Endpoint serving this slide, tenant-scoped'}
+        render_url: {type: string, description: 'Endpoint serving this slide, tenant-scoped; versioned with the packaged asset digest (?v=<sha256>) so a recompile cannot be served from cache'}
         requires_review: {type: boolean, description: 'Degraded fidelity (V0-019 v5: a substituted source font or a platform-look fallback component is a warning, not a review)'}
         missing_fonts: {type: array, items: {type: string}, description: 'Source fonts not available to the renderer; each was substituted with the platform stack, in the run''s original frame (V0-019 v5)'}
         warnings: {type: array, items: {type: string}}
