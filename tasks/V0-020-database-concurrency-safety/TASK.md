@@ -123,5 +123,5 @@ concurrent threads distinct, usable connections; a busy timeout is set.
 
 `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **310 passed** (was 305).
 
-**Commit:** `_pending_`.
+**Commit:** `cb6a955`.
 

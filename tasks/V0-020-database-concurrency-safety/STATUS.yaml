@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-001", "V0-004", "V0-007"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: null
+commit: "cb6a955"
 blockers: []
 notes:
   - "Reported symptom: GET /courses returned 500 on the running dev server. Root cause: create_app opened one sqlite3.Connection for the whole app while FastAPI serves sync endpoints from a worker threadpool, so transactions and cursors interleaved. Reproduced under load: 130/240 concurrent requests failed (including FOREIGN KEY constraint failures, i.e. transaction interleaving rather than only noise)."
