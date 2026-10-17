@@ -267,6 +267,8 @@ Two local render modes sit behind the renderer interface while the production re
 
 A component the default renderer cannot reproduce is never silently flattened: it is drawn in the platform look and named in a warning. The renderer never reads the source package: it receives the Content IR and the picture bytes the compiler injects (`DEC-CONTENT-001`). Both modes estimate text metrics rather than measuring them, so a substituted typeface can wrap a line a word earlier than PowerPoint would.
 
+A **`picture` slide background** is the one part of the look whose relationship belongs to a *different* part than the slide: decks put their art-directed dark backgrounds on the title/section **layouts**, and a layout's `p:bg` references the layout's own rels. Extraction therefore resolves each level of the cascade against the part that declares it (slide, then layout, then master); if the picture's bytes cannot be inlined the level does not mask a usable background further up — it warns and the next background up is used. Getting this wrong is invisible in a white deck and ruinous in a dark one: the background image is lost, and the deck's light text becomes unreadable on the fallback white.
+
 ## Vision
 
 Invoked only for scans, diagrams, complex charts, SmartArt fallback, or meaning carried by position/color/arrows. Every invocation records reason, model/prompt versions, source refs, confidence, and review state.

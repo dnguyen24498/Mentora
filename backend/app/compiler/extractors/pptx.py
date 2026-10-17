@@ -9,7 +9,8 @@ Scope = V0-004 "structural extraction" plus V0-018 "presentation fidelity": slid
 order/dimensions, text runs and notes, images, shapes, groups, tables, chart/media
 refs, normalized bounds, reading order, stable source IDs, warnings/provenance,
 and the resolved *look* of the slide — theme colours and fonts, slide/layout/master
-backgrounds, shape fill/line/geometry/rotation, per-run and per-paragraph
+backgrounds (a ``picture`` background resolved against the relationships of the
+part that declares it), shape fill/line/geometry/rotation, per-run and per-paragraph
 formatting, table metrics, and picture crop. Vision analysis, SmartArt
 reconstruction, and native animation are out of scope.
 
@@ -449,9 +450,22 @@ class PptxExtractor:
             _child(_child(layout_root, P, "cSld"), P, "spTree"), theme
         )
         # Background: the layout wins over the master; the slide wins over both.
-        background = self._background_fill(
-            _child(layout_root, P, "cSld"), theme
-        ) or self._background_fill(_child(master_root, P, "cSld"), theme)
+        # Each level resolves its own picture-fill relationship (a layout's ``p:bg``
+        # references the *layout's* rels, not the slide's) — V0-019 v6.
+        background = (
+            self._background_fill(
+                _child(layout_root, P, "cSld"),
+                theme,
+                self._media_resolver(layout_part, warnings) if layout_part else None,
+                warnings,
+            )
+            or self._background_fill(
+                _child(master_root, P, "cSld"),
+                theme,
+                self._media_resolver(master_part, warnings) if master_part else None,
+                warnings,
+            )
+        )
         return DeckContext(
             theme=theme,
             styles=styles,
@@ -465,8 +479,16 @@ class PptxExtractor:
         c_sld: Optional[ET.Element],
         theme: Theme,
         resolve_media: Optional[Callable[[str], Optional[tuple[str, Optional[str]]]]] = None,
+        warnings: Optional[list[str]] = None,
     ) -> Optional[dict]:
-        """``p:cSld/p:bg`` (solid/gradient/picture fill, or a ``p:bgRef`` colour)."""
+        """``p:cSld/p:bg`` (solid/gradient/picture fill, or a ``p:bgRef`` colour).
+
+        ``p:bg`` may be a **picture** fill (``a:blipFill``): the art-directed dark
+        backgrounds a deck puts on its title/section layouts. Its relationship
+        belongs to the part that declares it, so the caller passes that part's
+        ``resolve_media`` — a layout's background cannot be resolved against the
+        slide's relationships.
+        """
 
         bg = _child(c_sld, P, "bg")
         if bg is None:
@@ -475,6 +497,15 @@ class PptxExtractor:
         if bg_pr is not None:
             fill = fill_from(bg_pr, theme, resolve_media=resolve_media)
             if fill is not None:
+                if fill.get("type") == "none" and _child(bg_pr, A, "blipFill") is not None:
+                    # A picture background whose bytes we cannot resolve must not
+                    # mask a usable background further up (slide > layout > master).
+                    if warnings is not None:
+                        warnings.append(
+                            "a picture slide background could not be resolved; "
+                            "the next background up is used"
+                        )
+                    return None
                 return fill
         ref = _child(bg, P, "bgRef")
         if ref is not None:
@@ -518,7 +549,9 @@ class PptxExtractor:
         sp_tree = _child(c_sld, P, "spTree")
 
         resolve_media = self._media_resolver(part, warnings)
-        background = self._background_fill(c_sld, theme, resolve_media) or context.background
+        background = (
+            self._background_fill(c_sld, theme, resolve_media, warnings) or context.background
+        )
 
         objects = self._walk(sp_tree, part, warnings, context, Transform(), 0)
         # Reading order is the flattened walk order; make it explicit so

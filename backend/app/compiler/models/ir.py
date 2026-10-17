@@ -43,7 +43,13 @@ from typing import Any, Optional
 #: styling resolved from the theme/layout/master chain (V0-018).
 CONTENT_IR_SCHEMA_VERSION = "content-ir/1.2.0"
 EXTRACTOR_NAME = "stdlib-ooxml-pptx"
-EXTRACTOR_VERSION = "1.2.0"
+#: Bumped whenever extraction *behaviour* changes (the IR shape can stay put).
+#: 1.2.0 resolved the theme/layout/master styling chain (V0-018); 1.3.0 resolves a
+#: picture (``a:blipFill``) slide background against the relationships of the part
+#: that declares it — the layout's art-directed backgrounds (V0-019 v5). The value
+#: is also the package cache key's ``compiler_version``, so a bump retires packages
+#: built by an older extractor.
+EXTRACTOR_VERSION = "1.3.0"
 
 #: Fidelity classification from ``contracts/ctf/scene.schema.json``.
 #: ``docs/architecture/04_CONTENT_COMPILER.md`` additionally has a *failed*

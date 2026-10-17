@@ -123,8 +123,9 @@ break the browser). For normal development the frontend runs on its own server a
   selects by mode) — neither is ever reported as native/compatible:
   - **`faithful` (default, V0-019 v5)** — `StructuralSvgRenderer` reproduces the
     **source slide's own layout and styling** (V0-018) and reports
-    `STRUCTURAL_RENDERED`: the effective theme colours and font scheme, backgrounds,
-    preset + `custGeom` shapes, fills/strokes/dashes, rotation/flip, real font sizes
+    `STRUCTURAL_RENDERED`: the effective theme colours and font scheme, backgrounds
+    (including a layout's **picture** background — resolved against the layout's own
+    relationships), preset + `custGeom` shapes, fills/strokes/dashes, rotation/flip, real font sizes
     with wrap/alignment/bullets, embedded pictures with crop, tables and connectors.
     A component it cannot reproduce is **drawn in the platform look, in place**
     (`renderers/mentora_theme.py`), never dropped and never a review blocker:
@@ -189,6 +190,12 @@ break the browser). For normal development the frontend runs on its own server a
   fills/lines/gradients/geometry/rotation, run+paragraph formatting, `srcRect`
   crops, table metrics) and the renderer reproduces it in SVG. Consequences worth
   knowing:
+  - **Backgrounds cascade across parts, and their images belong to the part that
+    declares them.** A deck's art-directed (usually dark) backgrounds live on the
+    title/section **layouts**, so each level resolves against its own
+    relationships; an unresolvable picture fails through to the next background up
+    with a warning instead of blanking the slide. Missing that turns a dark closing
+    slide into white-on-white.
   - The IR must stay self-sufficient: a renderer that opened the `.pptx` would
     break `DEC-CONTENT-001`, so image bytes travel separately in
     `RenderRequest.media`, keyed by the IR's `media_ref`.

@@ -483,7 +483,7 @@ def test_ir_schema_version_records_the_styling_revision(extractor):
     document = extractor.extract(themed_pptx([text_shape(2, "T", text="Hello")]))
 
     assert document.schema_version == "content-ir/1.2.0"
-    assert document.provenance["extractor_version"] == "1.2.0"
+    assert document.provenance["extractor_version"] == "1.3.0"
 
 
 def test_extraction_is_deterministic(extractor):

@@ -18,9 +18,14 @@ from app.compiler.renderers.base import (
 )
 from app.compiler.renderers.structural import StructuralSvgRenderer
 from tests.fixtures import (
+    REL_IMAGE,
+    REL_SLIDE_MASTER,
     TINY_PNG,
+    _rels_xml,
     paragraph_xml,
     shape_xml,
+    slide_layout_xml,
+    text_shape,
     themed_pptx,
     xfrm,
 )
@@ -161,6 +166,76 @@ def test_table_cells_take_their_fill_text_and_column_ratio(object_store):
     assert '<rect x="62.99" y="0" width="33.01" height="48"' in svg
     assert ">Head</text>" in svg
     assert ">Value</text>" in svg
+
+
+# -- picture backgrounds (V0-019 v5) -----------------------------------------------
+#: ``p:bg`` with a picture fill — how a deck paints its title/section layouts.
+_LAYOUT_BG = (
+    '<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1">'
+    '<a:blip r:embed="{rel}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch>'
+    "</a:blipFill><a:effectLst/></p:bgPr></p:bg>"
+)
+
+
+def _deck_with_a_layout_background(*, rel: str = "rIdBg", image: bytes | None = TINY_PNG) -> bytes:
+    """A deck whose *layout* paints the slide with a picture background.
+
+    A layout's ``p:bg`` references the **layout's** relationships, so it only
+    resolves when each level is resolved against the part that declares it.
+    """
+
+    layout = slide_layout_xml().replace("<p:cSld>", "<p:cSld>" + _LAYOUT_BG.format(rel=rel), 1)
+    rels = [("rId1", REL_SLIDE_MASTER, "../slideMasters/slideMaster1.xml")]
+    entries: dict[str, bytes] = {
+        "ppt/slideLayouts/slideLayout1.xml": layout.encode(),
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels": _rels_xml(rels).encode(),
+    }
+    if rel == "rIdBg" and image is not None:
+        entries["ppt/media/bg.png"] = image
+        # ``themed_pptx`` rebuilds the layout rels, so hand them over as extra entries.
+        entries["ppt/slideLayouts/_rels/slideLayout1.xml.rels"] = _rels_xml(
+            [*rels, ("rIdBg", REL_IMAGE, "../media/bg.png")]
+        ).encode()
+    return themed_pptx(
+        [text_shape(2, "Title", text="Thank you")],
+        extra_entries=entries,
+    )
+
+
+def test_a_picture_layout_background_is_resolved_and_inlined(object_store):
+    """The layout's own ``a:blipFill`` background must reach the SVG as an image."""
+
+    deck = _deck_with_a_layout_background()
+    document = PptxExtractor().extract(deck)
+    background = document.slides[0].background
+
+    assert background["type"] == "picture"
+    assert background["media_ref"] == "ppt/media/bg.png"
+    assert background["media_type"] == "image/png"
+    # The compiler must hand the bytes over, or the renderer cannot inline them.
+    assert "ppt/media/bg.png" in document_media_refs(document)
+
+    svg = _svg(object_store, _render(object_store, deck))
+
+    assert 'preserveAspectRatio="none"' in svg  # stretched to the canvas
+    assert "data:image/png;base64," in svg
+    assert svg.index("data:image/png") < svg.index("<text")  # painted under the slide
+
+
+def test_an_unresolvable_picture_background_does_not_mask_the_master(object_store):
+    """A background we cannot resolve falls through instead of becoming "none".
+
+    Returning ``{"type": "none"}`` for the unusable layout picture would win over
+    the master and paint the slide white — which is how a dark title slide loses
+    its background *and* its light text becomes unreadable.
+    """
+
+    deck = _deck_with_a_layout_background(rel="rIdMissing", image=None)
+    document = PptxExtractor().extract(deck)
+
+    assert document.slides[0].background["type"] == "solid"
+    svg = _svg(object_store, _render(object_store, deck))
+    assert "data:image" not in svg
 
 
 # -- degradation is explicit, never silent -----------------------------------------

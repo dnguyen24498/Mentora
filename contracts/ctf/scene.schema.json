@@ -58,7 +58,7 @@
       "type": "object"
     },
     "background": {
-      "description": "Effective slide background (slide wins over layout, layout over master). Null when the deck defines none.",
+      "description": "Effective slide background (slide wins over layout, layout over master). Null when the deck defines none. A `picture` fill resolves its `a:blipFill` against the relationships of the part that declares it — a layout's art-directed background references the layout's own rels, not the slide's — and falls through to the next background up, with a warning, when those bytes cannot be inlined.",
       "type": [
         "object",
         "null"
@@ -71,7 +71,22 @@
           "enum": [
             "solid",
             "gradient",
+            "picture",
             "none"
+          ]
+        },
+        "media_ref": {
+          "description": "Package part path of a `picture` background; the bytes travel to the renderer out of band.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "media_type": {
+          "description": "Image MIME type of a `picture` background, or null when the format cannot be inlined.",
+          "type": [
+            "string",
+            "null"
           ]
         },
         "color": {

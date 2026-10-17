@@ -272,11 +272,54 @@ stays `OPEN` — this task accepts no renderer technology.
   sets `requires_review`. `themed@4.0.0` is kept as the opt-in mode; the fidelity
   validator now escalates only `DEGRADED_RENDERED` and reports a font substitution
   as a warning; `review.render_notice` and the corpus baseline were re-based.
+- **v6 (this revision):** reviewing the default render on the real deck surfaced a
+  slide whose author-drawn decoration "did not match the deck" — a thin ring the
+  author had put on the *closing* slide. The ring was not the defect: the slide's
+  **background was missing**. Decks put their art-directed dark backgrounds on the
+  title/section **layouts** as a picture fill (`p:bg` → `a:blipFill`), and each
+  level of the cascade was resolved with the *slide's* media resolver (or none), so
+  the layout's background was dropped and the renderer fell back to white — making
+  the slide's light text unreadable and its ring a stark circle on white. Extraction
+  now resolves every level of the background cascade against the relationships of
+  the part that declares it (slide → layout → master), and an unresolvable picture
+  background **falls through** to the next background up with a warning instead of
+  masking it with the previous `{"type": "none"}`. `scene.schema.json` gained
+  `picture` + `media_ref`/`media_type` on `background` (the extractor could already
+  emit them; the contract never allowed them). Extractor version 1.2.0 → **1.3.0**
+  (the package cache key's `compiler_version`), which retires packages built by the
+  older extractor. On the real deck this restores slides 1, 23 and 28 — the other
+  25 SVG assets are byte-identical — and nothing about fidelity, warnings or review
+  state changes.
 
 ## Completion Evidence
 
-**Commit:** `02ca28f` (v5). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
-`ae68632` (v3), `f528425` (v4).
+**Commit:** `02ca28f` (v5) + `v6` (picture backgrounds). Earlier revisions:
+`7b5e8a0` (v1), `d969f88` (v2), `ae68632` (v3), `f528425` (v4).
+
+### v6 — picture background resolution (a follow-up defect in the default render)
+
+**Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **353 passed**
+(+2 tests in `tests/test_renderer_fidelity.py`: a layout's picture background is
+resolved against the *layout's* rels and inlined under the slide's content; an
+unresolvable picture background falls through to the master's colour instead of
+becoming `{"type": "none"}`).
+
+**Real deck** (artifact `1e4c06bc-…`, 28 slides) recompiled in the default mode:
+
+| | v5 | v6 |
+| --- | --- | --- |
+| renderer | `local-structural-svg@3.0.0` | **unchanged** (`3.0.0`) |
+| extractor | `1.2.0` | **`1.3.0`** |
+| fidelity / warnings / review | 28 × `STRUCTURAL_RENDERED`, `publishable`, no review | **unchanged** |
+| backgrounds | 25 × solid, 3 × **lost** (white) | **25 × solid, 3 × picture** (`image1/4/5.png`) |
+| slides 2–27 SVG assets | — | **byte-identical to v5** |
+
+The three picture backgrounds are the layout art of the title (1), section (23) and
+closing (28) slides; all three carry light text (`#FFFFFF`/`#C9D6E6`/`#9CB3CF`) on a
+dark navy radial gradient, so losing the background meant unreadable white-on-white.
+Structural verification (`/tmp/opencode/verify_source_v6.py`) is unchanged from v5:
+0 missing source tokens, nothing outside the canvas, only the deck's own frame
+overlaps remain (slides 4, 13, 14).
 
 ### v5 — the default (source layout + platform fallback)
 
