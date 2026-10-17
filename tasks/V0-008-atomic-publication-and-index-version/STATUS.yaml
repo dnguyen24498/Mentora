@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-006", "V0-007"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: null
+commit: "d07950d"
 blockers: []
 notes:
   - "Design: SEALING/INDEXING/COMMITTING are in-process stages that are never persisted. One commit transaction writes the knowledge-index version record, the publication row and the outbox row, performs the guarded APPROVED->PUBLISHED status change and marks superseded publications. So 'partial failure never exposes published version' holds by construction (no staging row to leak), and a refusal writes nothing."

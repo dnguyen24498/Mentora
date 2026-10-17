@@ -66,7 +66,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-**Link to commit/PR:** `<filled by the follow-up record commit>`
+**Link to commit/PR:** `d07950d`.
 
 **What was built.** `app/publication/service.py`, `seal.py`, `index.py`, `outbox.py`
 and `errors.py`; `models.py`/`repository.py`/`telemetry.py` extended; four routes
