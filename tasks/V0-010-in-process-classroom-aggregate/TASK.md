@@ -66,7 +66,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-- Link to commit/PR: (set after commit; see `STATUS.yaml`)
+- Link to commit/PR: `b92b334`
 - Test command and result: `cd backend && env -u PYTHONPATH .venv/bin/python -m pytest -q` → **426 passed** (was 405; +21: 13 reducer tests + 8 integration tests in `backend/tests/classroom/`).
 - Demo recording/screenshot: service-level command demo (no new HTTP route — the aggregate is in-process; the frontend shell is V0-011): start → `navigate_scene` → `record_checkpoint` → `end_class`, each committing a new snapshot, then a fresh app instance restoring the pinned tuple and scene position and continuing from `state_version` 4.
 - Metrics observed: `class.command` events carry command id/type, `accepted`, `duplicate` and `issue_code` (identities only); counters `commands_accepted`, `commands_rejected`, `commands_duplicated`, `scenes_changed`, `checkpoints_recorded`, `sessions_ended`.

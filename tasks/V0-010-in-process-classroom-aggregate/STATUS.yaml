@@ -5,7 +5,7 @@ status: DONE
 depends_on: ["V0-009"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: null
+commit: "b92b334"
 blockers: []
 notes:
   - "The Classroom Actor's deterministic core is backend/app/classroom/aggregate.py: ClassroomAggregate (the single reducer), Command, Event, CommandResult. Commands START / NAVIGATE_SCENE / CHECKPOINT / END; each accepted command emits one event (classroom.session.started / classroom.scene.changed / classroom.checkpoint.recorded / classroom.session.ended) and increments state_version and event_sequence together. Handling order = dedup -> epoch fence -> state-version fence -> transition -> post-transition invariant check (non-active state has no floor/queue; STT implies floor; at most one floor)."
