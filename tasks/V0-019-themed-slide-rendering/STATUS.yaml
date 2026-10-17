@@ -5,14 +5,14 @@ status: DONE
 depends_on: ["V0-005", "V0-006", "V0-018"]
 started_at: "2026-10-17"
 completed_at: "2026-10-17"
-commit: "ae68632"
+commit: "f528425"
 blockers:
   - "FND-002 is still TODO, so DEC-TECH-005 (native PowerPoint rendering deployment/licensing) remains OPEN. This task adds a platform-themed renderer behind the DocumentRenderer interface; it does not accept a renderer technology and never claims a native/compatible render."
 revisions:
   - "v1 (7b5e8a0): themed mode re-authored the content by classifying each slide into an archetype and re-flowing the IR. On a real art-directed deck this collided and was unreadable. Superseded by v2."
   - "v2 (d969f88): themed mode kept the author's layout and re-styled it in the platform theme (renderer mentora-themed-svg@2.0.0). This removed the collisions v1 introduced but inherited the source deck's own. Superseded by v3."
   - "v3 (ae68632): themed mode re-laid the content out as one readable column in the platform theme (flow.py + textmetrics.py + a px mentora_theme.py + a standalone ThemedSvgRenderer); renderer identity mentora-themed-svg@3.0.0, theme mentora-default v3.0.0. Superseded by v4."
-  - "v4: v3's single column destroyed the author's grouping (an icon row and its label row were emitted as two separate rows). v4 recovers the source geometry's rows and columns (flow.structure, a binary widest-gap XY-cut) and re-authors only the look inside each cell, with flat card surfaces for multi-object cells; renderer identity mentora-themed-svg@4.0.0, theme mentora-default v4.0.0."
+  - "v4 (f528425): v3's single column destroyed the author's grouping (an icon row and its label row were emitted as two separate rows). v4 recovers the source geometry's rows and columns (flow.structure, a binary widest-gap XY-cut) and re-authors only the look inside each cell, with flat card surfaces for multi-object cells; renderer identity mentora-themed-svg@4.0.0, theme mentora-default v4.0.0."
 notes:
   - "Product decision: the grouping is the author's, the content is the author's, the look is the platform's. The author's rows and columns are recovered from the source boxes and kept; type, size, colour, fill, spacing and exact geometry are re-authored. The flow measures and places in a single pass over a cursor, so two blocks cannot overlap by construction; across a row the cells take disjoint x-intervals; and the platform's page number sits in a strip the flow may not enter, so chrome cannot cover content either."
   - "The structure is recovered by a binary widest-gap XY-cut capped at MAX_STRUCTURE_DEPTH. A column split is only taken when both sides are at least theme.min_column_share of the region width, so a narrow icon column never splits from its label; a full-width object forbids a column cut through it. Same-key neighbours coalesce back into one run, and same-axis nesting flattens."

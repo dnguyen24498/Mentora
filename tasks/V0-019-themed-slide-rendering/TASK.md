@@ -241,18 +241,18 @@ stays `OPEN` — this task accepts no renderer technology.
   through three theme type rows (`lead`/`body`/`caption`) chosen from the slide's
   own sizes. Renderer identity `mentora-themed-svg@3.0.0`, theme
   `mentora-default` v3.0.0. **Superseded by v4.**
-- **v4 (this revision):** v3's single column destroyed the author's *grouping* —
-  on the real deck an icon row and its label row were emitted as two separate rows,
-  which reads as nonsense. v4 recovers the source geometry's rows and columns
-  (`flow.structure`, a binary widest-gap XY-cut) and re-authors only the look
-  inside each cell, adding flat card surfaces for multi-object cells. New principle:
-  **the grouping is the author's, the content is the author's, the look is the
-  platform's.** Renderer identity `mentora-themed-svg@4.0.0`, theme
+- **v4 (`f528425`, this revision):** v3's single column destroyed the author's
+  *grouping* — on the real deck an icon row and its label row were emitted as two
+  separate rows, which reads as nonsense. v4 recovers the source geometry's rows
+  and columns (`flow.structure`, a binary widest-gap XY-cut) and re-authors only
+  the look inside each cell, adding flat card surfaces for multi-object cells. New
+  principle: **the grouping is the author's, the content is the author's, the look
+  is the platform's.** Renderer identity `mentora-themed-svg@4.0.0`, theme
   `mentora-default` v4.0.0.
 
 ## Completion Evidence
 
-**Commit:** (v4, this revision). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
+**Commit:** `f528425` (v4). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2),
 `ae68632` (v3).
 
 **Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **350 passed**
