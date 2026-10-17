@@ -290,7 +290,7 @@ stays `OPEN` — this task accepts no renderer technology.
   older extractor. On the real deck this restores slides 1, 23 and 28 — the other
   25 SVG assets are byte-identical — and nothing about fidelity, warnings or review
   state changes.
-- **v7 (this revision):** the same review, taken one step further, showed the deck's
+- **v7 (`5bd4ce9`):** the same review, taken one step further, showed the deck's
   slides still did not look like the deck: **the art they inherit was never drawn**.
   A deck keeps its shared **chrome** — the institution crest, the faculty badge, a
   rule, a static label — on the **layout** (or the master), not on each slide, and
@@ -319,8 +319,8 @@ stays `OPEN` — this task accepts no renderer technology.
 
 ## Completion Evidence
 
-**Commit:** `72f5f06` (v6). Earlier revisions: `02ca28f` (v5), `7b5e8a0` (v1),
-`d969f88` (v2), `ae68632` (v3), `f528425` (v4).
+**Commit:** `5bd4ce9` (v7). Earlier revisions: `72f5f06` (v6), `02ca28f` (v5),
+`7b5e8a0` (v1), `d969f88` (v2), `ae68632` (v3), `f528425` (v4).
 
 ### v7 — inherited layout/master art
 
