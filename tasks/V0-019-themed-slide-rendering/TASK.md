@@ -206,6 +206,8 @@ stays `OPEN` — this task accepts no renderer technology.
 
 ## Completion Evidence
 
+**Commit:** `ae68632` (v3). Earlier revisions: `7b5e8a0` (v1), `d969f88` (v2).
+
 **Backend:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **334 passed**
 (new `test_flow_layout.py` = 22 pure-layout tests; `test_themed_renderer.py`
 rewritten for the re-layout contract = 22 tests).
