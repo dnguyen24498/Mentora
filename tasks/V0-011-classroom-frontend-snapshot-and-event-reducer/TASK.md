@@ -62,7 +62,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-- Link to commit/PR:
+- Link to commit/PR: `581bf4c`
 - Test command and result: `cd frontend && npx tsc --noEmit && npm test` — **61 passed** (was 38; +23)
 - Demo recording/screenshot:
 - Metrics observed: `ClassroomTelemetry` counters (connects, resyncs, eventsApplied, eventsIgnored, gaps, staleEpochs, commandsSent, loadFailures) plus structured events (`classroom.connect/snapshot/event/resync/command/load_failed`) — identities and counts only, never scene text/transcript/audio.

@@ -5,5 +5,5 @@ status: DONE
 depends_on: ["V0-010"]
 started_at: "2026-10-18"
 completed_at: "2026-10-18"
-commit: null
+commit: "581bf4c"
 blockers: []
