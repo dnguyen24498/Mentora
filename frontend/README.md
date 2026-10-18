@@ -2,7 +2,8 @@
 
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
 runtime page, the Learning page (slide + teaching canvas + automatic text-only
-narration), an Admin area (courses, classes, publications) and Settings, as real
+narration, which can also be set to start at a chosen time), an Admin area
+(courses, classes, publications) and Settings, as real
 pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
@@ -12,7 +13,7 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
 | `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
-| `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration | `src/presentation/LearnPage.tsx` |
+| `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility | `src/settings/SettingsPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
@@ -200,6 +201,13 @@ reserves for presentation work:
     per-class timeline with checkpoints, resume and bridge phrases
     (`DEC-RUNTIME-005`, `DEC-DATA-003`) is V0-013/V1-002. Nothing is written to
     the server.
+  - **Teaching at a time.** Give the panel a datetime and the narration begins by
+    itself when the page's own clock reaches it (Pause, Stop, caption and transcript
+    then behave exactly as if Play had been pressed). It is client-local for the same
+    reason: the tab has to stay open, because a server that waited would be the
+    durable scheduler `DEC-TECH-003` (`OPEN`) — and the panel says so. The pure
+    arithmetic (reading an instant, whether it is due, a countdown, the
+    `datetime-local` round trip) lives in `src/time.ts` and is unit-tested.
 
 ## Admin area (`/admin/{section}`)
 
@@ -217,11 +225,21 @@ immutable, a draft is append-only and a publication is never deleted
   upload (identical bytes) is reported as a reuse rather than a second copy. No
   rename/delete: an artifact is immutable.
 - **Classes** — schedule a class onto a course (optionally pinned to a version and
-  optionally "scheduled for", which the API records but does not enforce — there is
-  no scheduler, `DEC-TECH-003` is `OPEN`), then select it to see its state, its
-  session and its **pinned runtime tuple**, **Start** it (the tuple is resolved
-  once and never looked up as "latest" again), and manage **enrolments** (enrol is
-  idempotent). A replayed start is reported as such.
+  optionally given a **datetime**), then select it to see its state, its session and
+  its **pinned runtime tuple**, **Start** it (the tuple is resolved once and never
+  looked up as "latest" again), and manage **enrolments** (enrol is idempotent). A
+  replayed start is reported as such.
+  - The datetime is read on the teacher's own clock (`src/time.ts`, the
+    `datetime-local` value ↔ instant conversion) and shown with a live countdown, so
+    a class that is due says so.
+  - **Auto-start when due** (off by default) starts a due class **while this page is
+    open**, through the same idempotent `POST /classes/{id}/start` the Start button
+    uses; each outcome is reported per class, a refusal included, so a class whose
+    course was never published says `CLASS_NOT_READY`/`VERSION_NOT_PUBLISHED` instead
+    of appearing to have started.
+  - This is deliberately **not** a server scheduler: the API records `scheduled_for`
+    and never enforces it, because an automatic start would be a durable workflow and
+    `DEC-TECH-003` is `OPEN`. Nothing runs with the page closed, and the view says so.
 - **Publications** — publish an approved version and read what has been sealed.
   `Publish` is idempotent on the content (`created: false` on a replay) and reports
   every refusal by its stable `issue_code`; `Verify integrity` re-checks the pinned
@@ -252,9 +270,11 @@ publishes.
   state for the selected mode, and notes that no renderer technology is accepted
   (`DEC-TECH-005` is `OPEN`).
 - **Teaching** — the narration pace (words per minute), whether a deck starts
-  narrating when it is opened, and whether the caption line is shown, with an
-  explicit statement of what runs: authored text, no model, no audio, nothing
-  written to the server.
+  narrating when it is opened, whether the caption line is shown, and whether a due
+  **scheduled class** is started when its time arrives (which, like the narration,
+  only happens while the page that waits is open — the server has no scheduler),
+  with an explicit statement of what runs: authored text, no model, no audio,
+  nothing written to the server.
 - **Accessibility** — reduced motion and high contrast. These are the **classroom's
   own** persisted preferences, edited through the classroom store
   (`readClassroomPreferences`/`updateClassroomPreferences`) rather than kept a
@@ -320,17 +340,27 @@ arrow keys, the teaching script, the canvas toolbar including its no-2D-canvas
 degradation, and the automatic teaching (play/pause/stop, the transcript, the
 caption, auto-advance and the end of the deck under fake timers, autoplay,
 captions off, the pace setting, and the draft-revision precedence with a
-graceful fallback when the overlay cannot be read).
+graceful fallback when the overlay cannot be read, plus teaching at a chosen time:
+a time already reached starts at once, a time in the future waits with a countdown
+and can be cleared, and the clock reaching it begins the narration — with the
+client-local boundary stated on the page).
 `src/presentation/narration.test.ts` is the pure narration suite (word counting,
 dwell clamping and scaling, the source precedence, and the draft-revision rule).
+`src/time.test.ts` is the pure scheduled-instant suite (parsing an instant and
+refusing a non-instant, whether a time is due including the absent case, countdowns
+in both directions, the `datetime-local` round trip in the reader's own timezone,
+and the one-line schedule description).
 `src/settings/store.test.ts` covers the preference store (defaults, round-trip,
 unreadable storage, clamping an out-of-range pace, ignoring an unknown mode).
 `src/admin/AdminPage.test.tsx` covers each admin section against a mocked API
 (course creation, material listing/upload/compile in the Settings mode, the
-absence of any delete/rename, scheduling, starting, enrolling, publishing and
-verifying), and `src/settings/SettingsPage.test.tsx` covers each settings section
-(the server facts it can only report, restoring defaults, persisting the mode and
-the pacing, and editing the classroom's own accessibility preferences). Test deps
+absence of any delete/rename, scheduling with and without a datetime, starting,
+enrolling, publishing and verifying, and the scheduled start: a due class started
+while the page is open, a due class left alone with auto-start off, and a refusal
+reported per class rather than retried), and `src/settings/SettingsPage.test.tsx`
+covers each settings section (the server facts it can only report, restoring
+defaults, persisting the mode, the pacing and the auto-start, and editing the
+classroom's own accessibility preferences). Test deps
 are **dev-only**; the production build and its dependencies are unchanged.
 
 `src/classroom/state/reducer.test.ts` is the pure-reducer acceptance suite

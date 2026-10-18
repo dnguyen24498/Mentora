@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminPage from './AdminPage'
 import {
+  ApiError,
   compileArtifact,
   createCourse,
   enrollStudent,
@@ -22,6 +23,7 @@ import {
   type Material,
   type Publication,
 } from '../api/client'
+import { fromDateTimeLocalValue } from '../time'
 import { ARTIFACT, INSTITUTION } from '../test/fixtures'
 
 // The admin pages are orchestration over the existing API, so the client is
@@ -236,6 +238,8 @@ describe('AdminPage — classes', () => {
   it('schedules a class onto a course', async () => {
     const user = userEvent.setup()
     vi.mocked(scheduleClass).mockResolvedValue(CLASS)
+    vi.mocked(loadClass).mockResolvedValue({ class: CLASS, session: null, session_plan: null })
+    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
     render(<AdminPage section="classes" />)
 
     await user.type(await screen.findByLabelText('Title'), 'Period 3')
@@ -250,7 +254,39 @@ describe('AdminPage — classes', () => {
       }),
     )
     // Scheduling is not starting: the page says nothing runs yet.
-    expect(await screen.findByText(/nothing runs until you start it/)).toBeTruthy()
+    expect(await screen.findByText(/Nothing runs until you start it/)).toBeTruthy()
+  })
+
+  it('records the datetime it was given, read on the teacher’s own clock', async () => {
+    const user = userEvent.setup()
+    const created: ClassSummary = {
+      ...CLASS,
+      title: 'Period 4',
+      scheduled_for: '2026-10-20T09:30:00.000Z',
+    }
+    vi.mocked(scheduleClass).mockResolvedValue(created)
+    vi.mocked(loadClass).mockResolvedValue({ class: created, session: null, session_plan: null })
+    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+    render(<AdminPage section="classes" />)
+
+    await user.type(await screen.findByLabelText('Title'), 'Period 4')
+    fireEvent.change(screen.getByLabelText('Scheduled for (optional)'), {
+      target: { value: '2026-10-20T09:30' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Schedule class' }))
+
+    await waitFor(() =>
+      expect(scheduleClass).toHaveBeenCalledWith(INSTITUTION, {
+        course_id: 'course-1',
+        title: 'Period 4',
+        version_id: null,
+        // The teacher's own wall clock is what is meant, so the same local value
+        // becomes the same instant on any machine.
+        scheduled_for: fromDateTimeLocalValue('2026-10-20T09:30'),
+      }),
+    )
+    // And the page repeats when that is, from its own clock.
+    expect(await screen.findByText(/Scheduled "Period 4" for/)).toBeTruthy()
   })
 
   it('starts a class and enrols students', async () => {
@@ -286,6 +322,72 @@ describe('AdminPage — classes', () => {
       expect(enrollStudent).toHaveBeenCalledWith(INSTITUTION, 'class-1', 'student-7'),
     )
     expect(await screen.findByText(/Enrolled student-7/)).toBeTruthy()
+  })
+})
+
+describe('AdminPage — classes started at their own scheduled time', () => {
+  // A minute ago, judged against the page's own clock, so the test does not
+  // depend on the machine's calendar.
+  const DUE: ClassSummary = {
+    ...CLASS,
+    scheduled_for: new Date(Date.now() - 60_000).toISOString(),
+  }
+
+  function primeAttached(list: ClassSummary[]) {
+    vi.mocked(listClasses).mockResolvedValue(list)
+    vi.mocked(loadClass).mockResolvedValue({ class: list[0], session: null, session_plan: null })
+    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+  }
+
+  it('starts a due class while the page is open, when auto-start is on', async () => {
+    primeAttached([DUE])
+    vi.mocked(startClass).mockResolvedValue(STARTED)
+    localStorage.setItem('mentora.settings', JSON.stringify({ autoStartDueClasses: true }))
+
+    render(<AdminPage section="classes" />)
+
+    // The page starts it through the runtime's own idempotent transition, not a
+    // private path: the same call the Start button makes.
+    await waitFor(() => expect(startClass).toHaveBeenCalledWith(INSTITUTION, 'class-1'))
+    const results = await screen.findByTestId('admin-auto-start-results')
+    expect(results.textContent).toContain('Started "Period 3" at its scheduled time.')
+  })
+
+  it('leaves a due class alone when auto-start is off, and says when it was due', async () => {
+    primeAttached([DUE])
+    vi.mocked(startClass).mockResolvedValue(STARTED)
+
+    render(<AdminPage section="classes" />)
+
+    const schedule = await screen.findByTestId('class-schedule-class-1')
+    // The schedule is shown, and it is visibly in the past.
+    expect(schedule.textContent).toMatch(/ago/)
+    expect((screen.getByTestId('class-auto-start') as HTMLInputElement).checked).toBe(false)
+    expect(startClass).not.toHaveBeenCalled()
+  })
+
+  it('reports a class it could not start instead of swallowing the refusal', async () => {
+    primeAttached([DUE])
+    vi.mocked(startClass).mockRejectedValue(
+      new ApiError('CLASS_NOT_READY', 'the course version was never published'),
+    )
+    localStorage.setItem('mentora.settings', JSON.stringify({ autoStartDueClasses: true }))
+
+    render(<AdminPage section="classes" />)
+
+    const results = await screen.findByTestId('admin-auto-start-results')
+    expect(results.textContent).toContain('the course version was never published')
+    // A refused start is reported once, not retried on every tick.
+    expect(startClass).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the waiting is done by the page, because the server has no scheduler', async () => {
+    render(<AdminPage section="classes" />)
+
+    const note = await screen.findByTestId('class-schedule-note')
+    expect(note.textContent).toMatch(/this page/)
+    expect(note.textContent).toContain('DEC-TECH-003')
+    expect(note.textContent).toMatch(/still OPEN/)
   })
 })
 

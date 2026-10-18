@@ -86,6 +86,15 @@ ordered per-class timeline with checkpoints, resume and bridge phrases is
 `DEC-RUNTIME-005`/`DEC-DATA-003` and V0-013's work, and the stream that would carry
 it to students is V1-002. Nothing about a narration is written to the server.
 
+It can also **start itself at a time the teacher names**: a `datetime-local` value
+on the panel, held as an instant by the page's own clock (`time.ts`, `useNow`), and
+when that instant arrives the narration begins — Pause, Stop, the caption and the
+transcript then behave exactly as if Play had been pressed. The trigger is
+client-local for the same reason the narration is: it is a page waiting, not a
+server clock, so the tab has to stay open, and the panel says so. Moving it
+server-side is exactly the durable workflow/timeline work that is `DEC-TECH-003`
+(`OPEN`) and V0-013.
+
 ## Implemented admin and settings areas
 
 `/admin/{section}` (`frontend/src/admin/`) manages the V0 entities **through the
@@ -100,6 +109,17 @@ visible: `Publish` is idempotent on the content and reports a replay as such, an
 `Verify integrity` re-checks the pinned package against the digest recorded at seal
 time and reports `VERIFIED`/`MISMATCH`/`MISSING` without mutating anything.
 
+A class can be given a **datetime**, and the classes view shows it and how far off it
+is, ticking on the page's own clock (`time.ts`). With **auto-start** on, a class whose
+time has come is started while the page is open, through the same idempotent
+`POST /classes/{id}/start` the Start button uses, and each outcome is reported per
+class — including a refusal, so a class whose course was never published says
+`CLASS_NOT_READY`/`VERSION_NOT_PUBLISHED` instead of appearing to have started. This
+is deliberately **not** a server scheduler: the backend records `scheduled_for` and
+never acts on it (an automatic start would be a durable workflow, and `DEC-TECH-003`
+is `OPEN`), so nothing runs with the page closed, the view states that, and Start
+stays available either way.
+
 `/settings/{section}` (`frontend/src/settings/`) holds **client preferences**,
 because there is no settings API: the server's own configuration is its environment
 (the home region) and the per-request render mode. General reports the tenant
@@ -107,9 +127,10 @@ because there is no settings API: the server's own configuration is its environm
 (`GET /renderer`, `GET /health`) and the home region; Rendering persists the
 compile/preview mode and probes the renderer live in that mode (`GET
 /artifacts/{id}/renders/{order}?mode=`), stating that a **packaged** render is
-pinned at build time; Teaching sets the narration pace, autoplay and captions;
-Accessibility edits the **classroom's own** persisted preferences through the
-classroom store, so the two never drift. Preferences live in one module
+pinned at build time; Teaching sets the narration pace, autoplay and captions and
+whether a scheduled class is started when its time arrives; Accessibility edits the
+**classroom's own** persisted preferences through the classroom store, so the two
+never drift. Preferences live in one module
 (`settings/store.ts`, persisted and shared across tabs like the tenant) and are
 never authoritative — nothing in Settings changes what the server stores, seals or
 publishes.

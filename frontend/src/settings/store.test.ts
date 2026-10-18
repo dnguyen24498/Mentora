@@ -16,6 +16,8 @@ describe('settings store', () => {
     expect(readSettings()).toEqual(DEFAULT_SETTINGS)
     expect(DEFAULT_SETTINGS.renderMode).toBe('faithful')
     expect(DEFAULT_SETTINGS.teachingAutoplay).toBe(false)
+    // Nothing starts a class on its own until the teacher asks for it.
+    expect(DEFAULT_SETTINGS.autoStartDueClasses).toBe(false)
   })
 
   it('round-trips what was written', () => {

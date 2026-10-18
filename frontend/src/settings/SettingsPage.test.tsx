@@ -126,6 +126,24 @@ describe('SettingsPage — teaching', () => {
     await user.click(screen.getByRole('checkbox', { name: /Show the caption line/ }))
     expect(readSettings().teachingCaptions).toBe(false)
   })
+
+  it('persists the scheduled-class auto-start and says it is client-local', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage section="teaching" />)
+
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: /Start a scheduled class when its time arrives/,
+      }),
+    )
+    expect(readSettings().autoStartDueClasses).toBe(true)
+    // An automatic start needs a durable scheduler, which is not decided yet, so
+    // the page says the open page does it instead of implying a server timer.
+    expect(screen.getByText(/Nothing runs with the page closed/)).toBeTruthy()
+    // The open decision is named where the preference is set and again in the
+    // summary, so both are expected.
+    expect(screen.getAllByText(/DEC-TECH-003/).length).toBeGreaterThan(0)
+  })
 })
 
 describe('SettingsPage — accessibility', () => {

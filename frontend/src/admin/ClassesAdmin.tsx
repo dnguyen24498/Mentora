@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, classroomPath } from '../router'
 import {
   describeApiError,
@@ -17,6 +17,13 @@ import {
   type Material,
 } from '../api/client'
 import { readSelectedClass, writeSelectedClass } from '../institution'
+import { useSettings } from '../settings/store'
+import {
+  describeSchedule,
+  fromDateTimeLocalValue,
+  isDue,
+  useNow,
+} from '../time'
 import {
   Badge,
   Banner,
@@ -43,8 +50,18 @@ const STATE_TONE: Record<string, Tone> = {
  * **enrol** a student (idempotent). There is no "edit class" or "delete class":
  * once started, a session's pinned versions and snapshot are the historical
  * record, and a correction is a new class on a new version.
+ *
+ * A class can be given a datetime, and this page can **start it when that time
+ * arrives** while it is open. That trigger is deliberately client-local: the
+ * backend records `scheduled_for` and never acts on it, because an automatic
+ * start would be a durable workflow/scheduler and `DEC-TECH-003` is `OPEN`. So
+ * nothing runs while this page is closed, the page says exactly that, and a
+ * refusal (a class whose course was never published cannot start) is reported
+ * per class rather than swallowed.
  */
 export default function ClassesAdmin({ institutionId }: { institutionId: string }) {
+  const [settings, updateSettings] = useSettings()
+  const autoStart = settings.autoStartDueClasses
   const [courses, setCourses] = useState<Course[]>([])
   const [classes, setClasses] = useState<ClassSummary[]>([])
   const [courseId, setCourseId] = useState('')
@@ -59,6 +76,10 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // What the automatic start did, per class. Kept as a record so a class is
+  // reported once and a failed attempt is not retried every tick.
+  const [autoResults, setAutoResults] = useState<Record<string, string>>({})
+  const attempted = useRef<Set<string>>(new Set())
 
   const refreshClasses = useCallback(async () => {
     try {
@@ -142,9 +163,9 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
         course_id: courseId,
         title: title.trim() || null,
         version_id: versionId.trim() || null,
-        // The API records this but never acts on it: there is no scheduler
-        // (DEC-TECH-003 stays OPEN), so it is a note for the teacher.
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+        // Read as the teacher's own local time. The API records it and never acts
+        // on it (DEC-TECH-003 stays OPEN); the page's own clock is what waits.
+        scheduled_for: fromDateTimeLocalValue(scheduledFor),
       })
       setTitle('')
       setVersionId('')
@@ -152,7 +173,11 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
       await refreshClasses()
       setSelected(created.class_id)
       setNotice(
-        `Scheduled "${created.title}". Recorded for reference only — nothing runs until you start it.`,
+        created.scheduled_for
+          ? `Scheduled "${created.title}" for ${describeSchedule(created.scheduled_for, now)}. ` +
+              'It starts when you start it, or on time while this page is open with auto-start on.'
+          : `Scheduled "${created.title}". Nothing runs until you start it — give it a time and ` +
+              'turn auto-start on to have that happen by itself.',
       )
     } catch (cause) {
       setError(describeApiError(cause))
@@ -204,6 +229,56 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   }
 
   const versions = (detail?.session_plan?.versions ?? {}) as Record<string, unknown>
+
+  // The clock that drives both the countdowns and the automatic start. It runs
+  // only while there is something to watch, so an idle page leaves no timer behind.
+  const watched = classes.filter((item) => item.state === 'SCHEDULED' && item.scheduled_for)
+  const now = useNow(1000, autoStart || watched.length > 0)
+
+  // Switching auto-start off forgets the attempts, so switching it back on retries
+  // a start that failed instead of skipping that class for ever.
+  useEffect(() => {
+    if (!autoStart) attempted.current.clear()
+  }, [autoStart])
+
+  // The automatic start. While this page is open, a class whose time has come is
+  // started — the same idempotent `POST /classes/{id}/start` the button uses, so a
+  // replay is harmless. Nothing watches while the page is closed: there is no
+  // server-side scheduler (DEC-TECH-003 is OPEN), and the note in the panel says so.
+  useEffect(() => {
+    if (!autoStart) return
+    const due = classes.filter(
+      (item) =>
+        item.state === 'SCHEDULED' &&
+        isDue(item.scheduled_for, now) &&
+        !attempted.current.has(item.class_id),
+    )
+    if (due.length === 0) return
+    // Claim them synchronously: the clock ticks again before the request settles,
+    // and one class must never be started twice by two ticks.
+    for (const item of due) attempted.current.add(item.class_id)
+
+    void (async () => {
+      for (const item of due) {
+        try {
+          const view = await startClass(institutionId, item.class_id)
+          setAutoResults((previous) => ({
+            ...previous,
+            [item.class_id]: view.created
+              ? `Started "${item.title}" at its scheduled time.`
+              : `"${item.title}" was already started; its pinned tuple is unchanged.`,
+          }))
+          if (selected === item.class_id) setDetail(view)
+        } catch (cause) {
+          setAutoResults((previous) => ({
+            ...previous,
+            [item.class_id]: `Could not start "${item.title}": ${describeApiError(cause)}`,
+          }))
+        }
+      }
+      await refreshClasses()
+    })()
+  }, [autoStart, classes, institutionId, now, refreshClasses, selected])
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -280,6 +355,12 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                 onChange={(event) => setScheduledFor(event.target.value)}
                 className={`${INPUT_CLASS} mt-1`}
               />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Read on your own clock and recorded with the class. The server never acts on it — an
+                automatic start would be a durable scheduler, and{' '}
+                <span className="font-mono">DEC-TECH-003</span> is OPEN — so the waiting is done by an
+                open page, with auto-start below.
+              </p>
             </div>
 
             <button
@@ -293,10 +374,26 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
           </div>
         </Panel>
 
-        <Panel title="Classes">
+        <Panel
+          title="Classes"
+          actions={
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+              <input
+                type="checkbox"
+                data-testid="class-auto-start"
+                checked={autoStart}
+                onChange={(event) =>
+                  updateSettings({ autoStartDueClasses: event.target.checked })
+                }
+              />
+              Auto-start when due
+            </label>
+          }
+        >
           <ul className="space-y-1.5">
             {classes.map((item) => {
               const active = item.class_id === selected
+              const due = isDue(item.scheduled_for, now)
               return (
                 <li key={item.class_id}>
                   <button
@@ -307,7 +404,23 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                       active ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    <span className="truncate text-sm font-medium text-slate-800">{item.title}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">
+                        {item.title}
+                      </span>
+                      {item.scheduled_for && (
+                        <span
+                          data-testid={`class-schedule-${item.class_id}`}
+                          className={`block truncate text-[10px] ${
+                            due && item.state === 'SCHEDULED'
+                              ? 'font-medium text-amber-700'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {describeSchedule(item.scheduled_for, now)}
+                        </span>
+                      )}
+                    </span>
                     <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{item.state}</Badge>
                   </button>
                 </li>
@@ -315,6 +428,25 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
             })}
           </ul>
           {classes.length === 0 && <EmptyState>No classes yet.</EmptyState>}
+
+          <p data-testid="class-schedule-note" className="text-[11px] text-slate-400">
+            A class with a time is started by <em>this page</em> while it is open. There is no
+            server-side scheduler — a durable one is <span className="font-mono">DEC-TECH-003</span>,
+            still OPEN — so closing this page stops the waiting, and pressing Start stays available
+            either way.
+          </p>
+
+          {Object.keys(autoResults).length > 0 && (
+            <ul
+              data-testid="admin-auto-start-results"
+              role="status"
+              className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700"
+            >
+              {Object.entries(autoResults).map(([classId, message]) => (
+                <li key={classId}>{message}</li>
+              ))}
+            </ul>
+          )}
         </Panel>
       </div>
 
@@ -352,7 +484,11 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                 <Row label="Course">{detail.class.course_id}</Row>
                 <Row label="State">{detail.class.state}</Row>
                 <Row label="Version">{detail.class.version_id ?? 'current published'}</Row>
-                <Row label="Scheduled for">{detail.class.scheduled_for ?? '—'}</Row>
+                <Row label="Scheduled for">
+                  {detail.class.scheduled_for
+                    ? describeSchedule(detail.class.scheduled_for, now)
+                    : '—'}
+                </Row>
               </dl>
 
               {detail.session ? (

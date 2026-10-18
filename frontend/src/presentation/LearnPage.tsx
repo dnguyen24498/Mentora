@@ -4,6 +4,7 @@ import SlideStage from './SlideStage'
 import type { AnnotationStroke } from './TeachingCanvas'
 import { useInstitution, writeSelectedArtifact } from '../institution'
 import { useSettings } from '../settings/store'
+import { describeSchedule, fromDateTimeLocalValue, isDue, toDateTimeLocalValue, useNow } from '../time'
 import { buildNarration, segmentForScene, type NarrationSegment } from './narration'
 import { useNarrationTimer } from './useNarrationTimer'
 import {
@@ -46,7 +47,11 @@ function describe(cause: unknown): string {
  * It also **teaches**. "Play" narrates the deck from its own authored script — the
  * teacher's newest draft revision, else the package's lesson script, else the
  * speaker notes, else the slide's own text — shows each passage as a caption and,
- * at the pace the teacher sets in Settings, moves to the next slide. It is text-only by construction: no model writes the teaching text
+ * at the pace the teacher sets in Settings, moves to the next slide. A time can be
+ * set and it will start narrating by itself when the clock reaches it, which is
+ * client-local: the tab must stay open, because the authoritative timeline with
+ * checkpoints and resume is V0-013/V1-002 and the server has no scheduler
+ * (`DEC-TECH-003` is `OPEN`). It is text-only by construction: no model writes the teaching text
  * and no audio is produced (`DEC-TECH-007` is `OPEN`), so the deck teaches the
  * words its author wrote, at a fixed pace, reproducibly.
  *
@@ -175,6 +180,13 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
   const [finished, setFinished] = useState(false)
   const [transcript, setTranscript] = useState<NarrationSegment[]>([])
   const autoplayed = useRef(false)
+  // Timed teaching: the instant the teacher asked for, and whether it has fired.
+  const [teachAt, setTeachAt] = useState<string | null>(null)
+  const [teachFired, setTeachFired] = useState(false)
+  const teachTriggered = useRef(false)
+  // The clock only runs while a time is set, so a page that schedules nothing
+  // leaves no interval behind.
+  const now = useNow(1000, teachAt !== null)
 
   const segments = useMemo(
     () => (review ? buildNarration(review, settings.teachingWpm, draft) : []),
@@ -188,6 +200,9 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
     setFinished(false)
     setTranscript([])
     autoplayed.current = false
+    setTeachAt(null)
+    setTeachFired(false)
+    teachTriggered.current = false
   }, [artifactId])
 
   const remember = useCallback((next: NarrationSegment | null) => {
@@ -242,6 +257,21 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
     autoplayed.current = true
     setPlaying(true)
   }, [count, phase, settings.teachingAutoplay])
+
+  // Timed teaching: at the instant the teacher named, narration starts by itself.
+  //
+  // Like the scheduled start on the Classes page this is **client-local** — the
+  // tab has to be open — because the authoritative timeline, with checkpoints and
+  // resume, is V0-013/V1-002 rather than a browser timer. The teacher's own clock
+  // is what waits, and the panel says so.
+  useEffect(() => {
+    if (!teachAt || phase !== 'ready' || count === 0) return
+    if (teachTriggered.current || !isDue(teachAt, now)) return
+    teachTriggered.current = true
+    setTeachAt(null)
+    setTeachFired(true)
+    play()
+  }, [count, now, phase, play, teachAt])
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -392,6 +422,59 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                         wpm
                       </span>
                     )}
+                  </div>
+
+                  <div className="space-y-1.5 border-t border-indigo-200 pt-2">
+                    <label
+                      htmlFor="learn-teach-at"
+                      className="block text-[11px] font-medium text-indigo-800"
+                    >
+                      Teach at a time
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        id="learn-teach-at"
+                        type="datetime-local"
+                        value={toDateTimeLocalValue(teachAt)}
+                        onChange={(event) => {
+                          setTeachFired(false)
+                          setTeachAt(fromDateTimeLocalValue(event.target.value))
+                        }}
+                        className="rounded-md border border-indigo-300 px-2 py-1 text-[11px]"
+                      />
+                      {teachAt && (
+                        <button
+                          type="button"
+                          data-testid="learn-teach-clear"
+                          onClick={() => setTeachAt(null)}
+                          className="rounded-md border border-indigo-300 px-2 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {teachAt && (
+                      <p data-testid="learn-teach-when" className="text-[11px] text-indigo-800">
+                        Starts teaching {describeSchedule(teachAt, now)}.
+                      </p>
+                    )}
+
+                    {teachFired && !teachAt && (
+                      <p
+                        data-testid="learn-teach-fired"
+                        role="status"
+                        className="text-[11px] font-medium text-indigo-900"
+                      >
+                        The scheduled time arrived — teaching started.
+                      </p>
+                    )}
+
+                    <p className="text-[10px] text-indigo-700">
+                      This tab has to stay open: the server has no clock to wait on (
+                      <span className="font-mono">DEC-TECH-003</span> is OPEN), and the durable
+                      timeline with checkpoints and resume is V0-013.
+                    </p>
                   </div>
 
                   {segment && (

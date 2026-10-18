@@ -76,6 +76,26 @@ export default function TeachingSettings() {
               </span>
             </span>
           </label>
+
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={settings.autoStartDueClasses}
+              onChange={(event) => updateSettings({ autoStartDueClasses: event.target.checked })}
+              className="mt-1"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-700">
+                Start a scheduled class when its time arrives
+              </span>
+              <span className="block text-xs text-slate-500">
+                Only while the Classes page is open — the server records{' '}
+                <span className="font-mono">scheduled_for</span> but never acts on it, because a
+                durable scheduler is <span className="font-mono">DEC-TECH-003</span>, still OPEN.
+                Nothing runs with the page closed.
+              </span>
+            </span>
+          </label>
         </div>
       </Panel>
 
@@ -93,6 +113,10 @@ export default function TeachingSettings() {
             draft revision → lesson script → speaker notes → slide text
           </Row>
           <Row label="Transport">client-side; no per-class event stream yet (DEC-DATA-003 OPEN)</Row>
+          <Row label="Teaching at a time">the learning page waits on its own clock, while it is open</Row>
+          <Row label="Starting a class on time">
+            the Classes page, while it is open; the server has no scheduler (DEC-TECH-003 OPEN)
+          </Row>
           <Row label="Written to the server">nothing</Row>
         </dl>
 

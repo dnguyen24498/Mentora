@@ -28,6 +28,14 @@ export interface AppSettings {
   teachingAutoplay: boolean
   /** Show the caption line while narrating. */
   teachingCaptions: boolean
+  /**
+   * Start a class that is due while the Classes page is open.
+   *
+   * Client-local by necessity: the server records `scheduled_for` and never acts
+   * on it (a durable scheduler is `DEC-TECH-003`, still `OPEN`), so this is the
+   * open page doing it, and it stops the moment the page is closed.
+   */
+  autoStartDueClasses: boolean
 }
 
 export const TEACHING_WPM_MIN = 80
@@ -38,6 +46,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   teachingWpm: 160,
   teachingAutoplay: false,
   teachingCaptions: true,
+  autoStartDueClasses: false,
 }
 
 const STORAGE_KEY = 'mentora.settings'
@@ -63,6 +72,7 @@ export function readSettings(): AppSettings {
         parsed.teachingCaptions === undefined
           ? DEFAULT_SETTINGS.teachingCaptions
           : Boolean(parsed.teachingCaptions),
+      autoStartDueClasses: Boolean(parsed.autoStartDueClasses),
     }
   } catch {
     // Storage can be disabled (private mode, hardened browser).

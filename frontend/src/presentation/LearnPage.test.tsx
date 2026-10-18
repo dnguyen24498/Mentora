@@ -9,6 +9,7 @@ import {
   loadReviewPackage,
   loadReviewState,
 } from '../api/client'
+import { toDateTimeLocalValue } from '../time'
 import { ARTIFACT, INSTITUTION, makeArtifact, makePackage, makeState } from '../test/fixtures'
 
 // The page's job is orchestration (which package it reads, which slide it shows),
@@ -311,6 +312,81 @@ describe('LearnPage — automatic teaching (text only)', () => {
     // A missing overlay is not a failure: the deck still teaches from the package.
     expect(screen.getByTestId('learn-caption').textContent).toBe('Explain slide 1')
     expect(screen.getByText(/narration source: lesson-script/)).toBeTruthy()
+  })
+})
+
+describe('LearnPage — teaching at a chosen time', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  function teachAt(value: Date | string) {
+    return fireEvent.change(screen.getByLabelText('Teach at a time'), {
+      target: { value: typeof value === 'string' ? value : toDateTimeLocalValue(value) },
+    })
+  }
+
+  it('starts teaching by itself once the time it was given has arrived', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    // A minute ago on this machine's clock: it is already due.
+    teachAt(new Date(Date.now() - 60_000))
+
+    await waitFor(() => expect(screen.getByTestId('learn-play').textContent).toBe('Pause'))
+    expect(screen.getByTestId('learn-teach-fired')).toBeTruthy()
+    // It teaches the same authored narration it would have taught on Play.
+    expect(screen.getByTestId('learn-caption').textContent).toBe('Explain slide 1')
+  })
+
+  it('waits for a time that has not come, and lets the teacher clear it', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    teachAt(new Date(Date.now() + 10 * 60_000))
+
+    // Waiting is not playing: the deck stays where it is until the clock arrives.
+    expect(screen.getByTestId('learn-play').textContent).toBe('Play')
+    expect(screen.queryByTestId('learn-caption')).toBeNull()
+    expect(screen.getByTestId('learn-teach-when').textContent).toMatch(/Starts teaching/)
+    expect(screen.getByTestId('learn-teach-when').textContent).toMatch(/in (9m|10m)/)
+
+    fireEvent.click(screen.getByTestId('learn-teach-clear'))
+    expect(screen.queryByTestId('learn-teach-when')).toBeNull()
+    expect(screen.getByLabelText('Teach at a time')).toHaveProperty('value', '')
+  })
+
+  it('begins when its own clock reaches the time, not before', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    vi.useFakeTimers()
+    try {
+      teachAt(new Date(Date.now() + 3_000))
+      // Not yet: the clock has not reached it.
+      expect(screen.getByTestId('learn-play').textContent).toBe('Play')
+
+      act(() => {
+        vi.advanceTimersByTime(5_000)
+      })
+      expect(screen.getByTestId('learn-play').textContent).toBe('Pause')
+      expect(screen.getByTestId('learn-teach-fired')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says this is a browser clock, not the durable timeline', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    const note = screen.getByText(/This tab has to stay open/)
+    expect(note.textContent).toContain('DEC-TECH-003')
+    expect(note.textContent).toMatch(/V0-013/)
   })
 })
 
