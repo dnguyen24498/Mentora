@@ -15,6 +15,7 @@ import {
   Badge,
   Banner,
   BUTTON_PRIMARY,
+  BUTTON_SMALL,
   EmptyState,
   INPUT_CLASS,
   Panel,
@@ -251,7 +252,7 @@ export default function PublicationsAdmin({ institutionId }: { institutionId: st
                 <button
                   type="button"
                   onClick={() => void verify(publication.publication_id)}
-                  className="ml-auto rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className={`sm:ml-auto ${BUTTON_SMALL}`}
                 >
                   Verify integrity
                 </button>

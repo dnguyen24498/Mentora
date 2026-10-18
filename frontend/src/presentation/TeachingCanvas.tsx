@@ -26,7 +26,8 @@ export interface AnnotationPoint {
   y: number
 }
 
-/** One freehand stroke. `points` are in canvas pixels (1:1 with CSS pixels). */
+/** One freehand stroke. `points` are in the surface's CSS pixels, so a stroke
+ *  keeps its meaning when the bitmap is scaled for a high-density screen. */
 export interface AnnotationStroke {
   tool: AnnotationTool
   color: string
@@ -49,8 +50,37 @@ const COLORS = [
   { value: '#0f172a', label: 'Black' },
 ] as const
 
-/** The default canvas size when the surface has not been measured yet. */
+/** The default surface size when the element has not been measured yet. */
 const FALLBACK_SIZE = { width: 1280, height: 720 }
+
+/** The bitmap is this many device pixels per CSS pixel (a phone is 2–3). */
+function deviceScale(): number {
+  return typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+}
+
+interface SurfaceSize {
+  width: number
+  height: number
+  scale: number
+}
+
+function measureSize(surface: HTMLDivElement | null): SurfaceSize {
+  const scale = deviceScale()
+  return {
+    width: Math.round((surface?.clientWidth || FALLBACK_SIZE.width) * scale),
+    height: Math.round((surface?.clientHeight || FALLBACK_SIZE.height) * scale),
+    scale,
+  }
+}
+
+/**
+ * Put the context in the surface's CSS pixels: drawing code then thinks in the
+ * units a stroke's points and width are stored in (`AnnotationPoint`), and the
+ * bitmap's extra device pixels are filled in for a crisp line on a phone.
+ */
+function setCssUnitTransform(ctx: CanvasRenderingContext2D, scale: number): void {
+  ctx.setTransform(scale, 0, 0, scale, 0, 0)
+}
 
 function get2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   // jsdom (and some webviews) have no 2D context; that is a supported state.
@@ -119,25 +149,29 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
   const [color, setColor] = useState<string>(COLORS[0].value)
   const [penWidth, setPenWidth] = useState(3)
   const [available, setAvailable] = useState(false)
-  const [size, setSize] = useState(FALLBACK_SIZE)
+  const [size, setSize] = useState<SurfaceSize>(() => measureSize(null))
 
-  // Detect the 2D context and keep the bitmap the size of the visible surface,
-  // so a pointer maps straight onto canvas pixels.
+  // Detect the 2D context and keep the bitmap the size of the visible surface
+  // times the device scale, so a pointer maps straight onto canvas pixels and the
+  // line is drawn at the screen's own resolution rather than upscaled.
   useEffect(() => {
     setAvailable(Boolean(canvasRef.current && get2d(canvasRef.current)))
     const surface = surfaceRef.current
     if (!surface) return
-    const measure = () => {
-      setSize({
-        width: surface.clientWidth || FALLBACK_SIZE.width,
-        height: surface.clientHeight || FALLBACK_SIZE.height,
-      })
-    }
+    const measure = () => setSize(measureSize(surface))
     measure()
-    if (typeof ResizeObserver === 'undefined') return
+    // A resize (a phone held the other way, a window dragged to another monitor)
+    // changes the CSS size, and a zoom changes the device scale; both re-measure.
+    window.addEventListener('resize', measure)
+    if (typeof ResizeObserver === 'undefined') {
+      return () => window.removeEventListener('resize', measure)
+    }
     const observer = new ResizeObserver(measure)
     observer.observe(surface)
-    return () => observer.disconnect()
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer.disconnect()
+    }
   }, [])
 
   // Repaint everything whenever the strokes, the tool or the size change.
@@ -145,17 +179,20 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
     const canvas = canvasRef.current
     const ctx = canvas ? get2d(canvas) : null
     if (!canvas || !ctx) return
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.globalCompositeOperation = 'source-over'
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    setCssUnitTransform(ctx, size.scale)
     for (const stroke of strokes) paintStroke(ctx, stroke)
   }, [strokes, size, available])
 
   const toPoint = useCallback((event: PointerEvent<HTMLCanvasElement>): AnnotationPoint => {
     const canvas = event.currentTarget
     const rect = canvas.getBoundingClientRect()
-    const scaleX = rect.width ? canvas.width / rect.width : 1
-    const scaleY = rect.height ? canvas.height / rect.height : 1
-    return { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY }
+    // The canvas covers the surface exactly, so this is the point in the
+    // surface's CSS pixels — the units a stroke is stored in, and independent of
+    // the bitmap's device scale (which only the paint transform knows about).
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
   }, [])
 
   const onPointerDown = useCallback(
@@ -182,10 +219,11 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
       const canvas = event.currentTarget
       const ctx = get2d(canvas)
       if (!ctx) return
+      setCssUnitTransform(ctx, size.scale)
       stroke.points.push(toPoint(event))
       paintSegment(ctx, stroke)
     },
-    [toPoint],
+    [size.scale, toPoint],
   )
 
   const endStroke = useCallback(
@@ -196,10 +234,13 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
       const canvas = event.currentTarget
       const ctx = get2d(canvas)
       // A tap (one point) still leaves a mark.
-      if (ctx && stroke.points.length === 1) paintStroke(ctx, stroke)
+      if (ctx && stroke.points.length === 1) {
+        setCssUnitTransform(ctx, size.scale)
+        paintStroke(ctx, stroke)
+      }
       onStrokesChange([...strokes, stroke])
     },
-    [onStrokesChange, strokes],
+    [onStrokesChange, size.scale, strokes],
   )
 
   const undo = useCallback(() => onStrokesChange(strokes.slice(0, -1)), [onStrokesChange, strokes])
@@ -219,14 +260,14 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
           onClick={() => setDrawing((value) => !value)}
           aria-pressed={drawing}
           disabled={!available}
-          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold disabled:opacity-40 ${
+          className={`inline-flex min-h-11 items-center justify-center rounded-md px-3 py-2 text-sm font-semibold disabled:opacity-40 lg:min-h-0 lg:px-2.5 lg:py-1 lg:text-[11px] ${
             drawing ? 'bg-indigo-600 text-white' : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
           }`}
         >
           {drawing ? 'Drawing on' : 'Draw'}
         </button>
 
-        <div className="flex items-center gap-1" role="group" aria-label="Tool">
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Tool">
           {(
             [
               ['pen', 'Pen'],
@@ -240,7 +281,7 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
               onClick={() => setTool(value)}
               aria-pressed={tool === value}
               disabled={toolsDisabled}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium disabled:opacity-40 ${
+              className={`inline-flex min-h-11 items-center justify-center rounded-md px-3 py-2 text-sm font-medium disabled:opacity-40 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px] ${
                 tool === value
                   ? 'bg-slate-800 text-white'
                   : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -251,7 +292,7 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
           ))}
         </div>
 
-        <div className="flex items-center gap-1" role="group" aria-label="Colour">
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Colour">
           {COLORS.map((swatch) => (
             <button
               key={swatch.value}
@@ -262,7 +303,7 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
               aria-pressed={color === swatch.value}
               disabled={toolsDisabled}
               style={{ backgroundColor: swatch.value }}
-              className={`h-5 w-5 rounded-full ring-offset-1 disabled:opacity-40 ${
+              className={`h-9 w-9 rounded-full ring-offset-1 disabled:opacity-40 lg:h-5 lg:w-5 ${
                 color === swatch.value ? 'ring-2 ring-slate-900' : ''
               }`}
             />
@@ -278,15 +319,16 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
             value={penWidth}
             onChange={(event) => setPenWidth(Number(event.target.value))}
             disabled={toolsDisabled}
+            className="min-h-11 lg:min-h-0"
           />
         </label>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex flex-wrap items-center gap-1">
           <button
             type="button"
             onClick={undo}
             disabled={!hasStrokes}
-            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
           >
             Undo
           </button>
@@ -294,7 +336,7 @@ export default function TeachingCanvas({ strokes, onStrokesChange, children }: T
             type="button"
             onClick={clear}
             disabled={!hasStrokes}
-            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
           >
             Clear
           </button>

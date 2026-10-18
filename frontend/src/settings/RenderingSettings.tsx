@@ -198,7 +198,7 @@ export default function RenderingSettings({ institutionId }: { institutionId: st
               min={0}
               value={order}
               onChange={(event) => setOrder(Math.max(0, Number(event.target.value) || 0))}
-              className="w-16 rounded-md border border-slate-300 px-2 py-1 text-xs"
+              className="w-16 rounded-md border border-slate-300 px-2 py-2 text-base focus:border-indigo-500 focus:outline-none lg:py-1 lg:text-xs"
             />
           </div>
         }

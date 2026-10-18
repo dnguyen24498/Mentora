@@ -15,6 +15,7 @@ import {
   type ReviewScene,
   type ReviewState,
 } from '../api/client'
+import { BUTTON_SMALL, INPUT_CLASS } from './ui'
 
 const STATE_STYLE: Record<string, string> = {
   READY: 'bg-emerald-100 text-emerald-700',
@@ -538,7 +539,7 @@ export default function TeacherStudio({
               value={reviewer}
               onChange={(event) => setReviewer(event.target.value)}
               placeholder="Your name"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={`mt-1 ${INPUT_CLASS}`}
             />
             <p className="mt-1 text-[11px] text-slate-400">
               Attribution only — identity and roles are not implemented yet, so it defaults to the tenant id.
@@ -553,7 +554,7 @@ export default function TeacherStudio({
               value={rejectReason}
               onChange={(event) => setRejectReason(event.target.value)}
               rows={3}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={`mt-1 ${INPUT_CLASS}`}
             />
           </div>
         </div>
@@ -564,7 +565,7 @@ export default function TeacherStudio({
             onClick={approve}
             disabled={busy || blocked}
             aria-describedby={blocked ? 'approve-blocked-reason' : undefined}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 lg:min-h-0 lg:py-2"
           >
             {approved ? 'Approve again' : 'Approve'}
           </button>
@@ -572,7 +573,7 @@ export default function TeacherStudio({
             type="button"
             onClick={reject}
             disabled={busy}
-            className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-40"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-40 lg:min-h-0 lg:py-2"
           >
             {rejected ? 'Reject again' : 'Reject'}
           </button>
@@ -668,7 +669,7 @@ export default function TeacherStudio({
                         onClick={() => move(index, -1)}
                         disabled={index === 0 || busy}
                         aria-label={`Move section ${index + 1} (${section.type.toLowerCase()}) up`}
-                        className="rounded border border-slate-300 px-1 text-[10px] leading-4 text-slate-700 disabled:opacity-30"
+                        className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-slate-300 px-1 text-xs leading-4 text-slate-700 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px]"
                       >
                         ↑
                       </button>
@@ -677,7 +678,7 @@ export default function TeacherStudio({
                         onClick={() => move(index, 1)}
                         disabled={index === order.length - 1 || busy}
                         aria-label={`Move section ${index + 1} (${section.type.toLowerCase()}) down`}
-                        className="rounded border border-slate-300 px-1 text-[10px] leading-4 text-slate-700 disabled:opacity-30"
+                        className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-slate-300 px-1 text-xs leading-4 text-slate-700 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px]"
                       >
                         ↓
                       </button>
@@ -692,7 +693,7 @@ export default function TeacherStudio({
                     onChange={(event) => editScript(index, event.target.value)}
                     rows={2}
                     placeholder="No script"
-                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-2 text-base focus:border-indigo-500 focus:outline-none lg:py-1 lg:text-xs"
                   />
                 </li>
               )
@@ -704,7 +705,7 @@ export default function TeacherStudio({
               type="button"
               onClick={save}
               disabled={busy || !dirty}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs"
             >
               Save draft
             </button>
@@ -712,7 +713,7 @@ export default function TeacherStudio({
               type="button"
               onClick={discard}
               disabled={busy || !dirty}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs"
             >
               Discard local changes
             </button>
@@ -741,7 +742,7 @@ export default function TeacherStudio({
               type="button"
               onClick={() => previousScene && setSelectedSceneId(previousScene.scene_id)}
               disabled={!previousScene}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className={BUTTON_SMALL}
             >
               ← Previous
             </button>
@@ -749,7 +750,7 @@ export default function TeacherStudio({
               type="button"
               onClick={() => nextScene && setSelectedSceneId(nextScene.scene_id)}
               disabled={!nextScene}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className={BUTTON_SMALL}
             >
               Next →
             </button>
@@ -764,21 +765,20 @@ export default function TeacherStudio({
                 {scene.requires_review && <Badge value="requires review" style="bg-amber-100 text-amber-700" />}
               </>
             )}
-            <span className="ml-auto text-[11px] text-slate-400">Use ← / → to move between slides</span>
+            {/* A keyboard hint is useless on a phone, where there is no keyboard. */}
+            <span className="ml-auto hidden text-[11px] text-slate-400 sm:inline">
+              Use ← / → to move between slides
+            </span>
             <button
               type="button"
               onClick={() => setFocus((previous) => !previous)}
               aria-pressed={focus}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              className={BUTTON_SMALL}
             >
               {focus ? 'Show lesson order' : 'Focus slide'}
             </button>
             {fullscreen.supported && (
-              <button
-                type="button"
-                onClick={fullscreen.toggle}
-                className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-              >
+              <button type="button" onClick={fullscreen.toggle} className={BUTTON_SMALL}>
                 {fullscreen.active ? 'Exit full screen' : 'Full screen'}
               </button>
             )}

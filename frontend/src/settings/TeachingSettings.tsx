@@ -124,7 +124,7 @@ export default function TeachingSettings() {
           {artifact ? (
             <Link
               to={learnPath(artifact)}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white lg:min-h-0"
             >
               Open the last deck and teach it
             </Link>

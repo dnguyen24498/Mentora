@@ -7,7 +7,7 @@ import {
   type ClassSummary,
   type Course,
 } from '../api/client'
-import { Badge, Banner, EmptyState, Panel } from '../components/ui'
+import { Badge, Banner, BUTTON_SMALL, EmptyState, Panel } from '../components/ui'
 
 /**
  * The admin landing view: what the tenant holds, and where to manage it.
@@ -60,7 +60,7 @@ export default function AdminOverview({ institutionId }: { institutionId: string
               },
               (cause: unknown) => setError(describeApiError(cause)),
             )}
-            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            className={BUTTON_SMALL}
           >
             Refresh
           </button>
@@ -69,22 +69,22 @@ export default function AdminOverview({ institutionId }: { institutionId: string
         {error && <Banner tone="bad">{error}</Banner>}
         {loading && <EmptyState>Loading…</EmptyState>}
 
-        <dl className="grid grid-cols-3 gap-3 text-center">
-          <div className="rounded-lg border border-slate-200 p-3">
-            <dt className="text-[11px] uppercase tracking-wide text-slate-400">Courses</dt>
-            <dd data-testid="admin-course-count" className="mt-1 text-2xl font-semibold">
+        <dl className="grid grid-cols-3 gap-2 text-center sm:gap-3">
+          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
+            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Courses</dt>
+            <dd data-testid="admin-course-count" className="mt-1 text-xl font-semibold sm:text-2xl">
               {courses.length}
             </dd>
           </div>
-          <div className="rounded-lg border border-slate-200 p-3">
-            <dt className="text-[11px] uppercase tracking-wide text-slate-400">Classes</dt>
-            <dd data-testid="admin-class-count" className="mt-1 text-2xl font-semibold">
+          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
+            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Classes</dt>
+            <dd data-testid="admin-class-count" className="mt-1 text-xl font-semibold sm:text-2xl">
               {classes.length}
             </dd>
           </div>
-          <div className="rounded-lg border border-slate-200 p-3">
-            <dt className="text-[11px] uppercase tracking-wide text-slate-400">Running</dt>
-            <dd className="mt-1 text-2xl font-semibold">{activeClasses}</dd>
+          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
+            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Running</dt>
+            <dd className="mt-1 text-xl font-semibold sm:text-2xl">{activeClasses}</dd>
           </div>
         </dl>
 

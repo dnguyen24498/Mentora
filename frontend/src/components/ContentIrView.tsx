@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ContentIR, ShapeObject, SlideScene } from '../api/client'
+import { BUTTON_SMALL } from './ui'
 
 const KIND_STYLE: Record<string, string> = {
   text: 'bg-sky-100 text-sky-700',
@@ -122,7 +123,7 @@ function SlideCard({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
+        className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-slate-50"
       >
         <span className={`text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="text-sm font-semibold text-slate-800">Slide {slide.order + 1}</span>
@@ -213,33 +214,29 @@ export default function ContentIrView({ document }: { document: ContentIR }) {
           <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
             {document.schema_version}
           </span>
-          <div className="ml-auto flex gap-1.5">
+          <div className="ml-auto flex flex-wrap gap-1.5">
             <button
               type="button"
               onClick={() => setOpenSlides(new Set(document.slides.map((s) => s.order)))}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              className={BUTTON_SMALL}
             >
               Expand all
             </button>
             <button
               type="button"
               onClick={() => setOpenSlides(new Set())}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              className={BUTTON_SMALL}
             >
               Collapse all
             </button>
             <button
               type="button"
               onClick={() => setShowRaw((value) => !value)}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              className={BUTTON_SMALL}
             >
               {showRaw ? 'Hide' : 'Show'} raw JSON
             </button>
-            <button
-              type="button"
-              onClick={download}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-            >
+            <button type="button" onClick={download} className={BUTTON_SMALL}>
               Download JSON
             </button>
           </div>

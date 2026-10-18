@@ -39,6 +39,43 @@ tenant — and are disabled with an explanation before an id exists. The library
 the hub: it lists the tenant's classes (`GET /classes`) and links each to its
 classroom, and offers both the Studio and the learning page for a selected deck.
 
+## Implemented responsive layout (phone and large screen)
+
+The app was built for the large screen — a classroom display, a projector, a
+laptop in the Teacher Studio — and the UI **MUST** remain usable on a phone
+without losing that layout. Every page is therefore one layout expressed
+mobile-first, not two designs: `frontend/src/components/ui.tsx` holds the tokens
+(tap target, page/card padding, form control, buttons, section tab) and
+`frontend/src/components/PageHeader.tsx` is the app bar the five full pages share
+(the shared nav, the page's `h1`, an optional qualifier and identifier, the tenant
+field and the page's own action).
+
+`lg` (≥1024px) is the switch between the two, and it is not arbitrary: it is
+already the app's big-screen breakpoint (every two-column page and the one-row
+header use it). Below `lg` the UI assumes a finger, at and above it a mouse:
+
+- A control **MUST** be at least 44px tall below `lg` and may return to the
+  original compact height above it. The shared nav is a **wrapping row of chips**
+  — six destinations, shown rather than hidden behind a menu, scrolling sideways
+  only for the section tabs (Admin, Settings).
+- A form control **MUST** be 16px below `lg`: iOS Safari zooms the whole page when
+  a focused control's text is smaller, and a phone in landscape and a tablet are
+  both below `lg`. Above it the original dense size returns.
+- Definition-list rows (`ui.tsx::Row`) stack label over value on a phone, where a
+  long identifier would otherwise be crushed beside its label, and a wide data
+  table scrolls horizontally inside its own container rather than squeezing its
+  columns.
+- The teaching canvas sizes its bitmap to the **device pixel ratio** of the
+  surface (`devicePixelRatio`; a phone reports 2–3), so a stroke is drawn at the
+  screen's own resolution instead of an upscaled CSS-pixel bitmap. A stroke's
+  points and width stay in the surface's **CSS** pixels — the paint transform
+  applies the scale — so a stroke keeps its meaning across a re-measure.
+  Re-measuring happens on a resize, a rotation and a `ResizeObserver` change.
+
+Nothing about this is a behavioural change: no page gains or loses a control, no
+request changes, and the phone layout is the same information the large screen
+shows.
+
 ## Implemented learning page
 
 `/learn/{artifactId}` (`frontend/src/presentation/`) presents one deck: the

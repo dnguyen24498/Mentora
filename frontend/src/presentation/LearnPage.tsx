@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import SiteNav from '../components/SiteNav'
+import PageHeader from '../components/PageHeader'
+import { BUTTON_SMALL, PAGE_PADDING } from '../components/ui'
 import SlideStage from './SlideStage'
 import type { AnnotationStroke } from './TeachingCanvas'
 import { useInstitution, writeSelectedArtifact } from '../institution'
@@ -275,27 +276,17 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <SiteNav current="learn" artifactId={artifactId} />
-          <h1 className="text-base font-semibold">Learning</h1>
-          <span className="truncate text-sm text-slate-500">{artifact?.filename ?? 'loading…'}</span>
+      <PageHeader
+        nav="learn"
+        title="Learning"
+        subtitle={artifact?.filename ?? 'loading…'}
+        meta={artifactId}
+        artifactId={artifactId}
+        institution={institution}
+        onInstitutionChange={setInstitution}
+      />
 
-          <div className="ml-auto flex items-center gap-2">
-            <label htmlFor="institution" className="text-[11px] font-medium text-slate-500">
-              Institution
-            </label>
-            <input
-              id="institution"
-              value={institution}
-              onChange={(event) => setInstitution(event.target.value)}
-              className="w-40 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
-            />
-          </div>
-        </div>
-      </header>
-
-      <main className="px-4 py-4">
+      <main className={PAGE_PADDING}>
         {phase === 'loading' && (
           <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
             Loading the deck…
@@ -330,7 +321,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                 type="button"
                 onClick={() => go(position - 1)}
                 disabled={position <= 0}
-                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                className={BUTTON_SMALL}
               >
                 ← Previous
               </button>
@@ -341,17 +332,17 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                 type="button"
                 onClick={() => go(position + 1)}
                 disabled={position >= count - 1}
-                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                className={BUTTON_SMALL}
               >
                 Next →
               </button>
-              <label className="ml-2 flex items-center gap-1 text-[11px] text-slate-500">
+              <label className="flex items-center gap-1 text-[11px] text-slate-500 sm:ml-2">
                 Jump to
                 <select
                   aria-label="Jump to slide"
                   value={position}
                   onChange={(event) => go(Number(event.target.value))}
-                  className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-base lg:px-1 lg:py-0.5 lg:text-xs"
                 >
                   {scenes.map((scene, position) => (
                     <option key={scene.scene_id} value={position}>
@@ -360,7 +351,8 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                   ))}
                 </select>
               </label>
-              <span className="ml-auto text-[11px] text-slate-400">
+              {/* A keyboard hint is useless on a phone, where there is no keyboard. */}
+              <span className="ml-auto hidden text-[11px] text-slate-400 sm:inline">
                 Use ← / → to move through the deck
               </span>
             </div>
@@ -403,7 +395,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                       type="button"
                       onClick={playing ? pause : play}
                       data-testid="learn-play"
-                      className="rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white"
+                      className="inline-flex min-h-11 items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white lg:min-h-0 lg:px-2.5 lg:py-1 lg:text-[11px]"
                     >
                       {playing ? 'Pause' : 'Play'}
                     </button>
@@ -412,12 +404,12 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                       onClick={stop}
                       data-testid="learn-stop"
                       disabled={!playing && transcript.length === 0}
-                      className="rounded-md border border-indigo-300 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-40"
+                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-40 lg:min-h-0 lg:px-2.5 lg:py-1 lg:text-[11px]"
                     >
                       Stop
                     </button>
                     {segment && (
-                      <span className="ml-auto text-[11px] text-indigo-800">
+                      <span className="text-[11px] text-indigo-800 sm:ml-auto">
                         {(segment.durationMs / 1000).toFixed(1)}s per slide at {settings.teachingWpm}{' '}
                         wpm
                       </span>
@@ -440,14 +432,14 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                           setTeachFired(false)
                           setTeachAt(fromDateTimeLocalValue(event.target.value))
                         }}
-                        className="rounded-md border border-indigo-300 px-2 py-1 text-[11px]"
+                        className="min-w-0 rounded-md border border-indigo-300 px-2 py-2 text-base lg:py-1 lg:text-[11px]"
                       />
                       {teachAt && (
                         <button
                           type="button"
                           data-testid="learn-teach-clear"
                           onClick={() => setTeachAt(null)}
-                          className="rounded-md border border-indigo-300 px-2 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100"
+                          className="inline-flex min-h-11 items-center justify-center rounded-md border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
                         >
                           Clear
                         </button>

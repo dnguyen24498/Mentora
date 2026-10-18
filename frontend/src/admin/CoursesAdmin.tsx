@@ -19,6 +19,7 @@ import {
   Banner,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
+  BUTTON_SMALL,
   EmptyState,
   INPUT_CLASS,
   Panel,
@@ -248,14 +249,14 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
               type="button"
               onClick={() => void refreshMaterials(courseId)}
               disabled={!courseId}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className={BUTTON_SMALL}
             >
               Refresh
             </button>
           }
         >
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[220px] flex-1">
+            <div className="min-w-0 flex-1 sm:min-w-[220px]">
               <label htmlFor="material" className="block text-sm font-medium text-slate-700">
                 Upload a .pptx
               </label>
@@ -264,7 +265,7 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
                 type="file"
                 accept=".pptx"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                className="mt-1 w-full text-xs"
+                className="mt-1 w-full text-base lg:text-xs"
               />
             </div>
             <button
@@ -289,7 +290,7 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
 
           {materials.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full min-w-[560px] text-left text-xs">
                 <thead className="text-[10px] uppercase tracking-wide text-slate-400">
                   <tr>
                     <th className="py-1 pr-3">File</th>
@@ -319,20 +320,20 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
                         <div className="flex flex-wrap gap-1">
                           <Link
                             to={studioPath(material.artifact_id)}
-                            className="rounded border border-slate-300 px-1.5 py-0.5 font-medium text-slate-700 hover:bg-slate-50"
+                            className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 lg:px-1.5 lg:py-0.5"
                           >
                             Studio
                           </Link>
                           <Link
                             to={learnPath(material.artifact_id)}
-                            className="rounded border border-slate-300 px-1.5 py-0.5 font-medium text-slate-700 hover:bg-slate-50"
+                            className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 lg:px-1.5 lg:py-0.5"
                           >
                             Learn
                           </Link>
                           <button
                             type="button"
                             onClick={() => void openDetail(material.artifact_id)}
-                            className="rounded border border-slate-300 px-1.5 py-0.5 font-medium text-slate-700 hover:bg-slate-50"
+                            className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 lg:px-1.5 lg:py-0.5"
                           >
                             Details
                           </button>
@@ -340,7 +341,7 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
                             type="button"
                             onClick={() => void compile(material)}
                             disabled={busy}
-                            className="rounded border border-slate-300 px-1.5 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                            className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:px-1.5 lg:py-0.5"
                           >
                             Compile
                           </button>

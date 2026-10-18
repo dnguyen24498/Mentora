@@ -41,7 +41,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto max-w-2xl px-6 py-16">
+      <main className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-xl font-semibold">Page not found</h1>
         <p className="mt-2 text-sm text-slate-500">
           Nothing is served at <code className="rounded bg-slate-200 px-1 font-mono">{route.path}</code>.

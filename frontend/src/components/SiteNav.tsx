@@ -1,5 +1,6 @@
 import { Link, adminPath, classroomPath, learnPath, settingsPath, studioPath } from '../router'
 import { readSelectedArtifact, readSelectedClass } from '../institution'
+import { TOUCH_TARGET } from './ui'
 
 /**
  * The app's page-to-page navigation (V0 frontend).
@@ -13,6 +14,12 @@ import { readSelectedArtifact, readSelectedClass } from '../institution'
  * the one it holds, otherwise the last one opened is remembered
  * (`institution.ts`). With no id yet, the link is not a link but a disabled
  * label that says why: a nav entry that goes nowhere is worse than none.
+ *
+ * It is built to be a phone's primary navigation as well as a laptop's: each
+ * entry is a chip with the 44px minimum tap area below `lg`
+ * (`ui.tsx::TOUCH_TARGET`) and the original compact chip from `lg` up, and the
+ * row wraps rather than overflowing — six destinations is short enough to show
+ * them all rather than hide some behind a menu.
  */
 export type SiteNavPage = 'library' | 'studio' | 'classroom' | 'learn' | 'admin' | 'settings'
 
@@ -33,7 +40,7 @@ interface NavEntryProps {
   hint: string
 }
 
-const ITEM_BASE = 'rounded-md px-2 py-1 text-[11px] font-medium transition'
+const ITEM_BASE = `inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition lg:px-2 lg:py-1 lg:text-[11px] ${TOUCH_TARGET}`
 
 function NavEntry({ to, label, current, hint }: NavEntryProps) {
   if (!to) {
@@ -67,7 +74,7 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
   const klass = classId || readSelectedClass()
 
   return (
-    <nav aria-label="Pages" className="flex flex-wrap items-center gap-1">
+    <nav aria-label="Pages" className="flex flex-wrap items-center gap-1.5 sm:gap-1">
       <NavEntry to="/" label="Library" current={current === 'library'} hint="The material library" />
       <NavEntry
         to={artifact ? studioPath(artifact) : null}

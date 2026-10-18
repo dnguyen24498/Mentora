@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import ClassroomShell from './ClassroomShell'
-import SiteNav from '../components/SiteNav'
+import PageHeader from '../components/PageHeader'
+import { PAGE_PADDING } from '../components/ui'
 import { useInstitution, writeSelectedClass } from '../institution'
 import { useClassroomSession } from './useClassroomSession'
 import type { ClassroomTransport } from './state/transport'
@@ -46,25 +47,15 @@ export default function ClassroomPage({
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <SiteNav current="classroom" classId={classId} />
-          <h1 className="text-base font-semibold text-slate-800">Classroom</h1>
-          <span className="truncate font-mono text-[11px] text-slate-400">{classId}</span>
-          <div className="ml-auto flex items-center gap-2">
-            <label htmlFor="institution" className="text-xs text-slate-500">
-              Institution
-            </label>
-            <input
-              id="institution"
-              value={institution}
-              onChange={(event) => setInstitution(event.target.value)}
-              className="rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-        </div>
-      </header>
-      <main className="px-4 py-4">
+      <PageHeader
+        nav="classroom"
+        title="Classroom"
+        subtitle={<span className="font-mono">{classId}</span>}
+        classId={classId}
+        institution={institution}
+        onInstitutionChange={setInstitution}
+      />
+      <main className={PAGE_PADDING}>
         <ClassroomShell
           state={state}
           capabilities={capabilities}

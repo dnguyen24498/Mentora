@@ -377,7 +377,7 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
         <Panel
           title="Classes"
           actions={
-            <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+            <label className="flex items-center gap-1.5 py-1 text-xs text-slate-600 sm:text-[11px]">
               <input
                 type="checkbox"
                 data-testid="class-auto-start"
@@ -461,10 +461,10 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
             <Panel
               title="Class detail"
               actions={
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Link
                     to={classroomPath(detail.class.class_id)}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
                   >
                     Open classroom
                   </Link>
@@ -472,7 +472,7 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                     type="button"
                     onClick={() => void start()}
                     disabled={busy || detail.class.state !== 'SCHEDULED'}
-                    className="rounded-md bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
                   >
                     Start
                   </button>

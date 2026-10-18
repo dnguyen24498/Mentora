@@ -54,6 +54,43 @@ extension-less 404 while still serving real assets and still 404ing a *missing*
 asset. The tenant is stored in `localStorage` (`src/institution.ts`) so a studio
 tab opened separately shares it with the library tab.
 
+## Phones and large screens
+
+The app is designed for a large screen (a classroom display, the Teacher Studio on
+a second monitor) and is **usable on a phone** without becoming a second design:
+every page is one mobile-first layout, so the large screen still gets the dense
+layout it had.
+
+`src/components/PageHeader.tsx` is the app bar the five full pages share — the
+shared nav, the page's name, an optional qualifier (a filename, a class) and
+identifier, the tenant field, and the page's own action or section tabs. The tenant
+field is a **prop**, not state inside the header: the page keeps the single
+`useInstitution()` hook, so a change in the bar flows to the page instead of into a
+private copy. On a phone the bar stacks (nav → title → tenant field); from `lg` up
+the pieces return to the one-row bar.
+
+The rules live in `src/components/ui.tsx` as plain class-string tokens
+(`TOUCH_TARGET`, `PAGE_PADDING`, `PANEL_PADDING`, `INPUT_CLASS`,
+`INPUT_CHROME_CLASS`, `BUTTON_PRIMARY`/`BUTTON_SECONDARY`/`BUTTON_SMALL`,
+`TAB_CLASS`), so "how this app looks on a phone" is decided in one place:
+
+- Below `lg` (≥1024px) the UI assumes a finger: every control is at least **44px**
+  tall, and above `lg` the original compact height returns. `lg` is the app's own
+  big-screen breakpoint (every two-column page already switches there), and
+  `SiteNav` **wraps** its six chips rather than hiding some behind a menu.
+- A form control is **16px** below `lg`. This one is a bug rather than a taste:
+  iOS Safari zooms the whole page when a focused control's text is smaller, and a
+  phone in landscape and a tablet are both below `lg`.
+- Definition-list rows (`Row`) stack label over value on a phone, a wide data
+  table scrolls sideways inside its container, and a two-button action grid
+  (`Extract` / `Open Teacher Studio`) stacks.
+- The teaching canvas draws at the screen's **device pixel ratio**, so a stroke on
+  a phone is sharp instead of an upscaled CSS-pixel bitmap. Strokes are stored in
+  CSS pixels either way, so the scale only affects the paint.
+
+Keyboard affordances (← / → hints) are hidden below `lg`, where there is no
+keyboard; nothing is removed from the DOM, and no page gains or loses a control.
+
 ## Ports
 
 | Service | Port |
@@ -352,6 +389,13 @@ in both directions, the `datetime-local` round trip in the reader's own timezone
 and the one-line schedule description).
 `src/settings/store.test.ts` covers the preference store (defaults, round-trip,
 unreadable storage, clamping an out-of-range pace, ignoring an unknown mode).
+`src/components/PageHeader.test.tsx` covers the shared app bar's contract (one
+`h1` per page, the current nav entry, the tenant field reporting to the page rather
+than holding its own copy, and the page's own action/second row), and
+`src/presentation/TeachingCanvas.test.tsx` covers the canvas's device-scale
+contract (the bitmap is the surface times the device pixel ratio, so a phone gets
+a sharp line; it stays 1:1 where the scale is 1) and its no-2D-context
+degradation.
 `src/admin/AdminPage.test.tsx` covers each admin section against a mocked API
 (course creation, material listing/upload/compile in the Settings mode, the
 absence of any delete/rename, scheduling with and without a datetime, starting,

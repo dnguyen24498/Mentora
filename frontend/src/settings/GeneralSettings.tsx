@@ -3,7 +3,7 @@ import { Link } from '../router'
 import { describeApiError, loadHealth, loadRendererStatus, type RendererStatus } from '../api/client'
 import { useInstitution } from '../institution'
 import { DEFAULT_SETTINGS, useSettings } from './store'
-import { Banner, BUTTON_SECONDARY, EmptyState, Panel, Row } from '../components/ui'
+import { Banner, BUTTON_SECONDARY, EmptyState, INPUT_CLASS, Panel, Row } from '../components/ui'
 
 /**
  * General settings: who you are, whether the server is up, and what the server
@@ -61,7 +61,7 @@ export default function GeneralSettings() {
               id="institution-general"
               value={institution}
               onChange={(event) => setInstitution(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={`mt-1 ${INPUT_CLASS}`}
             />
             <p className="mt-1 text-[11px] text-slate-400">
               Sent as the <span className="font-mono">X-Institution-Id</span> header on every request.

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import SiteNav from '../components/SiteNav'
+import PageHeader from '../components/PageHeader'
+import { PAGE_PADDING, TAB_CLASS } from '../components/ui'
 import { Link, adminPath, type AdminSection } from '../router'
 import { useInstitution } from '../institution'
 import AdminOverview from './AdminOverview'
@@ -38,26 +39,10 @@ export default function AdminPage({ section }: AdminPageProps) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <SiteNav current="admin" />
-          <h1 className="text-base font-semibold">Admin</h1>
-          <div className="ml-auto flex items-center gap-2">
-            <label htmlFor="institution" className="text-[11px] font-medium text-slate-500">
-              Institution
-            </label>
-            <input
-              id="institution"
-              value={institution}
-              onChange={(event) => setInstitution(event.target.value)}
-              className="w-40 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
-            />
-          </div>
-        </div>
-
+      <PageHeader nav="admin" title="Admin" institution={institution} onInstitutionChange={setInstitution}>
         <nav
           aria-label="Admin sections"
-          className="flex gap-1 overflow-x-auto border-t border-slate-100 px-4 py-2"
+          className="flex gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 sm:px-4"
         >
           {TABS.map((tab) => {
             const active = tab.section === section
@@ -66,7 +51,7 @@ export default function AdminPage({ section }: AdminPageProps) {
                 key={tab.section}
                 to={adminPath(tab.section)}
                 aria-current={active ? 'page' : undefined}
-                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                className={`${TAB_CLASS} ${
                   active
                     ? 'bg-indigo-600 text-white'
                     : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -77,9 +62,9 @@ export default function AdminPage({ section }: AdminPageProps) {
             )
           })}
         </nav>
-      </header>
+      </PageHeader>
 
-      <main className="px-6 py-6">
+      <main className={PAGE_PADDING}>
         {section === 'overview' && <AdminOverview institutionId={institution} />}
         {section === 'courses' && <CoursesAdmin institutionId={institution} />}
         {section === 'classes' && <ClassesAdmin institutionId={institution} />}

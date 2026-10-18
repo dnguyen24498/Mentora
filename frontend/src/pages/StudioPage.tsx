@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import TeacherStudio from '../components/TeacherStudio'
-import SiteNav from '../components/SiteNav'
+import PageHeader from '../components/PageHeader'
+import { BUTTON_SMALL, PAGE_PADDING } from '../components/ui'
 import { useInstitution, writeSelectedArtifact } from '../institution'
 import {
   ApiError,
@@ -175,36 +176,27 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <SiteNav current="studio" artifactId={artifactId} />
-          <h1 className="text-base font-semibold">Teacher Studio</h1>
-          <span className="truncate text-sm text-slate-500">{artifact?.filename ?? 'loading…'}</span>
-          <span className="hidden truncate font-mono text-[11px] text-slate-400 sm:inline">{artifactId}</span>
+      <PageHeader
+        nav="studio"
+        title="Teacher Studio"
+        subtitle={artifact?.filename ?? 'loading…'}
+        meta={artifactId}
+        artifactId={artifactId}
+        institution={institution}
+        onInstitutionChange={setInstitution}
+        actions={
+          <button
+            type="button"
+            onClick={() => void load({ rebuild: true })}
+            disabled={loading}
+            className={BUTTON_SMALL}
+          >
+            Rebuild package
+          </button>
+        }
+      />
 
-          <div className="ml-auto flex items-center gap-2">
-            <label htmlFor="institution" className="text-[11px] font-medium text-slate-500">
-              Institution
-            </label>
-            <input
-              id="institution"
-              value={institution}
-              onChange={(event) => setInstitution(event.target.value)}
-              className="w-40 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => void load({ rebuild: true })}
-              disabled={loading}
-              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Rebuild package
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="px-4 py-4">
+      <main className={PAGE_PADDING}>
         {phase === 'loading' && (
           <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
             Loading the reviewed package…

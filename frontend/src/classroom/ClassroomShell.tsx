@@ -131,20 +131,20 @@ export default function ClassroomShell({
           </h3>
           <dl className="mt-3 space-y-2 text-sm text-slate-600">
             <div className="flex justify-between gap-2">
-              <dt>Actor epoch</dt>
-              <dd className="font-mono">{events.epoch ?? '—'}</dd>
+              <dt className="shrink-0">Actor epoch</dt>
+              <dd className="min-w-0 truncate font-mono">{events.epoch ?? '—'}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt>Last sequence</dt>
-              <dd className="font-mono">{events.lastSequence}</dd>
+              <dt className="shrink-0">Last sequence</dt>
+              <dd className="min-w-0 truncate font-mono">{events.lastSequence}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt>State version</dt>
-              <dd className="font-mono">{events.stateVersion}</dd>
+              <dt className="shrink-0">State version</dt>
+              <dd className="min-w-0 truncate font-mono">{events.stateVersion}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt>Checkpoint</dt>
-              <dd className="font-mono">{events.checkpoint?.label ?? '—'}</dd>
+              <dt className="shrink-0">Checkpoint</dt>
+              <dd className="min-w-0 truncate font-mono">{events.checkpoint?.label ?? '—'}</dd>
             </div>
           </dl>
           {events.lastOutcome && (
@@ -160,7 +160,7 @@ export default function ClassroomShell({
           type="button"
           onClick={() => onNavigate('NAVIGATE_PREVIOUS')}
           disabled={!canControl}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
         >
           Previous scene
         </button>
@@ -168,7 +168,7 @@ export default function ClassroomShell({
           type="button"
           onClick={() => onNavigate('NAVIGATE_NEXT')}
           disabled={!canControl}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
         >
           Next scene
         </button>
@@ -176,7 +176,7 @@ export default function ClassroomShell({
           type="button"
           onClick={onResync}
           disabled={status === 'resyncing'}
-          className="rounded bg-slate-800 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center justify-center rounded bg-slate-800 px-3 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
         >
           Resynchronise
         </button>
@@ -184,7 +184,7 @@ export default function ClassroomShell({
           type="button"
           onClick={onToggleFocusScene}
           aria-pressed={ui.focusScene}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700"
+          className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 lg:min-h-0 lg:py-1.5"
         >
           Focus scene
         </button>
