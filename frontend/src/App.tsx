@@ -1,23 +1,27 @@
+import ClassroomPage from './classroom/ClassroomPage'
 import StudioPage from './pages/StudioPage'
 import UploadPage from './pages/UploadPage'
 import { LIBRARY_PATH, Link, useRoute } from './router'
 
 /**
- * The app shell: it routes between the two real pages.
+ * The app shell: it routes between the real pages.
  *
  * * `/` — the material library (`pages/UploadPage.tsx`): create a course,
  *   upload a `.pptx`, inspect the extracted Content IR;
  * * `/studio/{artifactId}` — the Teacher Studio (`pages/StudioPage.tsx`): the
- *   full-width slide review of one uploaded deck, meant to be opened large.
+ *   full-width slide review of one uploaded deck, meant to be opened large;
+ * * `/classroom/{classId}` — the Classroom (`classroom/ClassroomPage.tsx`): the
+ *   authoritative runtime state of a running session (V0-011).
  *
  * Routing is a ~60-line dependency-free module (`router.tsx`) rather than a
- * router dependency: two static pages do not justify one, and the project adds
- * no production dependency without an accepted decision.
+ * router dependency: a handful of static pages do not justify one, and the
+ * project adds no production dependency without an accepted decision.
  */
 export default function App() {
   const route = useRoute()
 
   if (route.name === 'studio') return <StudioPage artifactId={route.artifactId} />
+  if (route.name === 'classroom') return <ClassroomPage classId={route.classId} />
   if (route.name === 'library') return <UploadPage />
 
   return (

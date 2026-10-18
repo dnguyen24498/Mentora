@@ -64,6 +64,9 @@ export default defineConfig({
     proxy: {
       '/courses': backendProxy(),
       '/artifacts': backendProxy(),
+      // Classroom runtime (V0-009/V0-011): the Classroom page reads the
+      // authoritative session snapshot from `/classes/{id}/snapshot`.
+      '/classes': backendProxy(),
       '/health': backendProxy(),
       // Renderer capability/health (V0-005) and the API docs. Without these the
       // dev server answers with the SPA fallback (index.html), so the browser

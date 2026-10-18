@@ -19,15 +19,22 @@ import {
 
 export const LIBRARY_PATH = '/'
 export const STUDIO_PATH = '/studio'
+export const CLASSROOM_PATH = '/classroom'
 
 export type Route =
   | { name: 'library' }
   | { name: 'studio'; artifactId: string }
+  | { name: 'classroom'; classId: string }
   | { name: 'not-found'; path: string }
 
 /** The canonical URL of one artifact's Teacher Studio page. */
 export function studioPath(artifactId: string): string {
   return `${STUDIO_PATH}/${encodeURIComponent(artifactId)}`
+}
+
+/** The canonical URL of one class's classroom page. */
+export function classroomPath(classId: string): string {
+  return `${CLASSROOM_PATH}/${encodeURIComponent(classId)}`
 }
 
 /** Map a pathname onto a route. Unknown paths are the app's own 404 view. */
@@ -50,6 +57,20 @@ export function parseRoute(pathname: string): Route {
       }
       // A decoded slash would not survive `studioPath()`, so it is not an id.
       if (decoded && !decoded.includes('/')) return { name: 'studio', artifactId: decoded }
+    }
+  }
+
+  if (trimmed.startsWith(`${CLASSROOM_PATH}/`)) {
+    const raw = trimmed.slice(CLASSROOM_PATH.length + 1)
+    // A class id is a single segment; anything deeper is not a page we have.
+    if (raw && !raw.includes('/')) {
+      let decoded: string
+      try {
+        decoded = decodeURIComponent(raw)
+      } catch {
+        return { name: 'not-found', path: trimmed }
+      }
+      if (decoded && !decoded.includes('/')) return { name: 'classroom', classId: decoded }
     }
   }
 

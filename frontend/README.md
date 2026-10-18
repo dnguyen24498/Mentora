@@ -1,7 +1,8 @@
 # Frontend
 
-Material library (`.pptx` upload) plus the Teacher Studio review page, as two
-real pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
+Material library (`.pptx` upload), the Teacher Studio review page, and the
+Classroom runtime page, as real pages of one Vite app. React + TypeScript +
+Tailwind, built with Vite.
 
 ## Pages and routing
 
@@ -9,6 +10,7 @@ real pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | --- | --- | --- |
 | `/` | Material library — courses, upload, extracted Content IR | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
+| `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
 The teacher review flow is a **page of its own**, not a panel on the upload page:
@@ -16,9 +18,9 @@ it is the large-screen slide surface, so it is opened directly (a new tab, a
 second monitor, a bookmark), survives a deep link and a refresh, and sets its own
 document title to the file name.
 
-Routing is `src/router.tsx` — a ~60-line dependency-free `useRoute` / `navigate` /
-`Link` module (no router dependency: two static pages do not justify one, and the
-project adds no production dependency without an accepted decision).
+Routing is `src/router.tsx` — a ~70-line dependency-free `useRoute` / `navigate` /
+`Link` module (no router dependency: a handful of static pages do not justify one,
+and the project adds no production dependency without an accepted decision).
 `Link` renders a real `<a href>`, so middle-click, ctrl/cmd-click and "open in new
 tab" behave natively; only a plain left click is routed client-side.
 
@@ -36,7 +38,7 @@ tab opened separately shares it with the library tab.
 | Frontend (Vite dev server) | **8000** |
 | Backend API | **8001** |
 
-Vite proxies `/courses`, `/artifacts`, and `/health` to the backend
+Vite proxies `/courses`, `/artifacts`, `/classes`, and `/health` to the backend
 (`MENTORA_BACKEND_ORIGIN`, default `http://127.0.0.1:8001`), so the browser only
 ever talks to `:8000` — no CORS.
 
@@ -135,6 +137,42 @@ refresh works in single-origin mode too.
     principal), so the reviewer field is attribution only and defaults to the
     tenant id.
 
+## Classroom (V0-011)
+
+`/classroom/{classId}` is the runtime view of a session. It is a **projection** —
+the Classroom Actor owns the truth — rebuilt from the authoritative snapshot
+(`GET /classes/{id}/snapshot`) plus contiguous ordered events, so a **refresh
+restores scene and state**.
+
+- **State** lives in `src/classroom/state/`, split into separate slices
+  (`ClassroomStore`): the raw **snapshot**, the **event reducer**, **media** and
+  **ephemeral UI / accessibility preferences**. Only the reducer slice is derived
+  from the actor; media and UI are client-only.
+- **`reducer.ts`** is pure: it applies an event only when it is contiguous for the
+  current epoch (`sequence === lastSequence + 1`), **ignores duplicates and stale
+  events** (`sequence <= lastSequence`), **discards an effect from a superseded
+  epoch**, and reports a **sequence gap** rather than applying out of order.
+- **`session.ts`** wires a store to a transport: a gap, a stale epoch, or the
+  **Resynchronise** button re-reads the authoritative snapshot (bounded retry) and
+  resets the event cursor. A failed load leaves the client `disconnected` and
+  frozen.
+- **`ClassroomShell.tsx`** shows the scene identity and the authoritative state
+  (epoch, sequence, state version, checkpoint), previous/next scene and resync
+  controls — the command controls are disabled whenever the client is not `live`
+  — a recovery banner (`role="status"` / `role="alert"`), and accessibility
+  preference toggles (reduced motion, high contrast) persisted to `localStorage`.
+- **Transport** (`transport.ts`) is an interface. The ordered per-class
+  command/event mechanism is `DEC-DATA-003` and its technology is `OPEN`, so the
+  shipped transport reads the snapshot only and advertises
+  `liveEvents:false`/`commands:false`; the page says so instead of faking a
+  stream. The live stream and command path are V1-002. Tests and a local demo
+  drive events through the injected `ClassroomTransport`.
+- **Telemetry** (`telemetry.ts`) emits structured events and counters — identities
+  and outcomes only, never scene text, transcript or audio.
+
+Out of scope here (and kept inactive by design): microphone, Raise Hand and
+WebRTC. `studentMicActive` is always `false` (`DEC-TURN-001`).
+
 ## Tests
 
 ```bash
@@ -150,9 +188,19 @@ and the draft payload, focus mode, and basic screen-reader structure.
 `src/pages/StudioPage.test.tsx` covers the page's orchestration (load vs build,
 the visible rendering phase, unloadable packages, the server's refusal, draft
 saves) with a mocked API client; `src/App.test.tsx` covers the routing between
-the two pages including a deep link; `src/router.test.tsx` covers route parsing
+the pages including a deep link; `src/router.test.tsx` covers route parsing
 and the `Link`/`navigate` behaviour. Test deps are **dev-only**; the production
 build and its dependencies are unchanged.
+
+`src/classroom/state/reducer.test.ts` is the pure-reducer acceptance suite
+(contiguous apply, duplicate/stale ignored, gap reported and not applied,
+superseded epoch discarded, unknown event advances the cursor); 
+`src/classroom/state/session.test.ts` covers connect, gap → resync → recover,
+bounded-retry disconnect and the telemetry contract; 
+`src/classroom/ClassroomPage.test.tsx` is the component-level end-to-end
+(refresh restores scene/state, duplicate ignored, gap freezes controls and
+recovers, accessibility smoke), with the event stream driven by an injected
+transport so no server is needed.
 
 Only `.pptx` (OOXML) is accepted; legacy `.ppt` is rejected by the backend with
 `UNSUPPORTED_LEGACY_FORMAT`.

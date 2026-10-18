@@ -1,9 +1,9 @@
 id: V0-011
 title: "Classroom frontend snapshot and event reducer"
 week: W5
-status: TODO
+status: DONE
 depends_on: ["V0-010"]
-started_at: null
-completed_at: null
+started_at: "2026-10-18"
+completed_at: "2026-10-18"
 commit: null
 blockers: []

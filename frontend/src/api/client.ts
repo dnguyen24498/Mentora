@@ -395,3 +395,96 @@ export const listReviewDrafts = (institutionId: string, artifactId: string) =>
     `/artifacts/${artifactId}/review-package/drafts`,
     institutionId,
   )
+
+// -- classroom runtime (V0-011) --------------------------------------------------
+//
+// The classroom client (src/classroom/) reads the authoritative session snapshot
+// and projects its state from it. These are the wire shapes of `GET
+// /classes/{id}/snapshot`: the durable `runtime-snapshot@1` document plus its
+// envelope (V0-009/V0-010). The document is what a refresh restores; it never
+// becomes authoritative on the client.
+
+export interface ClassroomCheckpoint {
+  checkpoint_id: string
+  scene_id: string | null
+  step_id: string | null
+  label: string | null
+  final: boolean
+  created_at: string
+}
+
+export interface ClassroomLessonPosition {
+  lesson_plan_version?: string
+  lesson_id?: string
+  section_index: number | null
+  section_id?: string | null
+  scene_id: string | null
+  scene_step_id?: string | null
+}
+
+export interface ClassroomTimeline {
+  scene_id: string | null
+  step_id: string | null
+  checkpoint: ClassroomCheckpoint | null
+}
+
+export interface ClassroomTurn {
+  queue: unknown[]
+  floor: unknown | null
+  stt_reservation: unknown | null
+}
+
+export interface ClassroomRuntimeVersions {
+  course_id: string
+  course_version: number
+  version_id: string
+  publication_id: string
+  package_id: string
+  content_package_version: string
+  content_digest: string
+  lesson_plan_version: string
+  knowledge_index_version: string
+  index_version_id: string
+  index_source_digest: string
+  teaching_graph_version: string | null
+  assessment_version: string | null
+  model_routing_version: string | null
+  policy_version: string
+  capability_version: string
+  region: string
+}
+
+export interface ClassroomSnapshotDocument {
+  schema_version: string
+  institution_id: string
+  course_id: string
+  class_id: string
+  session_id: string
+  state: string
+  actor_epoch: number
+  state_version: number
+  event_sequence: number
+  versions: ClassroomRuntimeVersions
+  lesson: ClassroomLessonPosition
+  turn: ClassroomTurn
+  timeline: ClassroomTimeline
+  pending_effects: unknown[]
+}
+
+export interface SessionSnapshot {
+  snapshot_id: string
+  class_id: string
+  session_id: string
+  schema_version: string
+  state: string
+  state_version: number
+  event_sequence: number
+  actor_epoch: number
+  checksum: string
+  created_at: string
+  document: ClassroomSnapshotDocument
+}
+
+/** The authoritative session snapshot; a refreshed page restores from it. */
+export const loadSnapshot = (institutionId: string, classId: string) =>
+  request<SessionSnapshot>(`/classes/${classId}/snapshot`, institutionId)

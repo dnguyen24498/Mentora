@@ -1,8 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { loadArtifact, loadReviewPackage, loadReviewState, listCourses, listMaterials } from './api/client'
+import {
+  loadArtifact,
+  loadReviewPackage,
+  loadReviewState,
+  loadSnapshot,
+  listCourses,
+  listMaterials,
+} from './api/client'
 import { ARTIFACT, makeArtifact, makePackage, makeState } from './test/fixtures'
+import { TEST_CLASS, makeSnapshot } from './classroom/state/testing'
 
 vi.mock('./api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/client')>()
@@ -16,6 +24,7 @@ vi.mock('./api/client', async (importOriginal) => {
     loadArtifact: vi.fn(),
     loadReviewPackage: vi.fn(),
     loadReviewState: vi.fn(),
+    loadSnapshot: vi.fn(),
     postReviewDecision: vi.fn(),
     saveReviewDraft: vi.fn(),
     uploadMaterial: vi.fn(),
@@ -61,5 +70,16 @@ describe('App — routing between the two pages', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: /Page not found/ })).toBeTruthy()
+  })
+
+  it('serves the Classroom as its own page at /classroom/{classId}', async () => {
+    visit(`/classroom/${TEST_CLASS}`)
+    vi.mocked(loadSnapshot).mockResolvedValue(makeSnapshot())
+
+    render(<App />)
+
+    expect(await screen.findByTestId('classroom-shell')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Classroom' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /Upload Course Material/ })).toBeNull()
   })
 })

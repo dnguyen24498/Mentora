@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { Link, navigate, parseRoute, studioPath } from './router'
+import { classroomPath, Link, navigate, parseRoute, studioPath } from './router'
 
 const ARTIFACT = '1e4c06bc-f29e-4ba4-9b39-b0b2cf5f4f1e'
 
@@ -32,7 +32,14 @@ describe('parseRoute', () => {
     expect(parseRoute('/studio')).toEqual({ name: 'not-found', path: '/studio' })
     expect(parseRoute('/studio/')).toEqual({ name: 'not-found', path: '/studio' })
     expect(parseRoute('/studio/a/b')).toEqual({ name: 'not-found', path: '/studio/a/b' })
+    expect(parseRoute('/classroom')).toEqual({ name: 'not-found', path: '/classroom' })
     expect(parseRoute('/nope')).toEqual({ name: 'not-found', path: '/nope' })
+  })
+
+  it('maps /classroom/{classId} to the classroom page', () => {
+    expect(parseRoute('/classroom/class-1')).toEqual({ name: 'classroom', classId: 'class-1' })
+    expect(parseRoute('/classroom/class-1/')).toEqual({ name: 'classroom', classId: 'class-1' })
+    expect(parseRoute('/classroom/a/b')).toEqual({ name: 'not-found', path: '/classroom/a/b' })
   })
 })
 
@@ -40,6 +47,13 @@ describe('studioPath', () => {
   it('builds the canonical studio URL and round-trips through parseRoute', () => {
     expect(studioPath(ARTIFACT)).toBe(`/studio/${ARTIFACT}`)
     expect(parseRoute(studioPath(ARTIFACT))).toEqual({ name: 'studio', artifactId: ARTIFACT })
+  })
+})
+
+describe('classroomPath', () => {
+  it('builds the canonical classroom URL and round-trips through parseRoute', () => {
+    expect(classroomPath('class-1')).toBe('/classroom/class-1')
+    expect(parseRoute(classroomPath('class-1'))).toEqual({ name: 'classroom', classId: 'class-1' })
   })
 })
 
