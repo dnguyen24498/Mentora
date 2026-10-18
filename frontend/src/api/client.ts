@@ -106,7 +106,8 @@ const UNREACHABLE_HINT =
 /** Perform a request and turn every failure mode into a stable `ApiError`. */
 async function send(path: string, institutionId: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
-  headers.set('X-Institution-Id', institutionId)
+  // `/health` is tenant-independent, so it sends no tenant header at all.
+  if (institutionId) headers.set('X-Institution-Id', institutionId)
 
   let response: Response
   try {
@@ -506,6 +507,190 @@ export interface SessionSnapshot {
   document: ClassroomSnapshotDocument
 }
 
+/** Turn a failed request into a message that keeps the stable error code. */
+export function describeApiError(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    return cause.message ? `${cause.code}: ${cause.message}` : cause.code
+  }
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
 /** The authoritative session snapshot; a refreshed page restores from it. */
 export const loadSnapshot = (institutionId: string, classId: string) =>
   request<SessionSnapshot>(`/classes/${classId}/snapshot`, institutionId)
+
+// -- admin: classes, enrolments, publications, renderer (V0-008/V0-009) ----------
+//
+// Everything here maps onto an endpoint that already exists. The API has no
+// generic update or delete: content is immutable and a publication is never
+// deleted (`DEC-CONTENT-005`), so the "write" verbs are the domain's own
+// append-only transitions — schedule, start, enrol, publish — plus create.
+
+export interface ClassroomSessionSummary {
+  session_id: string
+  class_id: string
+  course_id: string
+  session_plan_id: string
+  state: string
+  actor_epoch: number
+  state_version: number
+  event_sequence: number
+  snapshot_id: string | null
+  created_at: string
+  started_at: string
+}
+
+/** The resolved, pinned runtime tuple a started session runs on. */
+export interface SessionPlanSummary {
+  session_plan_id: string
+  class_id: string
+  versions: Record<string, unknown>
+  capabilities: Record<string, unknown>
+  created_at: string
+}
+
+export interface ClassView {
+  class: ClassSummary
+  session: ClassroomSessionSummary | null
+  session_plan: SessionPlanSummary | null
+}
+
+export interface Enrollment {
+  enrollment_id: string
+  institution_id: string
+  class_id: string
+  student_id: string
+  created_at: string
+}
+
+export interface ScheduleClassInput {
+  course_id: string
+  title?: string | null
+  version_id?: string | null
+  scheduled_for?: string | null
+}
+
+/** Schedule a class. A class is not run until it is started (V0-009). */
+export const scheduleClass = (institutionId: string, input: ScheduleClassInput) => {
+  const query = new URLSearchParams({ course_id: input.course_id })
+  if (input.title) query.set('title', input.title)
+  if (input.version_id) query.set('version_id', input.version_id)
+  if (input.scheduled_for) query.set('scheduled_for', input.scheduled_for)
+  return request<ClassSummary>(`/classes?${query.toString()}`, institutionId, { method: 'POST' })
+}
+
+export const loadClass = (institutionId: string, classId: string) =>
+  request<ClassView>(`/classes/${classId}`, institutionId)
+
+/** Start a class: pin the exact runtime tuple once and go `ACTIVE`. */
+export const startClass = (institutionId: string, classId: string) =>
+  request<ClassView & { created: boolean }>(`/classes/${classId}/start`, institutionId, {
+    method: 'POST',
+  })
+
+export const listEnrollments = (institutionId: string, classId: string) =>
+  request<{ class_id: string; enrollments: Enrollment[] }>(
+    `/classes/${classId}/enrollments`,
+    institutionId,
+  )
+
+/** Enroll a student. Idempotent: enrolling twice is one enrollment. */
+export const enrollStudent = (institutionId: string, classId: string, studentId: string) =>
+  request<Enrollment & { created: boolean }>(
+    `/classes/${classId}/enrollments?student_id=${encodeURIComponent(studentId)}`,
+    institutionId,
+    { method: 'POST' },
+  )
+
+export interface PublicationIntegrity {
+  state: 'VERIFIED' | 'MISMATCH' | 'MISSING'
+  package_id: string
+  expected_digest: string
+  [key: string]: unknown
+}
+
+export interface Publication {
+  publication_id: string
+  institution_id: string
+  course_id: string
+  version_id: string
+  course_version: number
+  artifact_id: string
+  package_id: string
+  content_package_version: string
+  lesson_plan_versions: string[]
+  knowledge_index_version: string
+  teaching_graph_version: string | null
+  index_version_id: string
+  package_prefix: string
+  manifest_sha256: string
+  content_digest: string
+  file_count: number
+  total_bytes: number
+  state: string
+  superseded_by: string | null
+  published_by: string
+  created_at: string
+  /** Present only when the read asked for verification (`?verify=true`). */
+  integrity?: PublicationIntegrity
+}
+
+export const listPublications = (institutionId: string, courseId: string, limit = 50) =>
+  request<{ course_id: string; publications: Publication[] }>(
+    `/courses/${courseId}/publications?limit=${limit}`,
+    institutionId,
+  )
+
+/** One publication by identity, superseded ones included. */
+export const loadPublication = (institutionId: string, publicationId: string, verify = false) =>
+  request<Publication>(
+    `/publications/${publicationId}${verify ? '?verify=true' : ''}`,
+    institutionId,
+  )
+
+export const loadVersionPublication = (institutionId: string, versionId: string, verify = false) =>
+  request<Publication>(
+    `/course-versions/${versionId}/publication${verify ? '?verify=true' : ''}`,
+    institutionId,
+  )
+
+/** Seal, index and commit an approved version. Idempotent on the content. */
+export const publishVersion = (institutionId: string, versionId: string, publishedBy?: string) =>
+  request<Publication & { created: boolean }>(
+    `/course-versions/${versionId}/publish`,
+    institutionId,
+    JSON_POST({ published_by: publishedBy ?? null }),
+  )
+
+/** Extract, render every slide and run the fidelity gate, for one mode. */
+export const compileArtifact = (institutionId: string, artifactId: string, mode?: string) =>
+  request<Record<string, unknown>>(
+    `/artifacts/${artifactId}/compile${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`,
+    institutionId,
+    { method: 'POST' },
+  )
+
+export interface RendererModeInfo {
+  mode: string
+  label: string
+}
+
+export interface RendererStatus {
+  default_mode: string
+  mode: string
+  modes: RendererModeInfo[]
+  identity: RendererIdentity
+  support: Record<string, unknown>
+  health: Record<string, unknown>
+  theme: Record<string, unknown> | null
+}
+
+/** Renderer capability and circuit-breaker state (V0-005). */
+export const loadRendererStatus = (institutionId: string, mode?: string) =>
+  request<RendererStatus>(
+    `/renderer${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`,
+    institutionId,
+  )
+
+/** Liveness. Needs no tenant: it reports the process, not a tenant's data. */
+export const loadHealth = () => request<{ status: string }>('/health', '')

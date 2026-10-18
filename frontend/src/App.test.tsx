@@ -89,6 +89,7 @@ describe('App — routing between the pages', () => {
   it('serves the Learning page at /learn/{artifactId}', async () => {
     visit(`/learn/${ARTIFACT}`)
     vi.mocked(loadReviewPackage).mockResolvedValue(makePackage())
+    vi.mocked(loadReviewState).mockResolvedValue(makeState())
     vi.mocked(loadArtifact).mockResolvedValue(makeArtifact())
 
     render(<App />)
@@ -96,5 +97,26 @@ describe('App — routing between the pages', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Learning' })).toBeTruthy()
     expect(await screen.findByTestId('teaching-canvas')).toBeTruthy()
     expect(screen.queryByTestId('teacher-studio')).toBeNull()
+  })
+
+  it('serves the Admin area at /admin and one section at /admin/{section}', async () => {
+    visit('/admin')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Admin' })).toBeTruthy()
+    expect(await screen.findByTestId('admin-course-count')).toBeTruthy()
+    // The section tabs are real links, so a section survives a refresh too.
+    expect(screen.getByRole('link', { name: 'Courses & materials' }).getAttribute('href')).toBe(
+      '/admin/courses',
+    )
+  })
+
+  it('serves Settings at /settings and one section at /settings/{section}', async () => {
+    visit('/settings/teaching')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy()
+    // The teaching section is the one on screen, and it is honest about the audio.
+    expect(await screen.findByText('Text only.')).toBeTruthy()
   })
 })

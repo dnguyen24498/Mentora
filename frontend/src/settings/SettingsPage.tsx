@@ -1,0 +1,92 @@
+import { useEffect } from 'react'
+import SiteNav from '../components/SiteNav'
+import { Link, settingsPath, type SettingsSection } from '../router'
+import { useInstitution } from '../institution'
+import GeneralSettings from './GeneralSettings'
+import RenderingSettings from './RenderingSettings'
+import TeachingSettings from './TeachingSettings'
+import AccessibilitySettings from './AccessibilitySettings'
+
+const TABS: { section: SettingsSection; label: string }[] = [
+  { section: 'general', label: 'General' },
+  { section: 'rendering', label: 'Rendering' },
+  { section: 'teaching', label: 'Teaching' },
+  { section: 'accessibility', label: 'Accessibility' },
+]
+
+export interface SettingsPageProps {
+  /** Which settings page is open (the `/settings/{section}` route). */
+  section: SettingsSection
+}
+
+/**
+ * The settings area — `/settings/{section}`.
+ *
+ * Everything here is a **client preference**: there is no settings API. The
+ * server's configuration is its environment (the home region) and the per-request
+ * render mode, and the read-only parts of these pages show that server state
+ * rather than pretending to change it (`GET /renderer`, `GET /health`).
+ *
+ * Preferences are held in one place (`settings/store.ts`) so a change is visible
+ * everywhere at once, and the accessibility page edits the classroom's own
+ * persisted preferences rather than keeping a second copy.
+ */
+export default function SettingsPage({ section }: SettingsPageProps) {
+  const [institution, setInstitution] = useInstitution()
+
+  useEffect(() => {
+    document.title = 'Settings — Mentora'
+  }, [])
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <SiteNav current="settings" />
+          <h1 className="text-base font-semibold">Settings</h1>
+          <div className="ml-auto flex items-center gap-2">
+            <label htmlFor="institution" className="text-[11px] font-medium text-slate-500">
+              Institution
+            </label>
+            <input
+              id="institution"
+              value={institution}
+              onChange={(event) => setInstitution(event.target.value)}
+              className="w-40 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <nav
+          aria-label="Settings sections"
+          className="flex gap-1 overflow-x-auto border-t border-slate-100 px-4 py-2"
+        >
+          {TABS.map((tab) => {
+            const active = tab.section === section
+            return (
+              <Link
+                key={tab.section}
+                to={settingsPath(tab.section)}
+                aria-current={active ? 'page' : undefined}
+                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+              </Link>
+            )
+          })}
+        </nav>
+      </header>
+
+      <main className="px-6 py-6">
+        {section === 'general' && <GeneralSettings />}
+        {section === 'rendering' && <RenderingSettings institutionId={institution} />}
+        {section === 'teaching' && <TeachingSettings />}
+        {section === 'accessibility' && <AccessibilitySettings />}
+      </main>
+    </div>
+  )
+}

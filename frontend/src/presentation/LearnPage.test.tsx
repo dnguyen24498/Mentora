@@ -1,9 +1,15 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LearnPage from './LearnPage'
-import { ApiError, buildReviewPackage, loadArtifact, loadReviewPackage } from '../api/client'
-import { ARTIFACT, INSTITUTION, makeArtifact, makePackage } from '../test/fixtures'
+import {
+  ApiError,
+  buildReviewPackage,
+  loadArtifact,
+  loadReviewPackage,
+  loadReviewState,
+} from '../api/client'
+import { ARTIFACT, INSTITUTION, makeArtifact, makePackage, makeState } from '../test/fixtures'
 
 // The page's job is orchestration (which package it reads, which slide it shows),
 // so the API client is mocked; the server behaviour is covered by backend tests.
@@ -14,6 +20,7 @@ vi.mock('../api/client', async (importOriginal) => {
     buildReviewPackage: vi.fn(),
     loadArtifact: vi.fn(),
     loadReviewPackage: vi.fn(),
+    loadReviewState: vi.fn(),
   }
 })
 
@@ -22,6 +29,7 @@ const PACKAGE = makePackage()
 function primeStoredPackage() {
   vi.mocked(loadReviewPackage).mockResolvedValue(PACKAGE)
   vi.mocked(loadArtifact).mockResolvedValue(makeArtifact())
+  vi.mocked(loadReviewState).mockResolvedValue(makeState())
   vi.mocked(buildReviewPackage).mockRejectedValue(new Error('must not rebuild a stored package'))
 }
 
@@ -98,6 +106,7 @@ describe('LearnPage — the deck and the teaching canvas', () => {
     vi.mocked(loadReviewPackage).mockRejectedValue(new ApiError('NOT_FOUND', 'nothing stored yet'))
     vi.mocked(buildReviewPackage).mockResolvedValue(PACKAGE)
     vi.mocked(loadArtifact).mockResolvedValue(makeArtifact())
+    vi.mocked(loadReviewState).mockResolvedValue(makeState())
 
     renderLearn()
 
@@ -140,3 +149,168 @@ describe('LearnPage — the deck and the teaching canvas', () => {
     expect(localStorage.getItem('mentora.artifact')).toBe(ARTIFACT)
   })
 })
+
+describe('LearnPage — automatic teaching (text only)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('narrates the authored script, records a transcript, and ends at the last slide', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    // No audio is produced in this version, and the page says so.
+    expect(screen.getByText(/no audio is produced/i)).toBeTruthy()
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByTestId('learn-play'))
+
+      // The slide's own authored script is the narration, not a model's text.
+      expect(screen.getByTestId('learn-caption').textContent).toBe('Explain slide 1')
+      expect(screen.getByText(/narration source: lesson-script/)).toBeTruthy()
+      expect(screen.getByTestId('learn-transcript').textContent).toContain('Explain slide 1')
+
+      // After the passage's dwell it moves on by itself.
+      act(() => {
+        vi.advanceTimersByTime(2600)
+      })
+      expect(screen.getByTestId('learn-slide-counter').textContent).toBe('Slide 2 / 2')
+      // Section 2 has no script, so the slide's speaker notes carry it.
+      expect(screen.getByTestId('learn-caption').textContent).toBe('Notes for slide 2')
+      expect(screen.getByTestId('learn-transcript').textContent).toContain('Notes for slide 2')
+
+      // The end is the end: narration stops rather than wrapping around.
+      act(() => {
+        vi.advanceTimersByTime(2600)
+      })
+      expect(screen.getByTestId('learn-finished')).toBeTruthy()
+      expect(screen.getByTestId('learn-play').textContent).toBe('Play')
+      expect(screen.getByTestId('learn-slide-counter').textContent).toBe('Slide 2 / 2')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('plays, pauses and stops', async () => {
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    const play = screen.getByTestId('learn-play')
+    expect(play.textContent).toBe('Play')
+    expect(screen.queryByTestId('learn-caption')).toBeNull()
+
+    fireEvent.click(play)
+    expect(play.textContent).toBe('Pause')
+    expect(screen.getByTestId('learn-caption')).toBeTruthy()
+    expect(screen.getByTestId('learn-transcript')).toBeTruthy()
+
+    fireEvent.click(play)
+    expect(play.textContent).toBe('Play')
+    // The caption belongs to the narration, so pausing removes it.
+    expect(screen.queryByTestId('learn-caption')).toBeNull()
+    // The transcript stays: it is the record of what was said.
+    expect(screen.getByTestId('learn-transcript')).toBeTruthy()
+
+    // Walk forward, then stop: stop rewinds and clears the record.
+    fireEvent.click(screen.getByRole('button', { name: 'Next →' }))
+    expect(screen.getByTestId('learn-slide-counter').textContent).toBe('Slide 2 / 2')
+
+    fireEvent.click(screen.getByTestId('learn-stop'))
+    expect(screen.getByTestId('learn-slide-counter').textContent).toBe('Slide 1 / 2')
+    expect(screen.queryByTestId('learn-transcript')).toBeNull()
+  })
+
+  it('starts narrating on open when the teacher turned autoplay on', async () => {
+    localStorage.setItem(
+      'mentora.settings',
+      JSON.stringify({ teachingAutoplay: true, teachingCaptions: true, teachingWpm: 160 }),
+    )
+    primeStoredPackage()
+    renderLearn()
+
+    await screen.findByTestId('learn-slide-counter')
+    await waitFor(() => expect(screen.getByTestId('learn-play').textContent).toBe('Pause'))
+    expect(localStorage.getItem('mentora.settings')).toContain('"teachingAutoplay":true')
+  })
+
+  it('hides the caption when the teacher turned captions off, keeping the transcript', async () => {
+    localStorage.setItem(
+      'mentora.settings',
+      JSON.stringify({ teachingCaptions: false, teachingAutoplay: false, teachingWpm: 160 }),
+    )
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    fireEvent.click(screen.getByTestId('learn-play'))
+
+    expect(screen.queryByTestId('learn-caption')).toBeNull()
+    expect(screen.getByTestId('learn-transcript')).toBeTruthy()
+  })
+
+  it('paces the narration from the words-per-minute setting', async () => {
+    localStorage.setItem('mentora.settings', JSON.stringify({ teachingWpm: 240 }))
+    primeStoredPackage()
+    renderLearn()
+    await screen.findByTestId('learn-slide-counter')
+
+    expect(screen.getByText(/per slide at 240 wpm/)).toBeTruthy()
+  })
+
+  it('narrates the teacher’s newest draft revision when there is one', async () => {
+    primeStoredPackage()
+    vi.mocked(loadReviewState).mockResolvedValue(
+      makeState({
+        draft: {
+          draft_id: 'draft-1',
+          artifact_id: ARTIFACT,
+          version_id: 'version-1',
+          package_id: 'pkg-abc',
+          content_package_version: 'cpv-abc',
+          lesson_plan_version: 'lp-abc',
+          revision: 2,
+          sections: [
+            {
+              order: 0,
+              section_id: 'sec-1',
+              type: 'EXPLANATION',
+              scene_id: 'ppt/slides/slide1.xml',
+              scene_step_id: 'ppt/slides/slide1.xml#step-0',
+              safe_markers: [],
+              script: 'My rewritten opening',
+            },
+          ],
+          edited_by: 'teacher@example.edu',
+          created_at: '2026-10-16T11:00:00Z',
+        },
+      }),
+    )
+    renderLearn()
+
+    await screen.findByTestId('learn-slide-counter')
+    fireEvent.click(screen.getByTestId('learn-play'))
+
+    // The revision being written wins over the package's own script, and the
+    // page labels it so it cannot be mistaken for published text.
+    expect(screen.getByTestId('learn-caption').textContent).toBe('My rewritten opening')
+    expect(screen.getByText(/narration source: draft-script/)).toBeTruthy()
+    expect(screen.getByText(/revision 2/)).toBeTruthy()
+  })
+
+  it('falls back to the package when the review overlay cannot be read', async () => {
+    primeStoredPackage()
+    vi.mocked(loadReviewState).mockRejectedValue(new ApiError('NOT_FOUND', 'no package yet'))
+    renderLearn()
+
+    await screen.findByTestId('learn-slide-counter')
+    fireEvent.click(screen.getByTestId('learn-play'))
+
+    // A missing overlay is not a failure: the deck still teaches from the package.
+    expect(screen.getByTestId('learn-caption').textContent).toBe('Explain slide 1')
+    expect(screen.getByText(/narration source: lesson-script/)).toBeTruthy()
+  })
+})
+

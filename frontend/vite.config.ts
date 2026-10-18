@@ -72,6 +72,11 @@ export default defineConfig({
       // dev server answers with the SPA fallback (index.html), so the browser
       // would silently get HTML instead of the backend response.
       '/renderer': backendProxy(),
+      // Publication reads and the publish transition (V0-008), read by the Admin
+      // area. Same reason: `/publications/{id}` would otherwise hit the SPA
+      // fallback and the client would parse index.html as JSON.
+      '/publications': backendProxy(),
+      '/course-versions': backendProxy(),
       '/docs': backendProxy(),
       '/openapi.json': backendProxy(),
     },

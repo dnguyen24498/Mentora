@@ -43,6 +43,19 @@ describe('SiteNav', () => {
     )
   })
 
+  it('links the sectioned areas even with no deck or class', () => {
+    render(<SiteNav current="library" />)
+
+    expect(screen.getByRole('link', { name: 'Admin' }).getAttribute('href')).toBe('/admin')
+    expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings')
+  })
+
+  it('marks the sectioned areas as current where they are the page', () => {
+    render(<SiteNav current="admin" />)
+    expect(screen.getByRole('link', { name: 'Admin' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('aria-current')).toBeNull()
+  })
+
   it('marks the current page and prefers the id the page itself holds', () => {
     writeSelectedArtifact('a-deck-opened-earlier')
 

@@ -1,4 +1,4 @@
-import { Link, classroomPath, learnPath, studioPath } from '../router'
+import { Link, adminPath, classroomPath, learnPath, settingsPath, studioPath } from '../router'
 import { readSelectedArtifact, readSelectedClass } from '../institution'
 
 /**
@@ -14,7 +14,7 @@ import { readSelectedArtifact, readSelectedClass } from '../institution'
  * (`institution.ts`). With no id yet, the link is not a link but a disabled
  * label that says why: a nav entry that goes nowhere is worse than none.
  */
-export type SiteNavPage = 'library' | 'studio' | 'classroom' | 'learn'
+export type SiteNavPage = 'library' | 'studio' | 'classroom' | 'learn' | 'admin' | 'settings'
 
 export interface SiteNavProps {
   /** The page being viewed, so it can be marked `aria-current`. */
@@ -86,6 +86,19 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
         label="Learn"
         current={current === 'learn'}
         hint="Open a deck from the library to reach its learning page"
+      />
+      <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-slate-200" />
+      <NavEntry
+        to={adminPath()}
+        label="Admin"
+        current={current === 'admin'}
+        hint="Manage courses, classes and publications"
+      />
+      <NavEntry
+        to={settingsPath()}
+        label="Settings"
+        current={current === 'settings'}
+        hint="Preferences and server status"
       />
     </nav>
   )

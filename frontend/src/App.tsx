@@ -1,5 +1,7 @@
+import AdminPage from './admin/AdminPage'
 import ClassroomPage from './classroom/ClassroomPage'
 import LearnPage from './presentation/LearnPage'
+import SettingsPage from './settings/SettingsPage'
 import StudioPage from './pages/StudioPage'
 import UploadPage from './pages/UploadPage'
 import { LIBRARY_PATH, Link, useRoute } from './router'
@@ -14,7 +16,12 @@ import { LIBRARY_PATH, Link, useRoute } from './router'
  * * `/classroom/{classId}` — the Classroom (`classroom/ClassroomPage.tsx`): the
  *   authoritative runtime state of a running session (V0-011);
  * * `/learn/{artifactId}` — the Learning page (`presentation/LearnPage.tsx`):
- *   the slide plus the teaching canvas the teacher draws on.
+ *   the slide plus the teaching canvas the teacher draws on, and the automatic
+ *   text-only narration;
+ * * `/admin/{section}` — the Admin area (`admin/AdminPage.tsx`): manage courses,
+ *   classes and publications through the existing API;
+ * * `/settings/{section}` — Settings (`settings/SettingsPage.tsx`): client
+ *   preferences plus read-only server facts.
  *
  * Every page carries the shared navigation (`components/SiteNav.tsx`), so each
  * is reachable from each. Routing is a small dependency-free module
@@ -28,6 +35,8 @@ export default function App() {
   if (route.name === 'studio') return <StudioPage artifactId={route.artifactId} />
   if (route.name === 'classroom') return <ClassroomPage classId={route.classId} />
   if (route.name === 'learn') return <LearnPage artifactId={route.artifactId} />
+  if (route.name === 'admin') return <AdminPage section={route.section} />
+  if (route.name === 'settings') return <SettingsPage section={route.section} />
   if (route.name === 'library') return <UploadPage />
 
   return (

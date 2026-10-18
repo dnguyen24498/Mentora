@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import SiteNav from '../components/SiteNav'
 import SlideStage from './SlideStage'
 import type { AnnotationStroke } from './TeachingCanvas'
 import { useInstitution, writeSelectedArtifact } from '../institution'
+import { useSettings } from '../settings/store'
+import { buildNarration, segmentForScene, type NarrationSegment } from './narration'
+import { useNarrationTimer } from './useNarrationTimer'
 import {
   ApiError,
   buildReviewPackage,
   fetchObjectUrl,
   loadArtifact,
   loadReviewPackage,
+  loadReviewState,
   type ArtifactSummary,
+  type ReviewDraft,
   type ReviewPackage,
 } from '../api/client'
 
@@ -38,6 +43,13 @@ function describe(cause: unknown): string {
  * teaching script that belongs to the slide (extracted text, speaker notes and
  * the section's lesson script from the pinned package).
  *
+ * It also **teaches**. "Play" narrates the deck from its own authored script — the
+ * teacher's newest draft revision, else the package's lesson script, else the
+ * speaker notes, else the slide's own text — shows each passage as a caption and,
+ * at the pace the teacher sets in Settings, moves to the next slide. It is text-only by construction: no model writes the teaching text
+ * and no audio is produced (`DEC-TECH-007` is `OPEN`), so the deck teaches the
+ * words its author wrote, at a fixed pace, reproducibly.
+ *
  * It reads the same built package as the Teacher Studio — it never re-renders a
  * stored one — so a deck is reviewed once and then taught from the same bytes
  * (`DEC-CONTENT-006`). Annotations are client-local; the event stream that would
@@ -47,6 +59,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
   const [institution, setInstitution] = useInstitution()
   const [phase, setPhase] = useState<Phase>('loading')
   const [review, setReview] = useState<ReviewPackage | null>(null)
+  const [draft, setDraft] = useState<ReviewDraft | null>(null)
   const [artifact, setArtifact] = useState<ArtifactSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [index, setIndex] = useState(0)
@@ -68,6 +81,13 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
       }
       setReview(loaded)
       setArtifact(await loadArtifact(institution, artifactId).catch(() => null))
+      // The teacher's newest draft revision, if there is one: its scripts are
+      // what is being written, so they are what gets narrated. A failure here is
+      // not fatal — the package's own script is the fallback.
+      setDraft(await loadReviewState(institution, artifactId).then(
+        (state) => state.draft,
+        () => null,
+      ))
       setPhase('ready')
     } catch (cause) {
       setError(describe(cause))
@@ -139,6 +159,89 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
     const section = review?.lesson_order.find((entry) => entry.scene_id === current.scene_id)
     return section?.script ?? null
   }, [current, review])
+
+  const draftScript = useMemo(() => {
+    if (!current) return null
+    return (
+      draft?.sections.find(
+        (entry) => entry.scene_id === current.scene_id && entry.script?.trim(),
+      )?.script ?? null
+    )
+  }, [current, draft])
+
+  // -- automatic teaching (text only) -------------------------------------------
+  const [settings] = useSettings()
+  const [playing, setPlaying] = useState(false)
+  const [finished, setFinished] = useState(false)
+  const [transcript, setTranscript] = useState<NarrationSegment[]>([])
+  const autoplayed = useRef(false)
+
+  const segments = useMemo(
+    () => (review ? buildNarration(review, settings.teachingWpm, draft) : []),
+    [draft, review, settings.teachingWpm],
+  )
+  const segment = sceneKey ? segmentForScene(segments, sceneKey) : null
+
+  // A fresh deck (or a rebuilt one) starts from silence.
+  useEffect(() => {
+    setPlaying(false)
+    setFinished(false)
+    setTranscript([])
+    autoplayed.current = false
+  }, [artifactId])
+
+  const remember = useCallback((next: NarrationSegment | null) => {
+    if (!next) return
+    setTranscript((previous) =>
+      previous.some((entry) => entry.scene_id === next.scene_id) ? previous : [...previous, next],
+    )
+  }, [])
+
+  useEffect(() => {
+    if (playing) remember(segment)
+  }, [playing, remember, segment])
+
+  const play = useCallback(() => {
+    // Replaying a finished deck starts over rather than resuming at the end.
+    if (finished) {
+      setTranscript([])
+      setFinished(false)
+      go(0)
+    }
+    setPlaying(true)
+  }, [finished, go])
+
+  const pause = useCallback(() => setPlaying(false), [])
+
+  const stop = useCallback(() => {
+    setPlaying(false)
+    setFinished(false)
+    setTranscript([])
+    go(0)
+  }, [go])
+
+  const onElapsed = useCallback(() => {
+    if (position >= count - 1) {
+      setPlaying(false)
+      setFinished(true)
+      return
+    }
+    setIndex((value) => Math.min(value + 1, Math.max(0, count - 1)))
+  }, [count, position])
+
+  useNarrationTimer({
+    playing: playing && phase === 'ready' && segment !== null,
+    durationMs: segment?.durationMs ?? 0,
+    segmentKey: segment?.scene_id ?? '',
+    onElapsed,
+  })
+
+  useEffect(() => {
+    if (autoplayed.current || phase !== 'ready' || count === 0) return
+    if (!settings.teachingAutoplay) return
+    autoplayed.current = true
+    setPlaying(true)
+  }, [count, phase, settings.teachingAutoplay])
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -233,7 +336,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
-              <section aria-label="Learning surface">
+              <section aria-label="Learning surface" className="space-y-2">
                 <SlideStage
                   institutionId={institution}
                   scene={current}
@@ -241,15 +344,101 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                   strokes={strokes}
                   onStrokesChange={setStrokes}
                 />
+                {playing && settings.teachingCaptions && (
+                  <p
+                    data-testid="learn-caption"
+                    role="status"
+                    aria-live="polite"
+                    className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900"
+                  >
+                    {segment?.text
+                      ? segment.text
+                      : 'This slide has no authored script, notes or text to narrate.'}
+                  </p>
+                )}
               </section>
 
               <aside className="space-y-3 self-start rounded-xl border border-slate-200 bg-white p-4">
+                <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
+                  <h2 className="text-sm font-semibold text-indigo-900">Automatic teaching</h2>
+                  <p className="text-[11px] text-indigo-800">
+                    Text only: this deck narrates its own authored script — your latest draft
+                    revision, else the package&apos;s lesson script, else the speaker notes, else the
+                    slide text. No model writes the words and no audio is produced (
+                    <span className="font-mono">DEC-TECH-007</span> is OPEN).
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={playing ? pause : play}
+                      data-testid="learn-play"
+                      className="rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white"
+                    >
+                      {playing ? 'Pause' : 'Play'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stop}
+                      data-testid="learn-stop"
+                      disabled={!playing && transcript.length === 0}
+                      className="rounded-md border border-indigo-300 px-2.5 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-40"
+                    >
+                      Stop
+                    </button>
+                    {segment && (
+                      <span className="ml-auto text-[11px] text-indigo-800">
+                        {(segment.durationMs / 1000).toFixed(1)}s per slide at {settings.teachingWpm}{' '}
+                        wpm
+                      </span>
+                    )}
+                  </div>
+
+                  {segment && (
+                    <p className="text-[10px] uppercase tracking-wide text-indigo-700">
+                      narration source: {segment.source}
+                    </p>
+                  )}
+
+                  {finished && (
+                    <p
+                      data-testid="learn-finished"
+                      role="status"
+                      className="text-xs font-medium text-indigo-900"
+                    >
+                      The deck has been taught to the end.
+                    </p>
+                  )}
+
+                  {transcript.length > 0 && (
+                    <div>
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                        Transcript
+                      </h3>
+                      <ol
+                        data-testid="learn-transcript"
+                        className="mt-1 max-h-56 space-y-1 overflow-y-auto text-xs text-indigo-900"
+                      >
+                        {transcript.map((entry) => (
+                          <li key={entry.scene_id}>
+                            <span className="font-mono text-[10px] text-indigo-600">
+                              #{entry.order + 1}
+                            </span>{' '}
+                            {entry.text || <em>(no authored text)</em>}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+
                 <h2 id="script-heading" className="text-sm font-semibold text-slate-700">
                   Teaching script
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  From the pinned package&apos;s extracted content. Playback, captions and the timeline
-                  arrive with V0-013.
+                  From the pinned package&apos;s extracted content. The narration and captions above
+                  run in this browser; the ordered per-class timeline, checkpoints and resume are
+                  V0-013 and V1-002.
                 </p>
 
                 <div>
@@ -282,9 +471,20 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Lesson script
                   </h3>
-                  <p className="mt-1 text-sm text-slate-700">
-                    {sectionScript ?? 'No script for this section — add a draft in the Teacher Studio.'}
-                  </p>
+                  {draftScript ? (
+                    <>
+                      <p className="mt-1 text-sm text-slate-700">{draftScript}</p>
+                      <p className="text-[10px] text-slate-400">
+                        Your latest draft revision{draft ? ` (revision ${draft.revision})` : ''}; the
+                        package itself holds {sectionScript ? 'a different script' : 'no script'} for
+                        this section.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-sm text-slate-700">
+                      {sectionScript ?? 'No script for this section — add a draft in the Teacher Studio.'}
+                    </p>
+                  )}
                 </div>
 
                 <p className="border-t border-slate-100 pt-2 text-[11px] text-slate-400">

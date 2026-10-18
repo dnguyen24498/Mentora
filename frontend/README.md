@@ -1,8 +1,9 @@
 # Frontend
 
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
-runtime page and the Learning page (slide + teaching canvas), as real pages of
-one Vite app. React + TypeScript + Tailwind, built with Vite.
+runtime page, the Learning page (slide + teaching canvas + automatic text-only
+narration), an Admin area (courses, classes, publications) and Settings, as real
+pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
 
@@ -11,8 +12,13 @@ one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
 | `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
-| `/learn/{artifactId}` | Learning — the slide plus the teaching canvas | `src/presentation/LearnPage.tsx` |
+| `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration | `src/presentation/LearnPage.tsx` |
+| `/admin/{section}` | Admin — overview, courses, classes, publications | `src/admin/AdminPage.tsx` |
+| `/settings/{section}` | Settings — general, rendering, teaching, accessibility | `src/settings/SettingsPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
+
+`/admin` and `/settings` are their default sections (overview/general); an unknown
+section is a 404 rather than an empty page.
 
 The teacher review flow is a **page of its own**, not a panel on the upload page:
 it is the large-screen slide surface, so it is opened directly (a new tab, a
@@ -22,12 +28,13 @@ document title to the file name.
 ## Navigation between the pages
 
 `src/components/SiteNav.tsx` is embedded in every page header, so Library,
-Teacher Studio, Classroom and Learning are each reachable from the others. The
-Studio and Learn links need a deck and the Classroom link needs a class: the
-current page passes the id it holds, otherwise the last one opened is remembered
-in `localStorage` (`src/institution.ts`, like the tenant and the selected
-course). Before there is an id, the entry is a disabled label that says why —
-never a link that goes nowhere.
+Teacher Studio, Classroom, Learning, Admin and Settings are each reachable from
+the others. The Studio and Learn links need a deck and the Classroom link needs a
+class: the current page passes the id it holds, otherwise the last one opened is
+remembered in `localStorage` (`src/institution.ts`, like the tenant and the
+selected course). Before there is an id, the entry is a disabled label that says
+why — never a link that goes nowhere. Admin and Settings are plain links, so they
+are always available.
 
 The library is the hub: selecting a deck offers **Open Teacher Studio** and
 **Open learning page**, and the **Classes** panel (`GET /classes`) links each
@@ -53,9 +60,12 @@ tab opened separately shares it with the library tab.
 | Frontend (Vite dev server) | **8000** |
 | Backend API | **8001** |
 
-Vite proxies `/courses`, `/artifacts`, `/classes`, and `/health` to the backend
+Vite proxies `/courses`, `/artifacts`, `/classes`, `/renderer`, `/publications`,
+`/course-versions`, `/health`, `/docs` and `/openapi.json` to the backend
 (`MENTORA_BACKEND_ORIGIN`, default `http://127.0.0.1:8001`), so the browser only
-ever talks to `:8000` — no CORS.
+ever talks to `:8000` — no CORS. A path that is *not* proxied but is not an asset
+gets the SPA shell instead of an API response, which is why every API prefix the
+client uses is listed here.
 
 ## Run (two terminals)
 
@@ -169,9 +179,86 @@ reserves for presentation work:
   says annotation is unavailable, instead of failing.
 - **Slide navigation**: previous/next, a jump-to selector, and the ← / → arrow
   keys (ignored while focus is in a control).
-- **The teaching script**: the slide's extracted text, its speaker notes, and
-  its lesson-order script from the pinned package. Playback, captions and the
-  timeline arrive with V0-013.
+- **The teaching script**: the slide's extracted text, its speaker notes, the
+  pinned package's lesson-order script and, when the teacher has one, the newest
+  draft revision for that section (`GET .../review-package/review-state`).
+- **Automatic teaching (text only)**: **Play** narrates the deck. Each slide's
+  narration is the deck's *authored* text — the teacher's newest draft revision,
+  else the package's lesson script, else the speaker notes, else the slide text —
+  and the panel names which one it used. The passage appears as a caption
+  (toggleable), is appended to a running transcript, and after its dwell the page
+  moves to the next slide by itself; **Pause** holds, **Stop** rewinds and clears
+  the transcript, and the last slide ends the narration. The pace is the
+  words-per-minute setting (Settings → Teaching): dwell scales with the word count
+  and is clamped to 2.5–30 s, so a long passage gets longer and a blank slide
+  still gets a beat.
+  - **No audio and no model.** The voice capability's provider decision
+    (`DEC-TECH-007`) is `OPEN`, so this runs the speech domain's text fallback
+    path only; and no LLM provider exists in the codebase (the ledger does not
+    name one), so the teaching text is the author's, not generated.
+  - **Client-local.** The narration is not an authoritative event: the ordered
+    per-class timeline with checkpoints, resume and bridge phrases
+    (`DEC-RUNTIME-005`, `DEC-DATA-003`) is V0-013/V1-002. Nothing is written to
+    the server.
+
+## Admin area (`/admin/{section}`)
+
+`src/admin/` manages the V0 entities **through the existing API only**. That
+constraint is deliberate and is stated on the pages: the API has no generic update
+or delete, and that is a property of the domain rather than a gap — content is
+immutable, a draft is append-only and a publication is never deleted
+(`DEC-CONTENT-005`), so a correction is a **new version**.
+
+- **Overview** — what the tenant holds (courses, classes, running classes) and
+  links to the section that can act on it. It never mutates anything itself.
+- **Courses & materials** — create a course, select one, upload a `.pptx` into it,
+  and act on a deck: **Compile** (in the render mode chosen in Settings),
+  **Details** (the stored metadata), **Studio** and **Learn**. A deduplicated
+  upload (identical bytes) is reported as a reuse rather than a second copy. No
+  rename/delete: an artifact is immutable.
+- **Classes** — schedule a class onto a course (optionally pinned to a version and
+  optionally "scheduled for", which the API records but does not enforce — there is
+  no scheduler, `DEC-TECH-003` is `OPEN`), then select it to see its state, its
+  session and its **pinned runtime tuple**, **Start** it (the tuple is resolved
+  once and never looked up as "latest" again), and manage **enrolments** (enrol is
+  idempotent). A replayed start is reported as such.
+- **Publications** — publish an approved version and read what has been sealed.
+  `Publish` is idempotent on the content (`created: false` on a replay) and reports
+  every refusal by its stable `issue_code`; `Verify integrity` re-checks the pinned
+  package against the digest recorded at seal time and reports
+  `VERIFIED`/`MISMATCH`/`MISSING` without changing anything. Superseded
+  publications stay listed — they are linked, never deleted.
+
+## Settings (`/settings/{section}`)
+
+`src/settings/` holds **client preferences**, because there is no settings API: the
+server's own configuration is its environment (the home region,
+`MENTORA_HOME_REGION`) and the per-request render mode. Preferences live in one
+module (`src/settings/store.ts`, persisted as `mentora.settings` and kept in step
+across tabs through the `storage` event, exactly like the tenant). They are
+conveniences: nothing in Settings changes what the server stores, seals or
+publishes.
+
+- **General** — the institution (a real input, sent as `X-Institution-Id` on every
+  request), plus read-only server facts read live from `GET /health` and
+  `GET /renderer` (renderer identity, default mode, data region) and the home
+  region, which is server configuration and is offered as a fact, not as a field.
+  **Restore defaults** resets the stored preferences.
+- **Rendering** — the render mode (`faithful`/`themed`) used for new renders: the
+  Admin **Compile** action and the live preview on the page itself
+  (`GET /artifacts/{id}/renders/{order}?mode=`, using the last deck opened). It
+  cannot change a **packaged** render — those are pinned at build time — and the
+  page says so. It also reports the renderer's declared support and circuit-breaker
+  state for the selected mode, and notes that no renderer technology is accepted
+  (`DEC-TECH-005` is `OPEN`).
+- **Teaching** — the narration pace (words per minute), whether a deck starts
+  narrating when it is opened, and whether the caption line is shown, with an
+  explicit statement of what runs: authored text, no model, no audio, nothing
+  written to the server.
+- **Accessibility** — reduced motion and high contrast. These are the **classroom's
+  own** persisted preferences, edited through the classroom store
+  (`readClassroomPreferences`/`updateClassroomPreferences`) rather than kept a
+  second time, so the two can never drift.
 
 ## Classroom (V0-011)
 
@@ -229,9 +316,22 @@ and the `Link`/`navigate` behaviour. `src/components/SiteNav.test.tsx` covers th
 shared navigation (every page from every page, the disabled entries before an id
 is known, `aria-current`). `src/presentation/LearnPage.test.tsx` covers the
 learning page: stored vs built package, slide navigation by button, selector and
-arrow keys, the teaching script, and the canvas toolbar including its
-no-2D-canvas degradation. Test deps are **dev-only**; the production build and
-its dependencies are unchanged.
+arrow keys, the teaching script, the canvas toolbar including its no-2D-canvas
+degradation, and the automatic teaching (play/pause/stop, the transcript, the
+caption, auto-advance and the end of the deck under fake timers, autoplay,
+captions off, the pace setting, and the draft-revision precedence with a
+graceful fallback when the overlay cannot be read).
+`src/presentation/narration.test.ts` is the pure narration suite (word counting,
+dwell clamping and scaling, the source precedence, and the draft-revision rule).
+`src/settings/store.test.ts` covers the preference store (defaults, round-trip,
+unreadable storage, clamping an out-of-range pace, ignoring an unknown mode).
+`src/admin/AdminPage.test.tsx` covers each admin section against a mocked API
+(course creation, material listing/upload/compile in the Settings mode, the
+absence of any delete/rename, scheduling, starting, enrolling, publishing and
+verifying), and `src/settings/SettingsPage.test.tsx` covers each settings section
+(the server facts it can only report, restoring defaults, persisting the mode and
+the pacing, and editing the classroom's own accessibility preferences). Test deps
+are **dev-only**; the production build and its dependencies are unchanged.
 
 `src/classroom/state/reducer.test.ts` is the pure-reducer acceptance suite
 (contiguous apply, duplicate/stale ignored, gap reported and not applied,

@@ -11,25 +11,39 @@ import {
  *
  * Four real pages: the material library at `/`, the Teacher Studio at
  * `/studio/{artifactId}`, the Classroom at `/classroom/{classId}` and the
- * learning page at `/learn/{artifactId}`. Each is its own page on purpose — the
- * studio is the large-screen slide review surface, the classroom is the runtime
- * session view and the learning page is the slide + teaching canvas — so each is
- * opened directly (often in a second tab or on a second monitor) and must
- * survive a deep link and a refresh. Single-origin mode is covered by the
- * backend's SPA fallback (`backend/app/api/spa.py`); the Vite dev server already
- * serves the shell.
+ * learning page at `/learn/{artifactId}`; plus two sectioned areas,
+ * `/admin/{section}` (create/read management of the V0 entities) and
+ * `/settings/{section}` (client preferences and read-only server facts). Each is
+ * its own page on purpose — the studio is the large-screen slide review surface,
+ * the classroom is the runtime session view and the learning page is the slide +
+ * teaching canvas — so each is opened directly (often in a second tab or on a
+ * second monitor) and must survive a deep link and a refresh. Single-origin mode
+ * is covered by the backend's SPA fallback (`backend/app/api/spa.py`); the Vite
+ * dev server already serves the shell.
  */
 
 export const LIBRARY_PATH = '/'
 export const STUDIO_PATH = '/studio'
 export const CLASSROOM_PATH = '/classroom'
 export const LEARN_PATH = '/learn'
+export const ADMIN_PATH = '/admin'
+export const SETTINGS_PATH = '/settings'
+
+/** The admin (data management) sections, one route each. */
+export const ADMIN_SECTIONS = ['overview', 'courses', 'classes', 'publications'] as const
+export type AdminSection = (typeof ADMIN_SECTIONS)[number]
+
+/** The settings sections, one route each. */
+export const SETTINGS_SECTIONS = ['general', 'rendering', 'teaching', 'accessibility'] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export type Route =
   | { name: 'library' }
   | { name: 'studio'; artifactId: string }
   | { name: 'classroom'; classId: string }
   | { name: 'learn'; artifactId: string }
+  | { name: 'admin'; section: AdminSection }
+  | { name: 'settings'; section: SettingsSection }
   | { name: 'not-found'; path: string }
 
 /** The canonical URL of one artifact's Teacher Studio page. */
@@ -45,6 +59,16 @@ export function classroomPath(classId: string): string {
 /** The canonical URL of one artifact's learning page. */
 export function learnPath(artifactId: string): string {
   return `${LEARN_PATH}/${encodeURIComponent(artifactId)}`
+}
+
+/** The canonical URL of an admin section (`/admin` is the overview). */
+export function adminPath(section: AdminSection = 'overview'): string {
+  return section === 'overview' ? ADMIN_PATH : `${ADMIN_PATH}/${section}`
+}
+
+/** The canonical URL of a settings section (`/settings` is general). */
+export function settingsPath(section: SettingsSection = 'general'): string {
+  return section === 'general' ? SETTINGS_PATH : `${SETTINGS_PATH}/${section}`
 }
 
 /**
@@ -83,6 +107,24 @@ export function parseRoute(pathname: string): Route {
   if (trimmed.startsWith(`${LEARN_PATH}/`)) {
     const artifactId = parseId(trimmed.slice(LEARN_PATH.length + 1))
     if (artifactId) return { name: 'learn', artifactId }
+  }
+
+  // The admin and settings areas are a fixed set of sections, so an unknown
+  // section is a 404 rather than an empty page.
+  if (trimmed === ADMIN_PATH) return { name: 'admin', section: 'overview' }
+  if (trimmed.startsWith(`${ADMIN_PATH}/`)) {
+    const section = trimmed.slice(ADMIN_PATH.length + 1)
+    if ((ADMIN_SECTIONS as readonly string[]).includes(section)) {
+      return { name: 'admin', section: section as AdminSection }
+    }
+  }
+
+  if (trimmed === SETTINGS_PATH) return { name: 'settings', section: 'general' }
+  if (trimmed.startsWith(`${SETTINGS_PATH}/`)) {
+    const section = trimmed.slice(SETTINGS_PATH.length + 1)
+    if ((SETTINGS_SECTIONS as readonly string[]).includes(section)) {
+      return { name: 'settings', section: section as SettingsSection }
+    }
   }
 
   return { name: 'not-found', path: trimmed }

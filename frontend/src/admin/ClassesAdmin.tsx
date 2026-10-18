@@ -1,0 +1,433 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link, classroomPath } from '../router'
+import {
+  describeApiError,
+  enrollStudent,
+  listClasses,
+  listCourses,
+  listEnrollments,
+  listMaterials,
+  loadClass,
+  scheduleClass,
+  startClass,
+  type ClassSummary,
+  type ClassView,
+  type Course,
+  type Enrollment,
+  type Material,
+} from '../api/client'
+import { readSelectedClass, writeSelectedClass } from '../institution'
+import {
+  Badge,
+  Banner,
+  BUTTON_PRIMARY,
+  EmptyState,
+  INPUT_CLASS,
+  Panel,
+  Row,
+  type Tone,
+} from '../components/ui'
+
+const STATE_TONE: Record<string, Tone> = {
+  SCHEDULED: 'info',
+  PREPARING: 'warn',
+  ACTIVE: 'good',
+  COMPLETED: 'neutral',
+}
+
+/**
+ * Classes and their enrolments — the admin view.
+ *
+ * The write verbs are the runtime's own: **schedule** a class (it is not running
+ * yet), **start** it (which pins the exact runtime tuple once, `V0-009`) and
+ * **enrol** a student (idempotent). There is no "edit class" or "delete class":
+ * once started, a session's pinned versions and snapshot are the historical
+ * record, and a correction is a new class on a new version.
+ */
+export default function ClassesAdmin({ institutionId }: { institutionId: string }) {
+  const [courses, setCourses] = useState<Course[]>([])
+  const [classes, setClasses] = useState<ClassSummary[]>([])
+  const [courseId, setCourseId] = useState('')
+  const [materials, setMaterials] = useState<Material[]>([])
+  const [title, setTitle] = useState('')
+  const [versionId, setVersionId] = useState('')
+  const [scheduledFor, setScheduledFor] = useState('')
+  const [selected, setSelected] = useState(readSelectedClass)
+  const [detail, setDetail] = useState<ClassView | null>(null)
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [studentId, setStudentId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const refreshClasses = useCallback(async () => {
+    try {
+      const loaded = await listClasses(institutionId)
+      setClasses(loaded)
+      return loaded
+    } catch (cause) {
+      setError(describeApiError(cause))
+      return []
+    }
+  }, [institutionId])
+
+  const refreshDetail = useCallback(async (classId: string) => {
+    if (!classId) {
+      setDetail(null)
+      setEnrollments([])
+      return
+    }
+    try {
+      const [view, enrolled] = await Promise.all([
+        loadClass(institutionId, classId),
+        listEnrollments(institutionId, classId),
+      ])
+      setDetail(view)
+      setEnrollments(enrolled.enrollments)
+    } catch (cause) {
+      setDetail(null)
+      setError(describeApiError(cause))
+    }
+  }, [institutionId])
+
+  useEffect(() => {
+    let cancelled = false
+    setError(null)
+    setNotice(null)
+    void (async () => {
+      const loaded = await listCourses(institutionId)
+      if (cancelled) return
+      setCourses(loaded)
+      setCourseId((previous) => previous || (loaded[0]?.course_id ?? ''))
+      await refreshClasses()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [institutionId, refreshClasses])
+
+  useEffect(() => {
+    writeSelectedClass(selected)
+    void refreshDetail(selected)
+  }, [selected, refreshDetail])
+
+  // The version ids a teacher may pin a class to are the course's materials.
+  useEffect(() => {
+    let cancelled = false
+    if (!courseId) {
+      setMaterials([])
+      return
+    }
+    void listMaterials(institutionId, courseId)
+      .then(
+        (loaded) => {
+          if (!cancelled) setMaterials(loaded)
+        },
+        (cause: unknown) => {
+          if (!cancelled) setError(describeApiError(cause))
+        },
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [institutionId, courseId])
+
+  async function schedule() {
+    if (!courseId) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const created = await scheduleClass(institutionId, {
+        course_id: courseId,
+        title: title.trim() || null,
+        version_id: versionId.trim() || null,
+        // The API records this but never acts on it: there is no scheduler
+        // (DEC-TECH-003 stays OPEN), so it is a note for the teacher.
+        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+      })
+      setTitle('')
+      setVersionId('')
+      setScheduledFor('')
+      await refreshClasses()
+      setSelected(created.class_id)
+      setNotice(
+        `Scheduled "${created.title}". Recorded for reference only — nothing runs until you start it.`,
+      )
+    } catch (cause) {
+      setError(describeApiError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function start() {
+    if (!selected) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const view = await startClass(institutionId, selected)
+      setDetail(view)
+      await refreshClasses()
+      setNotice(
+        view.created
+          ? 'Class started: the runtime tuple is now pinned and the class is ACTIVE.'
+          : 'This class was already started — the same pinned tuple was returned.',
+      )
+    } catch (cause) {
+      setError(describeApiError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function enrol() {
+    if (!selected || !studentId.trim()) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const enrollment = await enrollStudent(institutionId, selected, studentId.trim())
+      setStudentId('')
+      await refreshDetail(selected)
+      setNotice(
+        enrollment.created
+          ? `Enrolled ${enrollment.student_id}.`
+          : `${enrollment.student_id} was already enrolled.`,
+      )
+    } catch (cause) {
+      setError(describeApiError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const versions = (detail?.session_plan?.versions ?? {}) as Record<string, unknown>
+
+  return (
+    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="space-y-6">
+        <Panel title="Schedule a class">
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="class-course" className="block text-sm font-medium text-slate-700">
+                Course
+              </label>
+              <select
+                id="class-course"
+                value={courseId}
+                onChange={(event) => setCourseId(event.target.value)}
+                className={`${INPUT_CLASS} mt-1`}
+              >
+                {courses.length === 0 && <option value="">No courses yet</option>}
+                {courses.map((course) => (
+                  <option key={course.course_id} value={course.course_id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="class-title" className="block text-sm font-medium text-slate-700">
+                Title
+              </label>
+              <input
+                id="class-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Period 3 — Biology"
+                className={`${INPUT_CLASS} mt-1`}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="class-version" className="block text-sm font-medium text-slate-700">
+                Course version (optional)
+              </label>
+              <input
+                id="class-version"
+                list="class-version-options"
+                value={versionId}
+                onChange={(event) => setVersionId(event.target.value)}
+                placeholder="leave empty for the current published version"
+                className={`${INPUT_CLASS} mt-1 font-mono text-xs`}
+              />
+              <datalist id="class-version-options">
+                {materials.map((material) => (
+                  <option key={material.version_id} value={material.version_id}>
+                    {material.filename}
+                  </option>
+                ))}
+              </datalist>
+              <p className="mt-1 text-[11px] text-slate-400">
+                A version pins this class to one publication even after a correction is published.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="class-scheduled-for"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Scheduled for (optional)
+              </label>
+              <input
+                id="class-scheduled-for"
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(event) => setScheduledFor(event.target.value)}
+                className={`${INPUT_CLASS} mt-1`}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void schedule()}
+              disabled={busy || !courseId}
+              className={`${BUTTON_PRIMARY} w-full`}
+            >
+              Schedule class
+            </button>
+          </div>
+        </Panel>
+
+        <Panel title="Classes">
+          <ul className="space-y-1.5">
+            {classes.map((item) => {
+              const active = item.class_id === selected
+              return (
+                <li key={item.class_id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(item.class_id)}
+                    aria-pressed={active}
+                    className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left ${
+                      active ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="truncate text-sm font-medium text-slate-800">{item.title}</span>
+                    <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{item.state}</Badge>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          {classes.length === 0 && <EmptyState>No classes yet.</EmptyState>}
+        </Panel>
+      </div>
+
+      <div className="space-y-6">
+        {error && <Banner tone="bad">{error}</Banner>}
+        {notice && <Banner tone="good">{notice}</Banner>}
+
+        {!detail && <Panel title="Class detail"><EmptyState>Select a class.</EmptyState></Panel>}
+
+        {detail && (
+          <>
+            <Panel
+              title="Class detail"
+              actions={
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={classroomPath(detail.class.class_id)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Open classroom
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => void start()}
+                    disabled={busy || detail.class.state !== 'SCHEDULED'}
+                    className="rounded-md bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                  >
+                    Start
+                  </button>
+                </div>
+              }
+            >
+              <dl className="space-y-1 text-sm">
+                <Row label="Class">{detail.class.class_id}</Row>
+                <Row label="Course">{detail.class.course_id}</Row>
+                <Row label="State">{detail.class.state}</Row>
+                <Row label="Version">{detail.class.version_id ?? 'current published'}</Row>
+                <Row label="Scheduled for">{detail.class.scheduled_for ?? '—'}</Row>
+              </dl>
+
+              {detail.session ? (
+                <dl className="space-y-1 border-t border-slate-100 pt-3 text-sm">
+                  <Row label="Session">{detail.session.session_id}</Row>
+                  <Row label="Session state">{detail.session.state}</Row>
+                  <Row label="Actor epoch">{detail.session.actor_epoch}</Row>
+                  <Row label="State version">{detail.session.state_version}</Row>
+                  <Row label="Event sequence">{detail.session.event_sequence}</Row>
+                </dl>
+              ) : (
+                <p className="border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+                  Not started: no session and no pinned versions exist yet.
+                </p>
+              )}
+            </Panel>
+
+            {detail.session_plan && (
+              <Panel title="Pinned runtime tuple">
+                <dl className="space-y-1 text-sm">
+                  {Object.entries(versions).map(([key, value]) => (
+                    <Row key={key} label={key}>
+                      {value === null ? '—' : String(value)}
+                    </Row>
+                  ))}
+                </dl>
+                <p className="text-[11px] text-slate-400">
+                  Resolved once at start and never looked up again; publishing a correction later
+                  leaves this tuple byte-identical.
+                </p>
+              </Panel>
+            )}
+
+            <Panel title={`Enrolments (${enrollments.length})`}>
+              <div className="flex gap-2">
+                <input
+                  aria-label="Student id"
+                  value={studentId}
+                  onChange={(event) => setStudentId(event.target.value)}
+                  onKeyDown={(event) => event.key === 'Enter' && void enrol()}
+                  placeholder="student-007"
+                  className={INPUT_CLASS}
+                />
+                <button
+                  type="button"
+                  onClick={() => void enrol()}
+                  disabled={busy || !studentId.trim()}
+                  className={`${BUTTON_PRIMARY} shrink-0`}
+                >
+                  Enrol
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Enrolment is the class-scoped authorization a student needs to be handed a join
+                credential; enrolling twice is one enrolment.
+              </p>
+
+              <ul className="space-y-1">
+                {enrollments.map((enrollment) => (
+                  <li
+                    key={enrollment.enrollment_id}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-medium text-slate-800">{enrollment.student_id}</span>
+                    <span className="ml-auto truncate font-mono text-[10px] text-slate-400">
+                      {enrollment.created_at}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {enrollments.length === 0 && <EmptyState>No students enrolled.</EmptyState>}
+            </Panel>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

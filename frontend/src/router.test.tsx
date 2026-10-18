@@ -1,7 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { classroomPath, learnPath, Link, navigate, parseRoute, studioPath } from './router'
+import {
+  adminPath,
+  classroomPath,
+  learnPath,
+  Link,
+  navigate,
+  parseRoute,
+  settingsPath,
+  studioPath,
+} from './router'
 
 const ARTIFACT = '1e4c06bc-f29e-4ba4-9b39-b0b2cf5f4f1e'
 
@@ -75,6 +84,58 @@ describe('learnPath', () => {
   it('builds the canonical learning URL and round-trips through parseRoute', () => {
     expect(learnPath(ARTIFACT)).toBe(`/learn/${ARTIFACT}`)
     expect(parseRoute(learnPath(ARTIFACT))).toEqual({ name: 'learn', artifactId: ARTIFACT })
+  })
+})
+
+describe('admin routes', () => {
+  it('maps /admin to the overview and /admin/{section} to a section', () => {
+    expect(parseRoute('/admin')).toEqual({ name: 'admin', section: 'overview' })
+    expect(parseRoute('/admin/')).toEqual({ name: 'admin', section: 'overview' })
+    expect(parseRoute('/admin/courses')).toEqual({ name: 'admin', section: 'courses' })
+    expect(parseRoute('/admin/classes?course=1')).toEqual({ name: 'admin', section: 'classes' })
+  })
+
+  it('treats an unknown section as not found rather than an empty page', () => {
+    expect(parseRoute('/admin/nope')).toEqual({ name: 'not-found', path: '/admin/nope' })
+    expect(parseRoute('/admin/courses/extra')).toEqual({
+      name: 'not-found',
+      path: '/admin/courses/extra',
+    })
+    // A near-miss is not the area either.
+    expect(parseRoute('/adminx')).toEqual({ name: 'not-found', path: '/adminx' })
+  })
+})
+
+describe('settings routes', () => {
+  it('maps /settings to general and /settings/{section} to a section', () => {
+    expect(parseRoute('/settings')).toEqual({ name: 'settings', section: 'general' })
+    expect(parseRoute('/settings/rendering')).toEqual({ name: 'settings', section: 'rendering' })
+    expect(parseRoute('/settings/teaching')).toEqual({ name: 'settings', section: 'teaching' })
+    expect(parseRoute('/settings/accessibility')).toEqual({
+      name: 'settings',
+      section: 'accessibility',
+    })
+  })
+
+  it('treats an unknown section as not found', () => {
+    expect(parseRoute('/settings/nope')).toEqual({ name: 'not-found', path: '/settings/nope' })
+  })
+})
+
+describe('adminPath and settingsPath', () => {
+  it('omits the section for the default page and round-trips through parseRoute', () => {
+    expect(adminPath()).toBe('/admin')
+    expect(adminPath('overview')).toBe('/admin')
+    expect(adminPath('publications')).toBe('/admin/publications')
+    expect(parseRoute(adminPath('publications'))).toEqual({
+      name: 'admin',
+      section: 'publications',
+    })
+
+    expect(settingsPath()).toBe('/settings')
+    expect(settingsPath('general')).toBe('/settings')
+    expect(settingsPath('teaching')).toBe('/settings/teaching')
+    expect(parseRoute(settingsPath('teaching'))).toEqual({ name: 'settings', section: 'teaching' })
   })
 })
 

@@ -36,6 +36,25 @@ function writePreferences(preferences: ClassroomUiPreferences): void {
   }
 }
 
+/**
+ * The classroom's persisted accessibility preferences.
+ *
+ * Exported so the Settings page edits the **same record** the classroom reads,
+ * instead of keeping a second copy of the same two booleans that could drift.
+ * The classroom store remains the owner of the storage key.
+ */
+export function readClassroomPreferences(): ClassroomUiPreferences {
+  return readPreferences()
+}
+
+export function updateClassroomPreferences(
+  patch: Partial<ClassroomUiPreferences>,
+): ClassroomUiPreferences {
+  const next = { ...readPreferences(), ...patch }
+  writePreferences(next)
+  return next
+}
+
 export function emptyMediaState(): ClassroomMediaState {
   return { teacherAudio: 'idle', captionsEnabled: true, transcript: [], studentMicActive: false }
 }
