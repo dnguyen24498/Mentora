@@ -5,7 +5,8 @@ object store. The properties asserted are the ones the task's acceptance criteri
 name:
 
 * a principal's tenant comes from the session, never from a request field;
-* roles are enforced server-side (a student token is refused on teacher verbs);
+* roles are enforced server-side (a student token is refused on teacher verbs, and
+  a teacher principal is refused where student identity is required);
 * the join credential belongs to the authenticated student;
 * login has no enumeration oracle;
 * a revoked session is refused;
@@ -197,8 +198,14 @@ def test_an_unknown_or_malformed_session_is_refused(client):
 # -- the student's join ------------------------------------------------------------
 
 
-def test_the_development_shortcut_cannot_join_a_class(client):
-    """A join credential is bound to an account; a header is not one."""
+def test_a_teacher_principal_cannot_join_a_class(client):
+    """Joining is a participant action: the ``join`` capability is the student's.
+
+    The development tenant shortcut resolves a **teacher** principal — exactly the
+    role a federated teacher session would carry — so this is the "a teacher token
+    is refused where student identity is required" case: the guard refuses it
+    before any class is read, and it never mints a credential for itself.
+    """
 
     course_id = _course(client)
     class_id = _class(client, course_id)
@@ -206,8 +213,21 @@ def test_the_development_shortcut_cannot_join_a_class(client):
     assert client.post(f"/classes/{class_id}/start", headers=HEADERS).status_code == 200
 
     response = client.post(f"/classes/{class_id}/bootstrap-token", headers=HEADERS)
-    assert response.status_code == 401
-    assert response.json()["error"]["issue_code"] == "SESSION_REQUIRED"
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "INSUFFICIENT_SCOPE"
+    assert response.json()["error"]["issue_code"] == "SCOPE_REQUIRED"
+
+    # …and the shape of the rule, visible on the wire: a teacher principal does not
+    # carry `join`, a student principal is exactly the three participant scopes.
+    teacher = client.get("/auth/me", headers=HEADERS).json()["principal"]
+    assert teacher["role"] == "teacher"
+    assert "join" not in teacher["scopes"]
+    assert teacher["account_id"] is None
+
+    _, student = _student(client, class_id, "ana@uni.test")
+    profile = client.get("/auth/me", headers=student).json()["principal"]
+    assert profile["role"] == "student"
+    assert sorted(profile["scopes"]) == ["class:read", "join", "scene:read"]
 
 
 def test_a_join_credential_is_always_the_callers_own(client):

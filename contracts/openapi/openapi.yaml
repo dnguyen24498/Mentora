@@ -12,17 +12,19 @@ info:
     * `Authorization: Bearer <session token>` — a signed-in account. The tenant is
       the session's, and `X-Institution-Id` is **ignored** when a session is present.
     * `X-Institution-Id: <institution>` — the development tenant shortcut. It
-      resolves a teacher principal with `authenticated: false` and **no account**, so
-      it cannot request a class join. It is only accepted while
+      resolves a teacher principal with `authenticated: false` and **no account**. A
+      teacher is not a participant, so it cannot request a class join (the `join`
+      capability is the student's). It is only accepted while
       `MENTORA_DEV_TENANT_HEADER` is on (default on); switching it off makes every
       route require a real session.
 
     A request with neither is `401 UNAUTHENTICATED` (issue_code `SESSION_REQUIRED`).
     Authorization is expressed as **capabilities**, not role names: a verb requires a
     scope, and a principal that lacks it is refused with `403 INSUFFICIENT_SCOPE`
-    (issue_code `SCOPE_REQUIRED`). Scopes are re-derived from the account's current
-    role on every request, and a session stores the intersection, so narrowing a role
-    takes effect on the next request rather than at session expiry.
+    (issue_code `SCOPE_REQUIRED`). Scopes are the session's, **intersected** with the
+    account's role on every request, so narrowing a role takes effect on the next
+    request rather than at session expiry and a role change can never grant a session
+    a capability it was not issued with.
 security:
   - bearerSession: []
   - developmentTenant: []
@@ -650,7 +652,11 @@ paths:
       description: >-
         Issue a short-lived join credential to the **authenticated** student. There is
         no student id in the request: the credential is bound to the session's own
-        account, so a caller cannot ask for someone else's join. This is where "only
+        account, so a caller cannot ask for someone else's join. Joining is a
+        **participant** action, so it requires the `join` capability, which the
+        student role holds and the teacher role does not: a teacher session — and the
+        development tenant shortcut, which is a teacher principal — is refused
+        `403 INSUFFICIENT_SCOPE` and never reaches the class. This is where "only
         authorized enrollment can join" is enforced: the class must be ACTIVE and the
         caller's account must be enrolled in it, in the caller's own tenant. The raw
         token is returned once and only its sha256 digest is stored; it binds class,
@@ -665,8 +671,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/BootstrapToken'}
-        '401': {description: 'No account behind the request (stable code UNAUTHENTICATED, issue_code SESSION_REQUIRED) — the development tenant shortcut is not a sign-in and cannot join'}
-        '403': {description: 'Not enrolled in this class (stable code NOT_ENROLLED), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'}
+        '403': {description: 'Not a participant: the principal lacks the `join` capability, e.g. a teacher or the development tenant shortcut (stable code INSUFFICIENT_SCOPE, issue_code SCOPE_REQUIRED); or not enrolled in this class (stable code NOT_ENROLLED); or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'}
         '404': {description: 'Unknown class (stable code NOT_FOUND)'}
         '409': {description: 'The class has not started (stable code CLASS_NOT_READY, issue_code NOT_STARTED)'}
   /renderer:
@@ -697,10 +702,12 @@ components:
       name: X-Institution-Id
       description: >-
         The development tenant shortcut. It resolves a teacher principal marked
-        `authenticated: false` with **no account**, so it can do everything a teacher
-        can except anything that needs an account (a class join, for instance). It is
-        accepted only while `MENTORA_DEV_TENANT_HEADER` is on; it is not
-        authentication and must not be relied on in a deployment.
+        `authenticated: false` with **no account**, so it can do what a teacher can —
+        the authoring and teaching verbs — and nothing that needs a participant
+        identity (a class join is the student's `join` capability, and the shortcut
+        has no account to bind a credential to either). It is accepted only while
+        `MENTORA_DEV_TENANT_HEADER` is on; it is not authentication and must not be
+        relied on in a deployment.
   parameters:
     RenderMode:
       in: query
@@ -1333,7 +1340,9 @@ components:
       description: >-
         The identity a request is authorized as. `authenticated` distinguishes a real
         sign-in from the development tenant shortcut; `account_id` is null for the
-        latter, and a class join requires an account.
+        latter. `scopes` is the session's capability set intersected with the
+        account's current role, so it is what this request may actually do: a teacher
+        holds no `join`, because joining a class is the student's participant action.
       type: object
       required: [authenticated, institution_id, role, scopes, account_id, email, display_name, session_id]
       properties:

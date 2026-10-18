@@ -235,7 +235,13 @@ def test_capabilities_cannot_outlive_the_role(conn):
 
     principal = service.principal_for_token(raw)
     assert not principal.has(Scope.PUBLICATION_WRITE)
-    assert principal.scopes == STUDENT_SCOPES
+    # The session's own capabilities are intersected with the role it holds *now*,
+    # and an intersection can only ever remove: a role change never grants a session
+    # a capability it was not issued with. (Widening a role — or a role whose scope
+    # set is not a superset, as teacher's no longer is — therefore takes effect on
+    # the account's next sign-in, not retroactively.)
+    assert set(principal.scopes) == {Scope.CLASS_READ, Scope.SCENE_READ}
+    assert not principal.has(Scope.JOIN)
 
 
 def test_a_principal_never_carries_another_tenants_identity(conn):

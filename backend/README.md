@@ -94,7 +94,7 @@ Every route below requires a principal and a capability (V0-021), so `401 UNAUTH
 - `GET /classes/{classId}/snapshot` — the authoritative session snapshot, validated (schema version + checksum) before it is returned; a damaged one is `502 STORAGE_FAILURE` with `issue_code SNAPSHOT_INVALID` rather than being replayed. `404` when the class has not started.
 - `POST /classes/{classId}/enrollments` — **enrol a student**. Two mutually exclusive query params: `email` is the teacher's **invitation** (creates-or-links the account in this tenant and enrols it in one step; when the capability provisions a credential it is returned once as `development_credential`), while `student_id` names an account that **already exists in this tenant** (an id that is not one is `404`, never a free-text roster entry). Idempotent per `(class, student)`: returns the enrollment with `created`.
 - `GET /classes/{classId}/enrollments` — the class roster, with the account behind each enrolment. Requires `ENROLLMENT_WRITE` because the roster is other people's identities.
-- `POST /classes/{classId}/bootstrap-token` — **V0-009/V0-021**: issue a join credential to **the caller's own account**, so the request has **no body** — a caller cannot ask for someone else's join. Requires an `ACTIVE` session **and** a tenant-scoped enrollment of that account: `403 NOT_ENROLLED` when the caller is in the tenant but not enrolled; `403 TENANT_ACCESS_DENIED` for another institution's class; `409 CLASS_NOT_READY` with `issue_code NOT_STARTED` before a start; `401 SESSION_REQUIRED` for the development shortcut (it has no account to bind to). The raw token is returned once — only its `token_sha256` is stored — and it binds class/student/session/`actor_epoch`/nonce/expiry with `subscribe` scope only.
+- `POST /classes/{classId}/bootstrap-token` — **V0-009/V0-021**: issue a join credential to **the caller's own account**, so the request has **no body** — a caller cannot ask for someone else's join. Joining is a *participant* action, so it requires the `join` capability, which the student role holds and the teacher role does not: a teacher, and the development tenant shortcut (which is a teacher principal), is refused `403 INSUFFICIENT_SCOPE` before the class is read. For a student it requires an `ACTIVE` session **and** a tenant-scoped enrollment of that account: `403 NOT_ENROLLED` when the caller is in the tenant but not enrolled; `403 TENANT_ACCESS_DENIED` for another institution's class; `409 CLASS_NOT_READY` with `issue_code NOT_STARTED` before a start. The raw token is returned once — only its `token_sha256` is stored — and it binds class/student/session/`actor_epoch`/nonce/expiry with `subscribe` scope only.
 - `GET /classes/{classId}/scenes` — **V0-021**: the slides of **the package this session pinned at start** (never the course's current publication, `DEC-CONTENT-005`), each with its `order` (0-based), `scene_id`, `fidelity`, `text`, `notes`, `warnings`, `object_count` and `step_count` — the student page's navigation and narration.
 - `GET /classes/{classId}/scenes/{order}` — one slide's packaged render (SVG), served **through the package manifest**: a path the manifest does not list is not readable (so this cannot become an arbitrary object read, `DEC-CONTENT-004`) and the bytes are re-checked against the digest the manifest recorded — a swap is `502 STORAGE_FAILURE` with `issue_code SCENE_CHECKSUM_MISMATCH` rather than a presentation.
 - `GET /renderer` — the default render mode, every available mode, the active theme, and the requested mode's identity/capability/circuit-breaker health (`?mode=`, V0-019).
@@ -165,14 +165,18 @@ Every route below requires a principal and a capability (V0-021), so `401 UNAUTH
   and the tenant comes from the session, so a caller cannot widen its own
   institution by naming one. `X-Institution-Id` alone is the **development tenant
   shortcut** (`MENTORA_DEV_TENANT_HEADER`, default on): it resolves a *teacher*
-  marked `authenticated: false` with no account, and it cannot join a class
-  (`401 SESSION_REQUIRED`). Turning the flag off makes every route require a real
-  session.
+  marked `authenticated: false` with no account. It cannot join a class, because
+  joining is the student's participant capability and the shortcut is a teacher —
+  the guard refuses it `403 INSUFFICIENT_SCOPE` (`SCOPE_REQUIRED`). Turning the flag
+  off makes every route require a real session.
 - **Authorization is a capability, re-derived per request.** `app/api/security.py::require(scope)`
   guards every verb on every router, and a session's stored scopes are
   **intersected** with what the account's role currently grants on every read — so
   narrowing a role takes effect on the next request rather than at session expiry,
-  and a session is revoked by a `revoked_at` write the same read honours
+  a role change can only ever remove a capability (never hand a live session one it
+  was not issued), and `join` belongs to the student role alone, so a teacher or the
+  development shortcut is refused where a participant identity is required. A
+  session is revoked by a `revoked_at` write the same read honours
   (`DEC-RUNTIME-007`). A missing principal is `401 UNAUTHENTICATED`; a missing
   capability is `403 INSUFFICIENT_SCOPE` — distinct from `AUTHENTICATION_FAILED`
   (a rejected credential) and `AUTHENTICATION_UNAVAILABLE` (`503`, the capability

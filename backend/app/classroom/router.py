@@ -246,11 +246,16 @@ def build_class_router(
 
         There is no student id in the request any more: the credential is bound to
         the session's own account, so a caller cannot ask for someone else's
-        credential. ``401`` when the request has no account behind it (the
-        development tenant shortcut, which is not a sign-in); ``403``
-        ``NOT_ENROLLED`` when the account is in the tenant but not in this class;
-        ``409`` ``CLASS_NOT_READY`` when the class has not started. The token is
-        returned once — only its digest is stored — and it carries ``subscribe``
+        credential. Joining is a **participant** action, so it needs the ``join``
+        capability, which only the student role holds: a teacher — including the
+        development tenant shortcut, which *is* a teacher principal — is refused
+        here with ``403`` ``INSUFFICIENT_SCOPE`` (``issue_code SCOPE_REQUIRED``) and
+        never reaches the class. That guard is the authorization; the check below is
+        the invariant behind it, that a join credential always binds to an account,
+        and it can only fire for a principal that somehow held ``join`` without one.
+        ``403`` ``NOT_ENROLLED`` when the account is in the tenant but not in this
+        class; ``409`` ``CLASS_NOT_READY`` when the class has not started. The token
+        is returned once — only its digest is stored — and it carries ``subscribe``
         scope only (``DEC-TURN-001``).
         """
 

@@ -841,8 +841,9 @@ export interface BootstrapToken {
  * Request the caller's **own** join credential.
  *
  * There is no student id in the request: the credential is bound to the session's
- * account, so it cannot be someone else's join. Refusals are precise — `401
- * SESSION_REQUIRED` when the request has no account (the development shortcut),
+ * account, so it cannot be someone else's join. Joining is a *participant* action,
+ * so a teacher — including the development shortcut, which is a teacher principal —
+ * is refused `403 INSUFFICIENT_SCOPE`; for a student the refusals are precise —
  * `403 NOT_ENROLLED` when the account is not in this class, `409 CLASS_NOT_READY`
  * with `issue_code NOT_STARTED` when the class has not started.
  */

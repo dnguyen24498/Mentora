@@ -39,8 +39,9 @@ const STATE_TONE: Record<string, Tone> = {
  * so this page first establishes who is asking:
  *
  * * not signed in → sign in first. The development tenant shortcut is not a
- *   sign-in and has no account, so it cannot join; the page says that rather
- *   than offering a button that can only fail.
+ *   sign-in: it is a *teacher*, and joining is the student's own action, so it
+ *   cannot join — the page says that rather than offering a button that can only
+ *   fail.
  * * signed in → the class is shown, and "Join class" asks the server for the
  *   join credential. A refusal is reported with its precise reason: not on the
  *   roster (`NOT_ENROLLED`), the class has not started (`NOT_STARTED`), or the
@@ -155,7 +156,8 @@ export default function JoinClassPage({ classId }: { classId: string }) {
             {mode.development && (
               <p className="mt-2 text-sm text-slate-700">
                 This browser is in <strong>development mode</strong> (the tenant header shortcut), which
-                is authorized as a teacher but has no account behind it — so it cannot join.
+                is authorized as a <strong>teacher</strong> — joining a class is the student's own
+                action, and a teacher has no seat in one.
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">

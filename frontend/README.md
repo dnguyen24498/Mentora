@@ -389,7 +389,8 @@ renders that word rather than implying federation.
   authorizes a join, and the server checks it on every join.)
 - **`src/student/JoinClassPage.tsx`** (`/join/{classId}`) establishes *who is
   asking* before anything else. Signed out, it asks for a sign-in and says the
-  development shortcut cannot join (a join credential must bind to an account).
+  development shortcut cannot join (it is a teacher, not a student, and `join` is
+  the student's own capability).
   Signed in, it shows the class and asks the server for the caller's **own** join
   credential (`POST /classes/{id}/bootstrap-token`, no body), reporting a refusal
   by its precise cause — `NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`,

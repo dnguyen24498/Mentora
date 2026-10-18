@@ -62,7 +62,12 @@ class Scope(str, Enum):
     ENROLLMENT_WRITE = "enrollment:write"
     #: Read the scene a running session is presenting.
     SCENE_READ = "scene:read"
-    #: Request a join credential for a running class.
+    #: Request a join credential for a running class. A **participant** capability:
+    #: the credential it yields is the student's subscribe-only ticket to a class,
+    #: so it is held by the student role alone. A teacher's own access is the
+    #: classroom session, not a seat in it, and a principal with no account behind
+    #: it (the development shortcut) can never satisfy this, because a join binds to
+    #: the authenticated student (``DEC-TURN-001``).
     JOIN = "join"
 
 
@@ -79,7 +84,6 @@ ROLE_SCOPES: dict[Role, frozenset[Scope]] = {
             Scope.PUBLICATION_WRITE,
             Scope.ENROLLMENT_WRITE,
             Scope.SCENE_READ,
-            Scope.JOIN,
         }
     ),
     # The student's set is exactly "attend the class": read the class and its

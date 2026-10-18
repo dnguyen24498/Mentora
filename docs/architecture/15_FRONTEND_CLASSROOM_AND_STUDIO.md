@@ -75,7 +75,8 @@ the control — the server enforces the role on every request.
 `frontend/src/student/` is the student's surface, built for the device a student
 actually holds. `JoinClassPage.tsx` (`/join/{classId}`) establishes *who is
 asking* before anything else: signed out it asks for a sign-in and says the
-development shortcut cannot join; signed in it shows the class and asks the
+development shortcut cannot join (it is a teacher, and joining is the student's
+own capability); signed in it shows the class and asks the
 server for the caller's own join credential, reporting a refusal by its precise
 cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
 `StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the

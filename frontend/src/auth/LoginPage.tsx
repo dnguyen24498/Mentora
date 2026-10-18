@@ -213,8 +213,8 @@ export default function LoginPage() {
               keeps the authoring flows usable before federation exists.
             </p>
             <p className="mt-2 text-sm text-slate-700">
-              It is <strong>not</strong> a sign-in, and it cannot join a class: a join credential must be
-              bound to a real account, so students always sign in.
+              It is <strong>not</strong> a sign-in. It is a teacher, and joining a class is the
+              student's own action — so it cannot join one, and students always sign in.
             </p>
             <div className="mt-3">
               <Link to={LIBRARY_PATH} className={BUTTON_SECONDARY}>

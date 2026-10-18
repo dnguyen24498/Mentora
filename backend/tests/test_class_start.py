@@ -655,11 +655,12 @@ def test_join_requires_enrollment(client):
     assert refused.status_code == 403, refused.text
     assert refused.json()["error"]["code"] == "NOT_ENROLLED"
 
-    # The development shortcut has no account behind it, so it cannot join at all:
-    # a join credential is bound to an authenticated student, not to a header.
+    # The development shortcut is a *teacher* principal, and `join` is the
+    # student's participant capability, so it is refused at the guard — it cannot
+    # reach the class at all, let alone mint itself a credential.
     anonymous = client.post(f"/classes/{class_id}/bootstrap-token", headers=HEADERS)
-    assert anonymous.status_code == 401, anonymous.text
-    assert anonymous.json()["error"]["code"] == "UNAUTHENTICATED"
+    assert anonymous.status_code == 403, anonymous.text
+    assert anonymous.json()["error"]["code"] == "INSUFFICIENT_SCOPE"
 
     # Cross-tenant: the class does not exist inside the other tenant at all.
     cross_tenant = client.get(f"/classes/{class_id}", headers=OTHER_TENANT)

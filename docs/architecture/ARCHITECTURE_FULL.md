@@ -742,7 +742,8 @@ the control — the server enforces the role on every request.
 `frontend/src/student/` is the student's surface, built for the device a student
 actually holds. `JoinClassPage.tsx` (`/join/{classId}`) establishes *who is
 asking* before anything else: signed out it asks for a sign-in and says the
-development shortcut cannot join; signed in it shows the class and asks the
+development shortcut cannot join (it is a teacher, and joining is the student's
+own capability); signed in it shows the class and asks the
 server for the caller's own join credential, reporting a refusal by its precise
 cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
 `StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
@@ -1006,8 +1007,10 @@ that belongs to the trust boundary:
   capabilities are decided. No route is protected only by its client.
 - **Least privilege is enforced where it is decided.** A student session carries
   `class:read`, `scene:read` and `join` and nothing else; it cannot publish, write
-  content, review, or read the roster. A join credential carries `subscribe` only
-  (`DEC-TURN-001`).
+  content, review, or read the roster. The reciprocal holds too: `join` is the
+  student's **participant** capability, so a teacher holds none and is refused
+  where a participant identity is required. A join credential carries `subscribe`
+  only (`DEC-TURN-001`).
 - **Credentials and tokens are stored as digests.** A session stores
   `sha256(token)`; a credential stores scrypt digest + per-account salt. Neither
   raw value is retrievable after the response that issued it.

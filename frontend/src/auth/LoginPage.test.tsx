@@ -57,9 +57,9 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     expect(screen.getByText(/development shortcut/i)).toBeTruthy()
-    // The shortcut has no account, so it can never join — the page says so
-    // rather than offering a button that can only fail.
-    expect(screen.getByText(/cannot join a class/i)).toBeTruthy()
+    // The shortcut is a *teacher*, and joining is the student's own action, so it
+    // can never join — the page says so rather than offering a button that fails.
+    expect(screen.getByText(/cannot join one/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Continue in development mode' })).toBeTruthy()
   })
 

@@ -61,7 +61,7 @@
           "join"
         ]
       },
-      "description": "Capabilities, not a role string: a guard is written against the absence of a capability. Stored in a stable order so the same role always produces the same session row."
+      "description": "Capabilities, not a role string: a guard is written against the absence of a capability. A session carries the intersection of what it was issued and the account's current role, so a role change can only remove a capability, never add one. `join` is the student's participant capability: a teacher holds no `join`, and a class join binds to the authenticated student's own account (DEC-TURN-001). Stored in a stable order so the same role always produces the same session row."
     },
     "authenticator": {
       "type": "string",
