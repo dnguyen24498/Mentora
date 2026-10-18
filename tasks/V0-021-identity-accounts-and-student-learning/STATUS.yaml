@@ -1,10 +1,18 @@
 id: V0-021
 title: "Identity accounts, roles, and the student learning surface"
 week: W8
-status: IN_PROGRESS
+status: DONE
 depends_on: ["V0-009", "V0-011"]
 started_at: "2026-10-18"
-completed_at: null
-commit: null
+completed_at: "2026-10-18"
+commit: "889acf4"
 blockers:
   - "No accepted ADR for the identity mechanism (FND-002 is TODO): institutional federation is named by the canonical architecture, so the local credential adapter is a labelled mock, never architecture."
+notes:
+  - "The mechanism is not decided and is never presented as decided: app/identity/port.py is the provider-neutral Authenticator seam and app/providers/local_credentials.py is the one registered adapter, `local-credentials@1.0.0`, kind=DEVELOPMENT_MOCK (stdlib scrypt, per-account salt, digest-only storage, timing parity on an unknown address). The wire says so (`authenticator.kind`) and GET /auth/me names the mode. An OIDC/OAuth adapter is a second implementation of the same ABC; no domain code changes when one arrives."
+  - "Tenant is a session claim, never a request field: with a session the X-Institution-Id header is ignored; with none it is the development shortcut (MENTORA_DEV_TENANT_HEADER, default on) which resolves an unauthenticated teacher with no account — a teacher is not a participant, so it cannot join a class either. Session scopes are intersected with the account's current role on every read, so narrowing a role applies on the next request, a role change can only ever remove a capability, and revocation is a revoked_at write that read honours (DEC-RUNTIME-007)."
+  - "Enrolment is the class-scoped authorization: POST /classes/{id}/enrollments takes `email` (create-or-link the account in this tenant and enrol it in one step, issuing the one-time code the teacher hands over) or `student_id` of an existing tenant account (404 otherwise — never a free-text roster entry). The roster requires enrollment:write. POST /classes/{id}/bootstrap-token takes no body, so a caller cannot ask for someone else's join. `join` is the student's **participant** capability (`ROLE_SCOPES` grants it to the student role alone), so a teacher — including the development shortcut, which is a teacher principal — is refused 403 INSUFFICIENT_SCOPE at the guard, before the class is read; the credential still binds to an account, which is the invariant behind that guard."
+  - "The student view reads the package the session pinned at start (GET /classes/{id}/scenes[/{order}]), never the course's current publication (DEC-CONTENT-005): a correction published mid-lesson cannot change the slide under a student. Scene serving resolves each file only because the package manifest lists it and re-checks it against the recorded digest (SCENE_CHECKSUM_MISMATCH), so it is neither an arbitrary object read (DEC-CONTENT-004) nor a way to present tampered bytes."
+  - "What is deliberately not claimed: the ordered per-class event stream is DEC-DATA-003 (OPEN, V1-002), so the student page serves the pinned content and says the narration is text-only and not live; no scheduler (DEC-TECH-003 OPEN); no media gateway route for verify_bootstrap_token (V1)."
+  - "Verification: backend 526 passed (tests/identity/, tests/test_identity_api.py); frontend 204 passed with `npx tsc --noEmit` clean; and both flows exercised end-to-end in a real browser against the dev stack (a teacher invites by email and is handed the one-time code; the student signs in with it, opens the class by id, joins, and navigates the pinned deck), at 390px and 320px with no horizontal overflow."
+  - "Follow-up 6651c18: the acceptance criterion \"a teacher token is refused where student identity is required\" was not actually enforced by 889acf4 (`join` sat in the teacher role's scope set too, so a teacher was only stopped later by the account invariant). `Scope.JOIN` is now the participant capability the student role alone holds, refused 403 INSUFFICIENT_SCOPE at the guard; the rule is asserted on the wire via /auth/me and the dev-shortcut join refusal."
