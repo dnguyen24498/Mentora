@@ -13,7 +13,7 @@ V0-008,W4,DONE,Atomic publication and index version,V0-006;V0-007,tasks/V0-008-a
 V0-009,W5,DONE,Class and runtime session plan,V0-008,tasks/V0-009-class-and-runtime-session-plan
 V0-010,W5,DONE,In-process Classroom Aggregate,V0-009,tasks/V0-010-in-process-classroom-aggregate
 V0-011,W5,DONE,Classroom frontend snapshot and event reducer,V0-010,tasks/V0-011-classroom-frontend-snapshot-and-event-reducer
-V0-012,W6,TODO,Neutral TTS provider and deterministic mock,FND-002;V0-010,tasks/V0-012-neutral-tts-provider-and-deterministic-mock
+V0-012,W6,DONE,Neutral TTS provider and deterministic mock,FND-002;V0-010,tasks/V0-012-neutral-tts-provider-and-deterministic-mock
 V0-013,W6,TODO,Timeline narration captions and checkpoints,V0-011;V0-012,tasks/V0-013-timeline-narration-captions-and-checkpoints
 V0-014,W7,TODO,Approved-content indexing,V0-008;FND-002,tasks/V0-014-approved-content-indexing
 V0-015,W7,TODO,Grounded text question,V0-013;V0-014,tasks/V0-015-grounded-text-question

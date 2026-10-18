@@ -1,9 +1,9 @@
 id: V0-012
 title: "Neutral TTS provider and deterministic mock"
 week: W6
-status: TODO
+status: DONE
 depends_on: ["FND-002", "V0-010"]
-started_at: null
-completed_at: null
+started_at: "2026-10-18"
+completed_at: "2026-10-18"
 commit: null
 blockers: []

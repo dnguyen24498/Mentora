@@ -53,6 +53,8 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/compiler/service.py` | `ExtractionService`: artifact -> Content IR -> job status. |
 | `app/publication/` | Teacher review of a built package (V0-007, `review.py`/`workflow.py`/`draft.py`) **and** the atomic publication transition (V0-008, `service.py`/`seal.py`/`index.py`/`outbox.py`): seal (checksums + digests) → index-version pin → one commit transaction → published-version retrieval. |
 | `app/classroom/` | Classes, runtime session plans and sessions (V0-009): schedule a class, start it by resolving and pinning the exact runtime tuple once (`service.py`/`repository.py`/`catalog.py`), build and validate the durable initial snapshot (`snapshot.py`), and authorize joins against the class enrollment. **V0-010** adds `aggregate.py` — the in-process `ClassroomAggregate` reducer (`START`/`NAVIGATE_SCENE`/`CHECKPOINT`/`END` commands, command-id dedup, epoch/state-version fencing, snapshot round-trip) — with `navigate_scene`/`record_checkpoint`/`end_class` service methods and `repository.py::commit_transition`. |
+| `app/speech/` | **V0-012 neutral voice (domain)**: the provider-neutral `SpeechProvider` port (+ `CancelToken`/`SpeechBudget`), the speech models, the `SpeechService` (reserve → synthesize → cancel → release, with neutral-voice then text fallback), classified errors, structured telemetry, and a scripted fault-injection test double. Imports nothing outside itself and the stdlib. |
+| `app/providers/` | **Replaceable capability adapters**: `deterministic.py` — the one neutral-voice adapter V0 runs with (`neutral-deterministic@1.0.0`, dependency-free and deterministic) and `factory.py` (`create_speech_provider`/`build_speech_service`). |
 | `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
 | `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
@@ -529,3 +531,52 @@ break the browser). For normal development the frontend runs on its own server a
     V1 gateway are the transport). Covered by `tests/classroom/test_aggregate.py` (13
     reducer tests) and `tests/classroom/test_classroom_commands.py` (8 integration
     tests); backend suite 426 passed.
+- **Neutral voice provider (V0-012) is not a decided technology.** `DEC-TECH-007`
+  ("TTS/OmniVoice deployment and GPU capacity") is `OPEN`, so
+  `docs/adr/proposed/ADR-P007_TTS_OMNIVOICE.md` applies: *"Until accepted,
+  provider-neutral interfaces and mocks are used."* `app/speech/` therefore defines
+  the domain — the `SpeechProvider` port, the models, the `SpeechService`, the
+  classified errors, telemetry and a scripted test double — and
+  `app/providers/deterministic.py` is the one local adapter behind it. Nothing here
+  is ever reported as a vendor provider.
+  - **The domain imports nothing outside itself and the stdlib.**
+    `tests/speech/test_layering.py` parses the import graph of `app/speech/` and
+    fails if it ever reaches `app.providers` (or any other `app` package or web
+    framework), so no provider SDK or vendor error can leak into the classroom
+    domain; the adapter depends on the port, never the reverse.
+  - **The port base owns the universal transition contract**, so no adapter can
+    skip it: admission control (capacity is reserved before use), the end-to-end
+    deadline (an injected clock), cooperative cancellation, idempotent cancel ACKs,
+    bounded retry, per-generation terminal verdicts, usage and the circuit breaker.
+    An adapter implements only `authorize_voice`, `_reserve`, `_release` and
+    `_stream`.
+  - **A generation is the idempotency key** (`DEC-RUNTIME-003`): a replayed
+    synthesis returns its stored terminal verdict without re-running the stream, and
+    a replayed `cancel(generation)` returns the stored acknowledgement with
+    `duplicate: true` and produces no second side effect.
+  - **A timeout never blocks the lesson.** The `SpeechBudget` deadline is checked
+    before and between chunks; an overrun is `SYNTHESIS_TIMEOUT`, and
+    `SpeechService.speak` returns the **text fallback** (the utterance with its
+    semantic markers preserved) rather than waiting. The deadline is cooperative —
+    a provider that blocks inside its own stream cannot be preempted in-process;
+    the V1 media gateway owns hard timeouts and bounded per-provider queues.
+  - **Retry is bounded, classification-driven, and only before any audio emitted.**
+    Only `SYNTHESIS_TIMEOUT`/`PROVIDER_UNAVAILABLE` are retried, at most
+    `max_attempts`, never past the deadline, and never once a chunk has left the
+    attempt (a partial stream cannot be un-emitted, so it fails and the caller
+    starts a new generation).
+  - **Markers are semantic** (`DEC-RUNTIME-006`): a `MarkerPlan` indexes character
+    positions in the **normalized** text, and the millisecond realization the
+    provider returns is derived output, not the source of truth.
+  - **Failure routes neutral voice, then text** (`DEC-TURN-009`): a refused voice
+    re-routes once to the neutral voice, and a timeout/provider error returns the
+    text fallback; the reservation is released on every terminal path (best effort,
+    never masking the outcome).
+  - **Deterministic by construction.** The adapter's audio for a piece of text is a
+    pure function of `(voice, language, text)` — sha256-seeded PCM frames — so a
+    retry, a re-run or a restarted process is byte-identical and no host sound card
+    or installed voice can change it. It doubles as the deterministic mock and the
+    local-stack mock (`dev/mocks/tts_mock.py`). Covered by
+    `tests/speech/{test_provider_contract,test_speech_service,test_layering}.py`
+    (37 tests; backend suite 463 passed). No HTTP route is added: the classroom
+    actor/orchestrator is the transport (V0-013/V1).
