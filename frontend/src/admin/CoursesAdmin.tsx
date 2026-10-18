@@ -195,7 +195,7 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
   }
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="mx-auto grid grid-cols-1 max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
       <Panel title="Courses">
         <div className="flex gap-2">
           <input

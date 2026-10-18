@@ -96,7 +96,7 @@ export default function RenderingSettings({ institutionId }: { institutionId: st
     health.state === 'open' ? 'bad' : health.state === 'half_open' ? 'warn' : 'good'
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
+    <div className="mx-auto grid grid-cols-1 max-w-6xl gap-6 lg:grid-cols-2">
       <Panel title="Render mode">
         <fieldset className="space-y-2">
           <legend className="sr-only">Render mode</legend>

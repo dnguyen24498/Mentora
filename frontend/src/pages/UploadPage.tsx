@@ -257,7 +257,7 @@ export default function UploadPage() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8 md:grid-cols-[360px_minmax(0,1fr)]">
+      <main className="mx-auto grid grid-cols-1 max-w-7xl gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8 md:grid-cols-[360px_minmax(0,1fr)]">
         <section className={`space-y-5 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm`}>
           <div>
             <label className="block text-sm font-medium text-slate-700" htmlFor="institution">
@@ -428,7 +428,7 @@ export default function UploadPage() {
 
           {selected && (
             <div className="space-y-3 border-t border-slate-100 pt-3">
-              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
                 <dt className="text-slate-500">File</dt>
                 <dd className="truncate text-xs">{selected.filename}</dd>
                 <dt className="text-slate-500">Artifact</dt>
@@ -450,7 +450,7 @@ export default function UploadPage() {
                 <dt className="text-slate-500">Uploaded</dt>
                 <dd className="text-xs">{formatWhen(selected.created_at)}</dd>
               </dl>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => void runExtract(selected.artifact_id)}
@@ -523,7 +523,7 @@ export default function UploadPage() {
             </p>
           )}
           {classes.length > 0 && (
-            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {classes.map((item) => (
                 <li key={item.class_id}>
                   <Link

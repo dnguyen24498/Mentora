@@ -42,7 +42,7 @@ export default function AdminPage({ section }: AdminPageProps) {
       <PageHeader nav="admin" title="Admin" institution={institution} onInstitutionChange={setInstitution}>
         <nav
           aria-label="Admin sections"
-          className="flex gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 sm:px-4"
+          className="flex flex-wrap gap-1 border-t border-slate-100 px-3 py-2 sm:px-4"
         >
           {TABS.map((tab) => {
             const active = tab.section === section

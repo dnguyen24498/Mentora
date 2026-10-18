@@ -723,11 +723,27 @@ header use it). Below `lg` the UI assumes a finger, at and above it a mouse:
 
 - A control **MUST** be at least 44px tall below `lg` and may return to the
   original compact height above it. The shared nav is a **wrapping row of chips**
-  — six destinations, shown rather than hidden behind a menu, scrolling sideways
-  only for the section tabs (Admin, Settings).
+  — six destinations, shown rather than hidden behind a menu — and the section
+  tabs (Admin, Settings; four each) wrap onto a second row rather than clipping a
+  destination off the right edge, since a four-item strip that hides one item is
+  worse than a two-line one.
 - A form control **MUST** be 16px below `lg`: iOS Safari zooms the whole page when
   a focused control's text is smaller, and a phone in landscape and a tablet are
   both below `lg`. Above it the original dense size returns.
+- A grid container **MUST** declare its own columns at the base breakpoint
+  (`grid-cols-*`), and a definition list's value track is
+  `minmax(0, 1fr)` rather than `1fr`. A bare `grid` — or an `auto`/`1fr` track
+  whose minimum is `auto` — gets a floor of the content's **min-content** width,
+  so one long unbreakable value (a deck filename such as
+  `updated_B_o_c_o_T_ng_k_t_C_ng_t_c_…`, a SHA-256, a class id) sets the minimum
+  width of the container and the page grows wider than the phone instead of the
+  value ellipsising. That is not hypothetical: the library page measured 666px
+  inside a 390px viewport because `<main>` declared its columns only from `md` up.
+  Tailwind's `grid-cols-N` is `repeat(N, minmax(0, 1fr))`, whose floor is 0, so
+  declaring the columns **at the base breakpoint** is the fix — a declaration
+  behind a variant (`md:grid-cols-2`) is the bug, not the fix.
+  `frontend/src/responsive.test.ts` is the source scan for the invariant, because
+  jsdom has no layout engine and cannot measure the symptom.
 - Definition-list rows (`ui.tsx::Row`) stack label over value on a phone, where a
   long identifier would otherwise be crushed beside its label, and a wide data
   table scrolls horizontally inside its own container rather than squeezing its
@@ -742,6 +758,14 @@ header use it). Below `lg` the UI assumes a finger, at and above it a mouse:
 Nothing about this is a behavioural change: no page gains or loses a control, no
 request changes, and the phone layout is the same information the large screen
 shows.
+
+The invariant is verified by **measuring the running app in a browser** at 320,
+360, 390, 414, 768 and 1280 px: `documentElement.scrollWidth` equals the viewport
+on every route, including the densest state (the library with a deck selected, its
+stored details, the IR viewer expanded and the raw JSON shown). There is no CI and
+no layout test runner in this repository (`FND-001` is `TODO`), so that measurement
+is a manual step; `frontend/src/responsive.test.ts` guards the one invariant that
+caused a real defect.
 
 ## Implemented learning page
 

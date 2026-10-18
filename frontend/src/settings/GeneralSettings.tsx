@@ -50,7 +50,7 @@ export default function GeneralSettings() {
   }, [institution])
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-2">
+    <div className="mx-auto grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-2">
       <Panel title="Institution">
         <div className="space-y-3">
           <div>

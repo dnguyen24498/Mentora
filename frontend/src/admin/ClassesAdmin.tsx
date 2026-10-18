@@ -281,7 +281,7 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   }, [autoStart, classes, institutionId, now, refreshClasses, selected])
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="mx-auto grid grid-cols-1 max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
       <div className="space-y-6">
         <Panel title="Schedule a class">
           <div className="space-y-3">

@@ -451,7 +451,7 @@ export default function TeacherStudio({
           )}
         </p>
 
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
           <KeyValue term="Package">{review.package_id}</KeyValue>
           <KeyValue term="Content version">{review.content_package_version}</KeyValue>
           <KeyValue term="Lesson plan">{review.lesson_plan_version ?? '—'}</KeyValue>
@@ -529,7 +529,7 @@ export default function TeacherStudio({
           <p className="mt-2 text-sm text-slate-500">Not reviewed yet.</p>
         )}
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <label htmlFor="reviewer" className="block text-xs font-medium text-slate-700">
               Reviewer (optional)
@@ -601,7 +601,7 @@ export default function TeacherStudio({
         )}
       </section>
 
-      <div className={`grid gap-4 ${focus ? '' : 'lg:grid-cols-[320px_minmax(0,1fr)]'}`}>
+      <div className={`grid grid-cols-1 gap-4 ${focus ? '' : 'lg:grid-cols-[320px_minmax(0,1fr)]'}`}>
         {/* Lesson-order editor. Hidden in focus mode, where the slide comes first;
             kept mounted so unsaved edits survive toggling. */}
         <section
@@ -786,7 +786,7 @@ export default function TeacherStudio({
 
           {scene ? (
             <div
-              className={`grid gap-3 ${
+              className={`grid grid-cols-1 gap-3 ${
                 focus ? 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'md:grid-cols-2'
               }`}
               data-testid="scene-side-by-side"

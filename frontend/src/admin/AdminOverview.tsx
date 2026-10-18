@@ -46,7 +46,7 @@ export default function AdminOverview({ institutionId }: { institutionId: string
   const activeClasses = classes.filter((item) => item.state === 'ACTIVE').length
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
+    <div className="mx-auto grid grid-cols-1 max-w-7xl gap-6 lg:grid-cols-2">
       <Panel
         title="This institution"
         actions={
@@ -134,7 +134,7 @@ export default function AdminOverview({ institutionId }: { institutionId: string
         {classes.length === 0 && !loading && (
           <EmptyState>No classes yet.</EmptyState>
         )}
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {classes.map((item) => (
             <li key={item.class_id}>
               <Link

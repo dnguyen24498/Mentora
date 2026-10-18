@@ -101,7 +101,7 @@ export default function ClassroomShell({
         </div>
       )}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <section aria-labelledby="classroom-scene-heading" className="rounded border border-slate-200 p-4">
           <h3 id="classroom-scene-heading" className="text-sm font-semibold text-slate-700">
             Scene

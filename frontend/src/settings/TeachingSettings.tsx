@@ -21,7 +21,7 @@ export default function TeachingSettings() {
   const artifact = readSelectedArtifact()
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-2">
+    <div className="mx-auto grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-2">
       <Panel title="Narration pacing">
         <label htmlFor="teaching-wpm" className="block text-sm font-medium text-slate-700">
           {settings.teachingWpm} words per minute

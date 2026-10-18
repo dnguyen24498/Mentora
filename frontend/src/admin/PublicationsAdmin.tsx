@@ -176,7 +176,7 @@ export default function PublicationsAdmin({ institutionId }: { institutionId: st
       {notice && <Banner tone="good">{notice}</Banner>}
 
       <Panel title="Publish a version">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-end">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-end">
           <div>
             <label htmlFor="publish-version" className="block text-sm font-medium text-slate-700">
               Course version

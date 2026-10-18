@@ -84,12 +84,35 @@ The rules live in `src/components/ui.tsx` as plain class-string tokens
 - Definition-list rows (`Row`) stack label over value on a phone, a wide data
   table scrolls sideways inside its container, and a two-button action grid
   (`Extract` / `Open Teacher Studio`) stacks.
+- **Every grid declares its own columns** (`grid-cols-*`) at the base breakpoint.
+  This is the one that actually bit: a bare `grid` gets a single *implicit* track,
+  and an implicit track is `auto` — floored at the content's min-content width. So
+  one long unbreakable filename set the minimum width of the page, and the library
+  measured 666px inside a 390px viewport. Tailwind's `grid-cols-1` is
+  `minmax(0, 1fr)`, whose floor is 0, so the value ellipsises instead. A column
+  declaration that only exists behind a variant (`md:grid-cols-2`) does *not*
+  count. `src/responsive.test.ts` is a source scan for exactly this, because jsdom
+  has no layout engine.
 - The teaching canvas draws at the screen's **device pixel ratio**, so a stroke on
   a phone is sharp instead of an upscaled CSS-pixel bitmap. Strokes are stored in
   CSS pixels either way, so the scale only affects the paint.
 
 Keyboard affordances (← / → hints) are hidden below `lg`, where there is no
 keyboard; nothing is removed from the DOM, and no page gains or loses a control.
+
+### Checking it
+
+jsdom cannot measure layout, and the repo has no layout test runner, so the check
+is a browser at a phone width. With the app running, load each route and assert
+that no element extends past the viewport:
+
+```js
+document.documentElement.scrollWidth <= document.documentElement.clientWidth
+```
+
+Measured that way at 320/360/390/414/768/1280px, every route holds — including the
+library with a deck selected, its stored details, the IR viewer expanded and the
+raw JSON shown (the widest content the app has).
 
 ## Ports
 

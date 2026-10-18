@@ -21,7 +21,7 @@ export default function AccessibilitySettings() {
   }
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-2">
+    <div className="mx-auto grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-2">
       <Panel title="Motion">
         <label className="flex items-start gap-3">
           <input
