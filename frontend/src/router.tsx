@@ -9,22 +9,27 @@ import {
 /**
  * A dependency-free client-side router.
  *
- * Two real pages: the material library at `/` and the Teacher Studio at
- * `/studio/{artifactId}`. The studio is its own page on purpose — it is the
- * large-screen slide review surface, so it is opened directly (often in a
- * second tab or on a second monitor) and must survive a deep link and a
- * refresh. Single-origin mode is covered by the backend's SPA fallback
- * (`backend/app/api/spa.py`); the Vite dev server already serves the shell.
+ * Four real pages: the material library at `/`, the Teacher Studio at
+ * `/studio/{artifactId}`, the Classroom at `/classroom/{classId}` and the
+ * learning page at `/learn/{artifactId}`. Each is its own page on purpose — the
+ * studio is the large-screen slide review surface, the classroom is the runtime
+ * session view and the learning page is the slide + teaching canvas — so each is
+ * opened directly (often in a second tab or on a second monitor) and must
+ * survive a deep link and a refresh. Single-origin mode is covered by the
+ * backend's SPA fallback (`backend/app/api/spa.py`); the Vite dev server already
+ * serves the shell.
  */
 
 export const LIBRARY_PATH = '/'
 export const STUDIO_PATH = '/studio'
 export const CLASSROOM_PATH = '/classroom'
+export const LEARN_PATH = '/learn'
 
 export type Route =
   | { name: 'library' }
   | { name: 'studio'; artifactId: string }
   | { name: 'classroom'; classId: string }
+  | { name: 'learn'; artifactId: string }
   | { name: 'not-found'; path: string }
 
 /** The canonical URL of one artifact's Teacher Studio page. */
@@ -37,6 +42,26 @@ export function classroomPath(classId: string): string {
   return `${CLASSROOM_PATH}/${encodeURIComponent(classId)}`
 }
 
+/** The canonical URL of one artifact's learning page. */
+export function learnPath(artifactId: string): string {
+  return `${LEARN_PATH}/${encodeURIComponent(artifactId)}`
+}
+
+/**
+ * Decode a single path segment into an id. Anything that is empty, contains a
+ * slash or does not decode is not an id, so the path falls through to 404.
+ */
+function parseId(raw: string): string | null {
+  if (!raw || raw.includes('/')) return null
+  try {
+    const decoded = decodeURIComponent(raw)
+    // A decoded slash would not survive the matching `*Path()` builder.
+    return decoded && !decoded.includes('/') ? decoded : null
+  } catch {
+    return null
+  }
+}
+
 /** Map a pathname onto a route. Unknown paths are the app's own 404 view. */
 export function parseRoute(pathname: string): Route {
   // A server may hand through a query string or a fragment; neither names a page.
@@ -46,32 +71,18 @@ export function parseRoute(pathname: string): Route {
   if (trimmed === LIBRARY_PATH) return { name: 'library' }
 
   if (trimmed.startsWith(`${STUDIO_PATH}/`)) {
-    const raw = trimmed.slice(STUDIO_PATH.length + 1)
-    // An artifact id is a single segment; anything deeper is not a page we have.
-    if (raw && !raw.includes('/')) {
-      let decoded: string
-      try {
-        decoded = decodeURIComponent(raw)
-      } catch {
-        return { name: 'not-found', path: trimmed }
-      }
-      // A decoded slash would not survive `studioPath()`, so it is not an id.
-      if (decoded && !decoded.includes('/')) return { name: 'studio', artifactId: decoded }
-    }
+    const artifactId = parseId(trimmed.slice(STUDIO_PATH.length + 1))
+    if (artifactId) return { name: 'studio', artifactId }
   }
 
   if (trimmed.startsWith(`${CLASSROOM_PATH}/`)) {
-    const raw = trimmed.slice(CLASSROOM_PATH.length + 1)
-    // A class id is a single segment; anything deeper is not a page we have.
-    if (raw && !raw.includes('/')) {
-      let decoded: string
-      try {
-        decoded = decodeURIComponent(raw)
-      } catch {
-        return { name: 'not-found', path: trimmed }
-      }
-      if (decoded && !decoded.includes('/')) return { name: 'classroom', classId: decoded }
-    }
+    const classId = parseId(trimmed.slice(CLASSROOM_PATH.length + 1))
+    if (classId) return { name: 'classroom', classId }
+  }
+
+  if (trimmed.startsWith(`${LEARN_PATH}/`)) {
+    const artifactId = parseId(trimmed.slice(LEARN_PATH.length + 1))
+    if (artifactId) return { name: 'learn', artifactId }
   }
 
   return { name: 'not-found', path: trimmed }

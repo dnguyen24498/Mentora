@@ -6,6 +6,7 @@ import {
   loadReviewPackage,
   loadReviewState,
   loadSnapshot,
+  listClasses,
   listCourses,
   listMaterials,
 } from './api/client'
@@ -20,6 +21,7 @@ vi.mock('./api/client', async (importOriginal) => {
     createCourse: vi.fn(),
     extractArtifact: vi.fn(),
     listCourses: vi.fn(),
+    listClasses: vi.fn(),
     listMaterials: vi.fn(),
     loadArtifact: vi.fn(),
     loadReviewPackage: vi.fn(),
@@ -36,10 +38,11 @@ function visit(path: string) {
   window.history.replaceState({}, '', path)
 }
 
-describe('App — routing between the two pages', () => {
+describe('App — routing between the pages', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.mocked(listCourses).mockResolvedValue([])
+    vi.mocked(listClasses).mockResolvedValue([])
     vi.mocked(listMaterials).mockResolvedValue([])
   })
 
@@ -81,5 +84,17 @@ describe('App — routing between the two pages', () => {
     expect(await screen.findByTestId('classroom-shell')).toBeTruthy()
     expect(screen.getByRole('heading', { level: 1, name: 'Classroom' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: /Upload Course Material/ })).toBeNull()
+  })
+
+  it('serves the Learning page at /learn/{artifactId}', async () => {
+    visit(`/learn/${ARTIFACT}`)
+    vi.mocked(loadReviewPackage).mockResolvedValue(makePackage())
+    vi.mocked(loadArtifact).mockResolvedValue(makeArtifact())
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Learning' })).toBeTruthy()
+    expect(await screen.findByTestId('teaching-canvas')).toBeTruthy()
+    expect(screen.queryByTestId('teacher-studio')).toBeNull()
   })
 })

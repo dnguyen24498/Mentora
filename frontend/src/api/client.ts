@@ -186,6 +186,27 @@ export const uploadMaterial = (institutionId: string, courseId: string, file: Fi
 export const extractArtifact = (institutionId: string, artifactId: string) =>
   request<ContentIR>(`/artifacts/${artifactId}/extract`, institutionId, { method: 'POST' })
 
+// -- scheduled classes (V0-009) --------------------------------------------------
+//
+// The library lists classes so a classroom is reachable from the UI, not only by
+// deep link. Scheduling a class is done by the runtime (`POST /classes`); the
+// page reads, it does not create.
+
+export interface ClassSummary {
+  class_id: string
+  institution_id: string
+  course_id: string
+  title: string
+  version_id: string | null
+  scheduled_for: string | null
+  state: string
+  created_at: string
+  started_at: string | null
+}
+
+export const listClasses = (institutionId: string, limit = 100) =>
+  request<ClassSummary[]>(`/classes?limit=${limit}`, institutionId)
+
 /** Stored artifact metadata. The Teacher Studio shows the filename as its title. */
 export interface ArtifactSummary {
   artifact_id: string

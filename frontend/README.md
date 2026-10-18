@@ -1,22 +1,37 @@
 # Frontend
 
-Material library (`.pptx` upload), the Teacher Studio review page, and the
-Classroom runtime page, as real pages of one Vite app. React + TypeScript +
-Tailwind, built with Vite.
+Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
+runtime page and the Learning page (slide + teaching canvas), as real pages of
+one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
 
 | URL | Page | File |
 | --- | --- | --- |
-| `/` | Material library — courses, upload, extracted Content IR | `src/pages/UploadPage.tsx` |
+| `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
 | `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
+| `/learn/{artifactId}` | Learning — the slide plus the teaching canvas | `src/presentation/LearnPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
 The teacher review flow is a **page of its own**, not a panel on the upload page:
 it is the large-screen slide surface, so it is opened directly (a new tab, a
 second monitor, a bookmark), survives a deep link and a refresh, and sets its own
 document title to the file name.
+
+## Navigation between the pages
+
+`src/components/SiteNav.tsx` is embedded in every page header, so Library,
+Teacher Studio, Classroom and Learning are each reachable from the others. The
+Studio and Learn links need a deck and the Classroom link needs a class: the
+current page passes the id it holds, otherwise the last one opened is remembered
+in `localStorage` (`src/institution.ts`, like the tenant and the selected
+course). Before there is an id, the entry is a disabled label that says why —
+never a link that goes nowhere.
+
+The library is the hub: selecting a deck offers **Open Teacher Studio** and
+**Open learning page**, and the **Classes** panel (`GET /classes`) links each
+scheduled class to its classroom (scheduling stays in the runtime API).
 
 Routing is `src/router.tsx` — a ~70-line dependency-free `useRoute` / `navigate` /
 `Link` module (no router dependency: a handful of static pages do not justify one,
@@ -137,6 +152,27 @@ refresh works in single-origin mode too.
     principal), so the reviewer field is attribution only and defaults to the
     tenant id.
 
+## Learning page (`/learn/{artifactId}`)
+
+The learner-facing view of one deck, in `src/presentation/` — the module the spec
+reserves for presentation work:
+
+- **The slide**, loaded the way the Studio loads it (an object URL, because
+  `<img src>` cannot send the `X-Institution-Id` header) and read from the
+  package already built for the deck, so opening Learning never re-renders it.
+- **The teaching canvas** (`TeachingCanvas.tsx`): a transparent annotation layer
+  over the slide, with pen, highlighter and eraser, a colour and width, undo and
+  clear. Strokes are kept per slide while the page is open. They are
+  **client-local**: the ordered per-class event stream that would carry them to
+  students is `DEC-DATA-003` (`OPEN`; the live path is V1-002), so nothing
+  pretends to broadcast. A browser with no 2D canvas still shows the slide and
+  says annotation is unavailable, instead of failing.
+- **Slide navigation**: previous/next, a jump-to selector, and the ← / → arrow
+  keys (ignored while focus is in a control).
+- **The teaching script**: the slide's extracted text, its speaker notes, and
+  its lesson-order script from the pinned package. Playback, captions and the
+  timeline arrive with V0-013.
+
 ## Classroom (V0-011)
 
 `/classroom/{classId}` is the runtime view of a session. It is a **projection** —
@@ -189,8 +225,13 @@ and the draft payload, focus mode, and basic screen-reader structure.
 the visible rendering phase, unloadable packages, the server's refusal, draft
 saves) with a mocked API client; `src/App.test.tsx` covers the routing between
 the pages including a deep link; `src/router.test.tsx` covers route parsing
-and the `Link`/`navigate` behaviour. Test deps are **dev-only**; the production
-build and its dependencies are unchanged.
+and the `Link`/`navigate` behaviour. `src/components/SiteNav.test.tsx` covers the
+shared navigation (every page from every page, the disabled entries before an id
+is known, `aria-current`). `src/presentation/LearnPage.test.tsx` covers the
+learning page: stored vs built package, slide navigation by button, selector and
+arrow keys, the teaching script, and the canvas toolbar including its
+no-2D-canvas degradation. Test deps are **dev-only**; the production build and
+its dependencies are unchanged.
 
 `src/classroom/state/reducer.test.ts` is the pure-reducer acceptance suite
 (contiguous apply, duplicate/stale ignored, gap reported and not applied,

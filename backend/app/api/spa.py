@@ -1,7 +1,8 @@
 """Static serving for the built frontend, with SPA history fallback.
 
-The frontend has real client-side routes — ``/`` for the material library and
-``/studio/{artifactId}`` for the Teacher Studio review page — so a deep link, a
+The frontend has real client-side routes — ``/`` for the material library,
+``/studio/{artifactId}`` for the Teacher Studio, ``/classroom/{classId}`` for the
+classroom and ``/learn/{artifactId}`` for the learning page — so a deep link, a
 bookmark or a page refresh must serve the app *shell* rather than a bare 404.
 
 Plain ``StaticFiles(html=True)`` only answers ``index.html`` for *directory*

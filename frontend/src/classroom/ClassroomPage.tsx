@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import ClassroomShell from './ClassroomShell'
-import { Link } from '../router'
-import { useInstitution } from '../institution'
+import SiteNav from '../components/SiteNav'
+import { useInstitution, writeSelectedClass } from '../institution'
 import { useClassroomSession } from './useClassroomSession'
 import type { ClassroomTransport } from './state/transport'
 import type { ClassroomTelemetry } from './state/telemetry'
@@ -39,13 +39,16 @@ export default function ClassroomPage({
     document.title = `Classroom ${classId} — Mentora`
   }, [classId])
 
+  // The shared nav links back to this class's classroom from the other pages.
+  useEffect(() => {
+    writeSelectedClass(classId)
+  }, [classId])
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <Link to="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-            ← Library
-          </Link>
+          <SiteNav current="classroom" classId={classId} />
           <h1 className="text-base font-semibold text-slate-800">Classroom</h1>
           <span className="truncate font-mono text-[11px] text-slate-400">{classId}</span>
           <div className="ml-auto flex items-center gap-2">

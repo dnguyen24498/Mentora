@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import TeacherStudio from '../components/TeacherStudio'
-import { Link } from '../router'
-import { useInstitution } from '../institution'
+import SiteNav from '../components/SiteNav'
+import { useInstitution, writeSelectedArtifact } from '../institution'
 import {
   ApiError,
   buildReviewPackage,
@@ -109,6 +109,12 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
     void load()
   }, [load])
 
+  // The shared nav links back to this deck (and to its learning page) from
+  // anywhere else in the app.
+  useEffect(() => {
+    writeSelectedArtifact(artifactId)
+  }, [artifactId])
+
   // Distinct tabs are the point of a page of its own, so name this one.
   useEffect(() => {
     document.title = artifact
@@ -171,12 +177,7 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <Link
-            to="/"
-            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-          >
-            ← Library
-          </Link>
+          <SiteNav current="studio" artifactId={artifactId} />
           <h1 className="text-base font-semibold">Teacher Studio</h1>
           <span className="truncate text-sm text-slate-500">{artifact?.filename ?? 'loading…'}</span>
           <span className="hidden truncate font-mono text-[11px] text-slate-400 sm:inline">{artifactId}</span>

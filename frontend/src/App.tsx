@@ -1,4 +1,5 @@
 import ClassroomPage from './classroom/ClassroomPage'
+import LearnPage from './presentation/LearnPage'
 import StudioPage from './pages/StudioPage'
 import UploadPage from './pages/UploadPage'
 import { LIBRARY_PATH, Link, useRoute } from './router'
@@ -7,21 +8,26 @@ import { LIBRARY_PATH, Link, useRoute } from './router'
  * The app shell: it routes between the real pages.
  *
  * * `/` — the material library (`pages/UploadPage.tsx`): create a course,
- *   upload a `.pptx`, inspect the extracted Content IR;
+ *   upload a `.pptx`, inspect the extracted Content IR, and open any class;
  * * `/studio/{artifactId}` — the Teacher Studio (`pages/StudioPage.tsx`): the
  *   full-width slide review of one uploaded deck, meant to be opened large;
  * * `/classroom/{classId}` — the Classroom (`classroom/ClassroomPage.tsx`): the
- *   authoritative runtime state of a running session (V0-011).
+ *   authoritative runtime state of a running session (V0-011);
+ * * `/learn/{artifactId}` — the Learning page (`presentation/LearnPage.tsx`):
+ *   the slide plus the teaching canvas the teacher draws on.
  *
- * Routing is a ~60-line dependency-free module (`router.tsx`) rather than a
- * router dependency: a handful of static pages do not justify one, and the
- * project adds no production dependency without an accepted decision.
+ * Every page carries the shared navigation (`components/SiteNav.tsx`), so each
+ * is reachable from each. Routing is a small dependency-free module
+ * (`router.tsx`) rather than a router dependency: a handful of static pages do
+ * not justify one, and the project adds no production dependency without an
+ * accepted decision.
  */
 export default function App() {
   const route = useRoute()
 
   if (route.name === 'studio') return <StudioPage artifactId={route.artifactId} />
   if (route.name === 'classroom') return <ClassroomPage classId={route.classId} />
+  if (route.name === 'learn') return <LearnPage artifactId={route.artifactId} />
   if (route.name === 'library') return <UploadPage />
 
   return (

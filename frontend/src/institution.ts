@@ -40,6 +40,46 @@ export function writeSelectedCourse(value: string): void {
 }
 
 /**
+ * The last deck and class the teacher opened.
+ *
+ * The Studio, Classroom and Learn pages are each their own page, so the shared
+ * navigation (`components/SiteNav.tsx`) needs an id to link to them from any
+ * other page. These remember the most recent one, the same way the tenant and
+ * the selected course already are — a convenience, never authoritative.
+ */
+export function readSelectedArtifact(): string {
+  try {
+    return localStorage.getItem('mentora.artifact') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function writeSelectedArtifact(value: string): void {
+  try {
+    localStorage.setItem('mentora.artifact', value)
+  } catch {
+    // Non-fatal.
+  }
+}
+
+export function readSelectedClass(): string {
+  try {
+    return localStorage.getItem('mentora.class') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function writeSelectedClass(value: string): void {
+  try {
+    localStorage.setItem('mentora.class', value)
+  } catch {
+    // Non-fatal.
+  }
+}
+
+/**
  * The tenant, shared by every page.
  *
  * The Teacher Studio is a page of its own and is routinely opened in a second

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { classroomPath, Link, navigate, parseRoute, studioPath } from './router'
+import { classroomPath, learnPath, Link, navigate, parseRoute, studioPath } from './router'
 
 const ARTIFACT = '1e4c06bc-f29e-4ba4-9b39-b0b2cf5f4f1e'
 
@@ -41,6 +41,20 @@ describe('parseRoute', () => {
     expect(parseRoute('/classroom/class-1/')).toEqual({ name: 'classroom', classId: 'class-1' })
     expect(parseRoute('/classroom/a/b')).toEqual({ name: 'not-found', path: '/classroom/a/b' })
   })
+
+  it('maps /learn/{artifactId} to the learning page', () => {
+    expect(parseRoute(`/learn/${ARTIFACT}`)).toEqual({ name: 'learn', artifactId: ARTIFACT })
+    expect(parseRoute(`/learn/${ARTIFACT}/`)).toEqual({ name: 'learn', artifactId: ARTIFACT })
+    expect(parseRoute(`/learn/${ARTIFACT}?slide=2`)).toEqual({
+      name: 'learn',
+      artifactId: ARTIFACT,
+    })
+    // No id, a deeper path or an escaped slash is not the page.
+    expect(parseRoute('/learn')).toEqual({ name: 'not-found', path: '/learn' })
+    expect(parseRoute('/learn/')).toEqual({ name: 'not-found', path: '/learn' })
+    expect(parseRoute('/learn/a/b')).toEqual({ name: 'not-found', path: '/learn/a/b' })
+    expect(parseRoute('/learn/a%2Fb')).toEqual({ name: 'not-found', path: '/learn/a%2Fb' })
+  })
 })
 
 describe('studioPath', () => {
@@ -54,6 +68,13 @@ describe('classroomPath', () => {
   it('builds the canonical classroom URL and round-trips through parseRoute', () => {
     expect(classroomPath('class-1')).toBe('/classroom/class-1')
     expect(parseRoute(classroomPath('class-1'))).toEqual({ name: 'classroom', classId: 'class-1' })
+  })
+})
+
+describe('learnPath', () => {
+  it('builds the canonical learning URL and round-trips through parseRoute', () => {
+    expect(learnPath(ARTIFACT)).toBe(`/learn/${ARTIFACT}`)
+    expect(parseRoute(learnPath(ARTIFACT))).toEqual({ name: 'learn', artifactId: ARTIFACT })
   })
 })
 
