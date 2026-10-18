@@ -259,12 +259,15 @@ def test_a_corrupted_snapshot_is_refused_on_restore(client, settings):
 def test_end_revokes_live_join_credentials(client):
     class_id, _ = _started(client)
     service = _service(client)
-    client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
-    token = service.issue_bootstrap_token("university-001", class_id, "students/ana").token
+    enrolled = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"email": "ana@uni.test"},
+        headers=HEADERS,
+    ).json()
+    student_id = enrolled["student"]["account_id"]
+    token = service.issue_bootstrap_token("university-001", class_id, student_id).token
 
-    assert service.verify_bootstrap_token("university-001", class_id, token).student_id == "students/ana"
+    assert service.verify_bootstrap_token("university-001", class_id, token).student_id == student_id
 
     ended = service.end_class("university-001", class_id)
     assert ended.result.accepted

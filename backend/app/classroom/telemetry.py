@@ -42,6 +42,8 @@ class ClassroomMetrics:
     joins_denied: int = 0
     snapshots_read: int = 0
     snapshot_failures: int = 0
+    scenes_read: int = 0
+    scene_listings: int = 0
     commands_accepted: int = 0
     commands_rejected: int = 0
     commands_duplicated: int = 0
@@ -197,6 +199,61 @@ class ClassroomTelemetry:
             institution_id=institution_id,
             session_id=session_id,
             issue_code=issue_code,
+        )
+
+    def record_scene_read(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: str,
+        package_id: str,
+        order: int,
+        scene_id: Optional[str],
+        byte_size: int,
+    ) -> dict[str, Any]:
+        """A serving of one slide of the *pinned* package.
+
+        The package id is recorded, not the course or a ``latest`` reference: a
+        scene read that logged anything else could not be distinguished from the
+        forbidden "read the newest render" path (``DEC-CONTENT-005``).
+        """
+
+        self.metrics.scenes_read += 1
+        return self.emit(
+            "class.scene_read",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            package_id=package_id,
+            order=order,
+            scene_id=scene_id,
+            byte_size=byte_size,
+        )
+
+    def record_scene_listing(
+        self,
+        *,
+        institution_id: str,
+        class_id: str,
+        session_id: str,
+        package_id: str,
+        scene_count: int,
+    ) -> dict[str, Any]:
+        """A read of the pinned package's slide list (identities, never the text).
+
+        The scene *text* is deck content, so it is counted and never logged — the
+        same rule the classroom telemetry already applies to transcripts.
+        """
+
+        self.metrics.scene_listings += 1
+        return self.emit(
+            "class.scene_listing",
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=session_id,
+            package_id=package_id,
+            scene_count=scene_count,
         )
 
     def record_command(

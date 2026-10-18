@@ -130,6 +130,41 @@ def _start(client, class_id: str, headers: dict = HEADERS):
     return client.post(f"/classes/{class_id}/start", headers=headers)
 
 
+def _invite(client, class_id: str, email: str, headers: dict = HEADERS) -> dict:
+    """A teacher invites a student by email: create-or-link the account, then enrol.
+
+    ``HEADERS`` is the development tenant shortcut, which resolves to a teacher
+    principal (no account behind it) — exactly what a teacher-only verb needs.
+    """
+
+    response = client.post(
+        f"/classes/{class_id}/enrollments", params={"email": email}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _sign_in(
+    client, email: str, credential: str, institution: str = "university-001"
+) -> dict:
+    response = client.post(
+        "/auth/login",
+        json={"institution_id": institution, "email": email, "credential": credential},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, dict]:
+    """Invite a student, sign in, and return ``(account_id, authorized headers)``."""
+
+    invitation = _invite(client, class_id, email)
+    credential = invitation["development_credential"]
+    assert credential, invitation
+    headers = _sign_in(client, email, credential)
+    return invitation["student"]["account_id"], headers
+
+
 def _repository(client) -> ClassRepository:
     return client.app.state.classroom_service._repository
 
@@ -612,71 +647,132 @@ def test_join_requires_enrollment(client):
     _publish_version(client, course_id, _deck())
     class_id = _schedule(client, course_id)["class_id"]
     _start(client, class_id)
-    students = "students/ana"
+    # A real student account, invited to *another* class, so it is not enrolled here.
+    elsewhere = _schedule(client, course_id)["class_id"]
+    account_id, student = _student(client, elsewhere, "ana@uni.test")
 
-    refused = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": students},
-        headers=HEADERS,
-    )
+    refused = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
     assert refused.status_code == 403, refused.text
     assert refused.json()["error"]["code"] == "NOT_ENROLLED"
 
-    # Cross-tenant: the class is not visible at all.
-    cross_tenant = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": students},
-        headers=OTHER_TENANT,
-    )
+    # The development shortcut has no account behind it, so it cannot join at all:
+    # a join credential is bound to an authenticated student, not to a header.
+    anonymous = client.post(f"/classes/{class_id}/bootstrap-token", headers=HEADERS)
+    assert anonymous.status_code == 401, anonymous.text
+    assert anonymous.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    # Cross-tenant: the class does not exist inside the other tenant at all.
+    cross_tenant = client.get(f"/classes/{class_id}", headers=OTHER_TENANT)
     assert cross_tenant.status_code == 403, cross_tenant.text
     assert cross_tenant.json()["error"]["code"] == "TENANT_ACCESS_DENIED"
 
     enrolled = client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": students}, headers=HEADERS
+        f"/classes/{class_id}/enrollments",
+        params={"student_id": account_id},
+        headers=HEADERS,
     )
     assert enrolled.status_code == 200, enrolled.text
     assert enrolled.json()["created"] is True
 
-    issued = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": students},
-        headers=HEADERS,
-    )
+    issued = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
     assert issued.status_code == 200, issued.text
     token = issued.json()
     assert token["class_id"] == class_id
-    assert token["student_id"] == students
+    assert token["student_id"] == account_id, "the credential is the caller's own"
     assert token["scopes"] == ["subscribe"], "student media permission is subscribe-only"
     assert token["actor_epoch"] == INITIAL_ACTOR_EPOCH
     assert token["expires_at"] > token["issued_at"]
     assert len(token["token"]) >= 32
 
     # A different student is still refused.
-    other = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": "students/bob"},
-        headers=HEADERS,
+    _, other = _student(client, elsewhere, "bob@uni.test")
+    denied = client.post(f"/classes/{class_id}/bootstrap-token", headers=other)
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "NOT_ENROLLED"
+
+
+def test_an_invitation_creates_the_account_then_links_it(client):
+    """A teacher adds a student by email; the same address is one identity."""
+
+    course_id = _course(client)
+    class_id = _schedule(client, course_id)["class_id"]
+
+    first = _invite(client, class_id, "Ana@Uni.test")
+    assert first["account_created"] is True
+    assert first["created"] is True
+    assert first["student"]["role"] == "student"
+    assert first["development_credential"], "the development mock provisions a sign-in code"
+
+    second = _invite(client, class_id, "ana@uni.test")
+    assert second["account_created"] is False, "the account is linked, not duplicated"
+    assert second["created"] is False, "and the enrolment is idempotent"
+    assert second["development_credential"] is None
+    assert second["student"]["account_id"] == first["student"]["account_id"]
+    assert second["enrollment_id"] == first["enrollment_id"]
+
+    # One account, one enrolment.
+    assert _counts(client)["enrollments"] == 1
+
+    # Enrolling by a student id that is not an account in this tenant is a 404, not
+    # a silent free-text roster entry.
+    assert (
+        client.post(
+            f"/classes/{class_id}/enrollments",
+            params={"student_id": "students/ana"},
+            headers=HEADERS,
+        ).status_code
+        == 404
     )
-    assert other.status_code == 403
-    assert other.json()["error"]["code"] == "NOT_ENROLLED"
+
+
+def test_a_student_cannot_use_teacher_verbs(client):
+    """Roles are enforced server-side, not by hiding UI (V0-021)."""
+
+    course_id = _course(client)
+    class_id = _schedule(client, course_id)["class_id"]
+    _, student = _student(client, class_id, "ana@uni.test")
+
+    # Every write verb a student must not reach.
+    assert client.post("/courses", params={"title": "x"}, headers=student).status_code == 403
+    assert (
+        client.post(
+            f"/classes/{class_id}/start", headers=student
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/classes/{class_id}/enrollments",
+            params={"email": "mallory@uni.test"},
+            headers=student,
+        ).status_code
+        == 403
+    )
+    assert client.get(f"/classes/{class_id}/enrollments", headers=student).status_code == 403
+
+    denied = client.post(f"/classes/{class_id}/start", headers=student).json()
+    assert denied["error"]["code"] == "INSUFFICIENT_SCOPE"
+    assert denied["error"]["issue_code"] == "SCOPE_REQUIRED"
+
+    # …while the read a student legitimately needs still works.
+    assert client.get(f"/classes/{class_id}", headers=student).status_code == 200
 
 
 def test_enrollment_is_idempotent_and_tenant_scoped(client):
     course_id = _course(client)
     class_id = _schedule(client, course_id)["class_id"]
 
-    first = client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
-    second = client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
-    assert first.json()["created"] is True
-    assert second.json()["created"] is False
-    assert first.json()["enrollment_id"] == second.json()["enrollment_id"]
+    first = _invite(client, class_id, "ana@uni.test")
+    second = _invite(client, class_id, "ana@uni.test")
+    assert first["created"] is True
+    assert second["created"] is False
+    assert first["enrollment_id"] == second["enrollment_id"]
 
     roster = client.get(f"/classes/{class_id}/enrollments", headers=HEADERS).json()
-    assert [item["student_id"] for item in roster["enrollments"]] == ["students/ana"]
+    assert [item["student"]["email"] for item in roster["enrollments"]] == ["ana@uni.test"]
+    assert [item["student_id"] for item in roster["enrollments"]] == [
+        first["student"]["account_id"]
+    ]
 
     assert (
         client.get(f"/classes/{class_id}/enrollments", headers=OTHER_TENANT).status_code == 403
@@ -687,15 +783,9 @@ def test_joining_before_start_is_refused(client):
     course_id = _course(client)
     _publish_version(client, course_id, _deck())
     class_id = _schedule(client, course_id)["class_id"]
-    client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
+    _, student = _student(client, class_id, "ana@uni.test")
 
-    response = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": "students/ana"},
-        headers=HEADERS,
-    )
+    response = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
     assert response.status_code == 409, response.text
     assert response.json()["error"]["issue_code"] == "NOT_STARTED"
 
@@ -705,13 +795,9 @@ def test_the_bootstrap_token_is_not_stored_in_the_clear(client):
     _publish_version(client, course_id, _deck())
     class_id = _schedule(client, course_id)["class_id"]
     _start(client, class_id)
-    client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
+    _, student = _student(client, class_id, "ana@uni.test")
     token = client.post(
-        f"/classes/{class_id}/bootstrap-token",
-        json={"student_id": "students/ana"},
-        headers=HEADERS,
+        f"/classes/{class_id}/bootstrap-token", headers=student
     ).json()["token"]
 
     rows = _repository(client)._conn.execute("SELECT * FROM bootstrap_tokens").fetchall()
@@ -732,15 +818,13 @@ def test_a_token_is_bound_to_its_epoch_and_lifetime(client):
     _publish_version(client, course_id, _deck())
     class_id = _schedule(client, course_id)["class_id"]
     _start(client, class_id)
-    client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
+    account_id, _ = _student(client, class_id, "ana@uni.test")
     service = client.app.state.classroom_service
     clock = _Clock()
     service._clock = clock
-    token = service.issue_bootstrap_token("university-001", class_id, "students/ana").token
+    token = service.issue_bootstrap_token("university-001", class_id, account_id).token
 
-    assert service.verify_bootstrap_token("university-001", class_id, token).student_id == "students/ana"
+    assert service.verify_bootstrap_token("university-001", class_id, token).student_id == account_id
 
     # An unknown token and another tenant's token are indistinguishable by design.
     with pytest.raises(JoinDeniedError) as unknown:
@@ -758,7 +842,7 @@ def test_a_token_is_bound_to_its_epoch_and_lifetime(client):
 
     # Revocation is the other terminal path, and it is idempotent-safe.
     clock.now = datetime(2026, 10, 17, 9, 1, tzinfo=timezone.utc)
-    fresh = service.issue_bootstrap_token("university-001", class_id, "students/ana").token
+    fresh = service.issue_bootstrap_token("university-001", class_id, account_id).token
     assert service.revoke_bootstrap_token("university-001", fresh) is True
     assert service.revoke_bootstrap_token("university-001", fresh) is False
     with pytest.raises(JoinDeniedError) as revoked:
@@ -767,7 +851,7 @@ def test_a_token_is_bound_to_its_epoch_and_lifetime(client):
 
     # A token issued in an epoch the session has left cannot authorize.
     clock.now = datetime(2026, 10, 17, 9, 2, tzinfo=timezone.utc)
-    epoch_bound = service.issue_bootstrap_token("university-001", class_id, "students/ana").token
+    epoch_bound = service.issue_bootstrap_token("university-001", class_id, account_id).token
     _repository(client)._conn.execute(
         "UPDATE classroom_sessions SET actor_epoch = 2 WHERE class_id = ?", (class_id,)
     )
@@ -808,10 +892,8 @@ def test_class_telemetry_carries_identities_not_content(client):
     service.telemetry._logger = logger
 
     _start(client, class_id)
-    client.post(
-        f"/classes/{class_id}/enrollments", params={"student_id": "students/ana"}, headers=HEADERS
-    )
-    service.issue_bootstrap_token("university-001", class_id, "students/ana")
+    account_id, _ = _student(client, class_id, "ana@uni.test")
+    service.issue_bootstrap_token("university-001", class_id, account_id)
 
     events = [json.loads(record) for record in logger.records]
     started = next(event for event in events if event["event"] == "class.started")

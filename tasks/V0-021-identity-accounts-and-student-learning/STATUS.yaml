@@ -1,0 +1,10 @@
+id: V0-021
+title: "Identity accounts, roles, and the student learning surface"
+week: W8
+status: IN_PROGRESS
+depends_on: ["V0-009", "V0-011"]
+started_at: "2026-10-18"
+completed_at: null
+commit: null
+blockers:
+  - "No accepted ADR for the identity mechanism (FND-002 is TODO): institutional federation is named by the canonical architecture, so the local credential adapter is a labelled mock, never architecture."

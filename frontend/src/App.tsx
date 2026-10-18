@@ -4,6 +4,11 @@ import LearnPage from './presentation/LearnPage'
 import SettingsPage from './settings/SettingsPage'
 import StudioPage from './pages/StudioPage'
 import UploadPage from './pages/UploadPage'
+import LoginPage from './auth/LoginPage'
+import JoinClassPage from './student/JoinClassPage'
+import StudentClassPage from './student/StudentClassPage'
+import StudentNotice from './auth/StudentNotice'
+import { isStudent, useSession } from './auth/session'
 import { LIBRARY_PATH, Link, useRoute } from './router'
 
 /**
@@ -21,17 +26,41 @@ import { LIBRARY_PATH, Link, useRoute } from './router'
  * * `/admin/{section}` — the Admin area (`admin/AdminPage.tsx`): manage courses,
  *   classes and publications through the existing API;
  * * `/settings/{section}` — Settings (`settings/SettingsPage.tsx`): client
- *   preferences plus read-only server facts.
+ *   preferences plus read-only server facts;
+ * * `/login` — sign in (`auth/LoginPage.tsx`, V0-021): a labelled development
+ *   credential mock behind a provider-neutral interface, because no credential
+ *   mechanism is a decided technology;
+ * * `/join/{classId}` — a student enters a class (`student/JoinClassPage.tsx`):
+ *   the class, and one button that asks the server for the caller's own join
+ *   credential;
+ * * `/student/{classId}` — the student's own fullscreen view of a class
+ *   (`student/StudentClassPage.tsx`), built for a phone in a lecture hall.
  *
  * Every page carries the shared navigation (`components/SiteNav.tsx`), so each
  * is reachable from each. Routing is a small dependency-free module
  * (`router.tsx`) rather than a router dependency: a handful of static pages do
  * not justify one, and the project adds no production dependency without an
  * accepted decision.
+ *
+ * The authoring pages are the *teacher's*, and a student who opens one is told so
+ * rather than shown a page whose every request would answer `403`. That is a
+ * courtesy, not the control: the server enforces the role on every request
+ * (V0-021), so the client can only ever offer fewer things than it is allowed.
  */
 export default function App() {
   const route = useRoute()
+  const session = useSession()
+  const student = isStudent(session)
 
+  if (route.name === 'login') return <LoginPage />
+  if (route.name === 'join') return <JoinClassPage classId={route.classId} />
+  if (route.name === 'student') return <StudentClassPage classId={route.classId} />
+
+  // A student may still open Settings (client preferences) — it holds nothing
+  // that belongs to a role — but not the authoring surfaces.
+  if (student && route.name !== 'settings' && route.name !== 'not-found') {
+    return <StudentNotice />
+  }
   if (route.name === 'studio') return <StudioPage artifactId={route.artifactId} />
   if (route.name === 'classroom') return <ClassroomPage classId={route.classId} />
   if (route.name === 'learn') return <LearnPage artifactId={route.artifactId} />

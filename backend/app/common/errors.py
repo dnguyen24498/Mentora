@@ -32,6 +32,14 @@ class ErrorCode(str, Enum):
     # the tenant but not enrolled in the class.
     CLASS_NOT_READY = "CLASS_NOT_READY"
     NOT_ENROLLED = "NOT_ENROLLED"
+    # V0-021 (identity): no valid session was presented (or the pre-auth
+    # development shortcut is disabled), a session was valid but lacks the scope
+    # the verb needs, credential verification was refused, and the credential
+    # capability is unusable (breaker open / no adapter configured).
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE"
+    AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
+    AUTHENTICATION_UNAVAILABLE = "AUTHENTICATION_UNAVAILABLE"
 
 
 class AppError(Exception):
@@ -100,6 +108,44 @@ class NotEnrolledError(AppError):
 
     code = ErrorCode.NOT_ENROLLED
     http_status = 403
+
+
+class UnauthenticatedError(AppError):
+    """No usable principal: no session, an unknown/expired/revoked one, or the
+    development tenant shortcut is switched off (V0-021)."""
+
+    code = ErrorCode.UNAUTHENTICATED
+    http_status = 401
+
+
+class InsufficientScopeError(AppError):
+    """The principal is authenticated but lacks the scope the verb requires.
+
+    Distinct from :class:`TenantAccessError`: the tenant boundary is satisfied,
+    so this is a *role/capability* denial (a student calling a teacher verb).
+    """
+
+    code = ErrorCode.INSUFFICIENT_SCOPE
+    http_status = 403
+
+
+class AuthenticationFailedError(AppError):
+    """Credential verification was refused.
+
+    The message is deliberately identical for "no such account" and "wrong
+    credential", so the response is not an account-enumeration oracle.
+    """
+
+    code = ErrorCode.AUTHENTICATION_FAILED
+    http_status = 401
+
+
+class AuthenticationUnavailableError(AppError):
+    """The credential capability cannot be used right now (breaker open, no
+    adapter configured, or the deadline overran)."""
+
+    code = ErrorCode.AUTHENTICATION_UNAVAILABLE
+    http_status = 503
 
 
 def error(code: ErrorCode, message: str) -> AppError:

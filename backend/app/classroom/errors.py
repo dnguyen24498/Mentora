@@ -60,6 +60,10 @@ ISSUE_STALE_STATE_VERSION = "STALE_STATE_VERSION"
 ISSUE_INVALID_TRANSITION = "INVALID_TRANSITION"
 #: A command's payload is malformed for its type (a bad navigation target, etc.).
 ISSUE_INVALID_COMMAND = "INVALID_COMMAND"
+#: The pinned package a scene read addresses is not stored, or holds no such scene.
+ISSUE_SCENE_UNAVAILABLE = "SCENE_UNAVAILABLE"
+#: The bytes served for a scene do not match the digest the package recorded.
+ISSUE_SCENE_CHECKSUM_MISMATCH = "SCENE_CHECKSUM_MISMATCH"
 
 
 class ClassStartError(ClassNotReadyError):
@@ -86,6 +90,22 @@ class SnapshotIntegrityError(StorageError):
         self.issue_code = issue_code
 
 
+class PinnedSceneError(StorageError):
+    """A scene of the session's pinned package cannot be served as it was sealed.
+
+    The package a session pinned is durable state, so a missing or altered file is a
+    damaged record rather than a bad request — hence ``502``, the same shape the
+    snapshot uses. A scene the package simply does not have is a ``404`` instead
+    (:class:`~app.common.errors.NotFoundError`, raised by the caller).
+    """
+
+    def __init__(
+        self, message: str, *, issue_code: str = ISSUE_SCENE_UNAVAILABLE
+    ) -> None:
+        super().__init__(message)
+        self.issue_code = issue_code
+
+
 __all__ = [
     "ISSUE_COMMIT_CONFLICT",
     "ISSUE_CONTENT_DIGEST_MISMATCH",
@@ -95,6 +115,8 @@ __all__ = [
     "ISSUE_INVALID_TRANSITION",
     "ISSUE_NOT_ENROLLED",
     "ISSUE_NOT_STARTED",
+    "ISSUE_SCENE_CHECKSUM_MISMATCH",
+    "ISSUE_SCENE_UNAVAILABLE",
     "ISSUE_SNAPSHOT_INVALID",
     "ISSUE_STALE_EPOCH",
     "ISSUE_STALE_STATE_VERSION",
@@ -105,5 +127,6 @@ __all__ = [
     "ISSUE_WRONG_STATE",
     "ClassStartError",
     "JoinDeniedError",
+    "PinnedSceneError",
     "SnapshotIntegrityError",
 ]

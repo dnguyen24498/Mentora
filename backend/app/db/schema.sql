@@ -332,3 +332,50 @@ CREATE TABLE IF NOT EXISTS bootstrap_tokens (
 CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_tenant
     ON bootstrap_tokens(institution_id, class_id);
 
+-- V0-021 identity: who a caller is, and what a session may do.
+--
+-- The canonical architecture fixes the *authorization* model ("every request
+-- validates tenant/course/class/resource"; roles include teacher and student) and
+-- names *institutional federation* for authentication, but no ADR accepts a
+-- mechanism. So the accounts and sessions below are architecture, while the
+-- credential material lives in its own table owned by the adapter
+-- (backend/app/providers/local_credentials.py) — the domain never sees a credential.
+CREATE TABLE IF NOT EXISTS accounts (
+    account_id     TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    email          TEXT NOT NULL,
+    display_name   TEXT NOT NULL,
+    role           TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    disabled_at    TEXT,
+    -- One identity per person per institution: an invitation is create-or-link.
+    UNIQUE (institution_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_accounts_tenant ON accounts(institution_id, role);
+
+-- The adapter's credential material (scrypt digest + salt), never a secret.
+CREATE TABLE IF NOT EXISTS account_credentials (
+    account_id     TEXT PRIMARY KEY REFERENCES accounts(account_id),
+    institution_id TEXT NOT NULL,
+    algorithm      TEXT NOT NULL,
+    salt           TEXT NOT NULL,
+    digest         TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+-- Short-lived, least-privilege sessions. Only the token's digest is stored, so a
+-- read of this table cannot yield a usable token (the same rule DEC-RUNTIME-007
+-- applies to join credentials).
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_id     TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    account_id     TEXT NOT NULL REFERENCES accounts(account_id),
+    token_sha256   TEXT NOT NULL UNIQUE,
+    scopes         TEXT NOT NULL,
+    issued_at      TEXT NOT NULL,
+    expires_at     TEXT NOT NULL,
+    revoked_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_tenant
+    ON auth_sessions(institution_id, account_id);
+

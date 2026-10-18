@@ -67,6 +67,10 @@ export default defineConfig({
       // Classroom runtime (V0-009/V0-011): the Classroom page reads the
       // authoritative session snapshot from `/classes/{id}/snapshot`.
       '/classes': backendProxy(),
+      // Identity (V0-021): sign in, sign out, who am I. Same reason as the rest —
+      // `/auth/login` would otherwise hit the SPA fallback and the client would
+      // parse index.html as JSON.
+      '/auth': backendProxy(),
       '/health': backendProxy(),
       // Renderer capability/health (V0-005) and the API docs. Without these the
       // dev server answers with the SPA fallback (index.html), so the browser

@@ -3,7 +3,8 @@
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
 runtime page, the Learning page (slide + teaching canvas + automatic text-only
 narration, which can also be set to start at a chosen time), an Admin area
-(courses, classes, publications) and Settings, as real
+(courses, classes, publications), Settings, and — V0-021 — sign-in, a class join
+page and a student's own class view, as real
 pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
@@ -16,6 +17,9 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility | `src/settings/SettingsPage.tsx` |
+| `/login` | Sign in — institution, address, one-time code (V0-021) | `src/auth/LoginPage.tsx` |
+| `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
+| `/student/{classId}` | The student's own fullscreen view of a running class | `src/student/StudentClassPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
 `/admin` and `/settings` are their default sections (overview/general); an unknown
@@ -36,6 +40,12 @@ remembered in `localStorage` (`src/institution.ts`, like the tenant and the
 selected course). Before there is an id, the entry is a disabled label that says
 why — never a link that goes nowhere. Admin and Settings are plain links, so they
 are always available.
+
+With identities (V0-021) the nav also answers "who am I": it shows the signed-in
+principal and **Sign out**, an amber **Development mode** chip when the browser is
+on the tenant-header shortcut (a teacher with no account behind it), or a
+**Sign in** link otherwise. A **student** is offered **My class** and **Attend**
+instead of the authoring entries — see "Identities and the student pages" below.
 
 The library is the hub: selecting a deck offers **Open Teacher Studio** and
 **Open learning page**, and the **Classes** panel (`GET /classes`) links each
@@ -122,7 +132,7 @@ raw JSON shown (the widest content the app has).
 | Backend API | **8001** |
 
 Vite proxies `/courses`, `/artifacts`, `/classes`, `/renderer`, `/publications`,
-`/course-versions`, `/health`, `/docs` and `/openapi.json` to the backend
+`/course-versions`, `/auth`, `/health`, `/docs` and `/openapi.json` to the backend
 (`MENTORA_BACKEND_ORIGIN`, default `http://127.0.0.1:8001`), so the browser only
 ever talks to `:8000` — no CORS. A path that is *not* proxied but is not an asset
 gets the SPA shell instead of an API response, which is why every API prefix the
@@ -340,6 +350,71 @@ publishes.
   (`readClassroomPreferences`/`updateClassroomPreferences`) rather than kept a
   second time, so the two can never drift.
 
+## Identities and the student pages (V0-021)
+
+Sign-in is a page (`/login`) rather than a browser prompt, because the app has to
+be honest about what it is: **no credential mechanism is a decided technology** in
+the spec (the canonical requirement is institutional federation; every provider
+decision is `OPEN`, and the identity ADR `FND-002` is still `TODO`), so the form
+says so and the adapter behind it is a labelled development stand-in —
+`GET /auth/me` reports `authenticator.kind: "DEVELOPMENT_MOCK"` and the page
+renders that word rather than implying federation.
+
+- **`src/auth/session.ts`** holds the session — the raw token for the API client,
+  the principal (tenant, role, scopes), the capability that issued it and its
+  expiry — in `localStorage`, shared across tabs like the tenant (a `storage`
+  listener keeps two tabs in step). An **expired session is not a session**: it is
+  dropped on read as well as on write, because the server would refuse it anyway
+  and a page that looked signed in while every request 401ed would be worse.
+  `hasScope()` is **advisory** — it decides what the UI offers, never what is
+  allowed (the server re-derives scopes from the account's current role on every
+  request, so a stale client can only ever show a button that fails).
+- **`src/auth/mode.ts`** answers "which mode is this browser in?" by asking
+  `GET /auth/me`. It cannot be read from local state, because the **development
+  tenant shortcut has no session at all** — that endpoint reports
+  `authenticated: false` for the shortcut and `401 SESSION_REQUIRED` when a
+  deployment has switched it off. The nav shows a signed-in principal, an amber
+  **Development mode** chip, or a **Sign in** link accordingly: never the shortcut
+  presented as a user, and never "signed out" while the app is in fact acting as a
+  teacher.
+- **The nav is role-aware.** A student sees **My class** (`/join/{id}`) and
+  **Attend** (`/student/{id}`) instead of Studio/Classroom/Learn/Admin; without a
+  remembered class they are disabled labels that say why. This is courtesy, not
+  access control: the server refuses a student's teacher verbs with
+  `403 INSUFFICIENT_SCOPE` regardless.
+- **`src/auth/StudentNotice.tsx`** is where a student lands if they open a
+  teacher's page: a real landing — the class they were last in, a field to open a
+  class by the id in their join link, and Sign out — rather than a page whose every
+  request would answer 403. (A class id is not a secret; *enrolment* is what
+  authorizes a join, and the server checks it on every join.)
+- **`src/student/JoinClassPage.tsx`** (`/join/{classId}`) establishes *who is
+  asking* before anything else. Signed out, it asks for a sign-in and says the
+  development shortcut cannot join (a join credential must bind to an account).
+  Signed in, it shows the class and asks the server for the caller's **own** join
+  credential (`POST /classes/{id}/bootstrap-token`, no body), reporting a refusal
+  by its precise cause — `NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`,
+  `NOT_FOUND` — rather than one generic failure.
+- **`src/student/StudentClassPage.tsx`** (`/student/{classId}`) is the
+  **fullscreen** view, built for the phone a student actually holds: the slide
+  fills the viewport with a real **Fullscreen** button as well (a phone browser
+  keeps its own chrome), Previous/Next buttons and ←/→ keys move a slide, the
+  ends are disabled rather than wrapping, and the current slide's text and notes
+  are shown as the narration. It is explicit about two limits: the slide shown is
+  this student's own position, because the ordered per-class event stream is
+  `DEC-DATA-003` (`OPEN`, live path V1-002), and the narration is **text only** —
+  the deck's own words, not a model's and not audio (`DEC-TECH-007` is `OPEN`).
+  What *is* authoritative is the content: each scene comes from the package the
+  session pinned at start (`GET /classes/{id}/scenes[/{order}]`,
+  `DEC-CONTENT-005`), so a correction published mid-lesson cannot change the slide
+  under a student, and a scene whose file does not match the manifest digest
+  (`SCENE_CHECKSUM_MISMATCH`) is refused by the server and reported, never drawn.
+
+Teacher-side, the Admin area's **classes** section (`src/admin/ClassesAdmin.tsx`)
+uses the real roster: **invite by email** creates-or-links the account in the
+tenant and enrols it in one step and then shows the one-time sign-in code to hand
+over (returned once, never stored in the clear — the panel says so), and the class
+detail offers the **student join link** to share.
+
 ## Classroom (V0-011)
 
 `/classroom/{classId}` is the runtime view of a session. It is a **projection** —
@@ -439,6 +514,20 @@ bounded-retry disconnect and the telemetry contract;
 (refresh restores scene/state, duplicate ignored, gap freezes controls and
 recovers, accessibility smoke), with the event stream driven by an injected
 transport so no server is needed.
+
+For V0-021, `src/auth/session.test.tsx` covers the session store (write/read,
+expiry dropped on read, cross-tab updates, scope helpers, the development
+shortcut never counted as signed in), `src/auth/LoginPage.test.tsx` covers the
+sign-in page (success stores the session and reports the issuer, a refusal is
+shown without navigating, the mock is named), `src/student/JoinClassPage.test.tsx`
+covers the join page's refusals and its signed-out prompt, and
+`src/student/StudentClassPage.test.tsx` covers the student view (slide loading,
+the ends of the deck disabled rather than wrapping, the text-only narration, a
+degraded scene). `src/components/SiteNav.test.tsx` and `src/App.test.tsx` add the
+identity cases: the role-aware nav, the "Development mode" chip appearing only
+when `GET /auth/me` reports the shortcut, the student landing, and the student
+route guard. Note the test environment has **no jest-dom**, so assertions use the
+DOM directly (`button.disabled`, `getAttribute('disabled')`).
 
 Only `.pptx` (OOXML) is accepted; legacy `.ppt` is rejected by the backend with
 `UNSUPPORTED_LEGACY_FORMAT`.

@@ -6,7 +6,9 @@ extraction + per-slide rendering that reproduces the deck's own styling, behind
 an explicit fidelity gate + a baseline Content Package + teacher review**
 (preview, approve/reject, draft lesson-order and script edits) **+ atomic
 publication + class scheduling and start with an exactly pinned runtime tuple
-and a durable initial snapshot**.
+and a durable initial snapshot + real accounts and authorization** (teacher and
+student sign-in behind a provider-neutral seam, teacher-invited enrolment, and a
+student's own view of the class it pinned).
 
 ## Commands
 
@@ -54,13 +56,19 @@ break the browser). For normal development the frontend runs on its own server a
 | `app/publication/` | Teacher review of a built package (V0-007, `review.py`/`workflow.py`/`draft.py`) **and** the atomic publication transition (V0-008, `service.py`/`seal.py`/`index.py`/`outbox.py`): seal (checksums + digests) → index-version pin → one commit transaction → published-version retrieval. |
 | `app/classroom/` | Classes, runtime session plans and sessions (V0-009): schedule a class, start it by resolving and pinning the exact runtime tuple once (`service.py`/`repository.py`/`catalog.py`), build and validate the durable initial snapshot (`snapshot.py`), and authorize joins against the class enrollment. **V0-010** adds `aggregate.py` — the in-process `ClassroomAggregate` reducer (`START`/`NAVIGATE_SCENE`/`CHECKPOINT`/`END` commands, command-id dedup, epoch/state-version fencing, snapshot round-trip) — with `navigate_scene`/`record_checkpoint`/`end_class` service methods and `repository.py::commit_transition`. |
 | `app/speech/` | **V0-012 neutral voice (domain)**: the provider-neutral `SpeechProvider` port (+ `CancelToken`/`SpeechBudget`), the speech models, the `SpeechService` (reserve → synthesize → cancel → release, with neutral-voice then text fallback), classified errors, structured telemetry, and a scripted fault-injection test double. Imports nothing outside itself and the stdlib. |
-| `app/providers/` | **Replaceable capability adapters**: `deterministic.py` — the one neutral-voice adapter V0 runs with (`neutral-deterministic@1.0.0`, dependency-free and deterministic) and `factory.py` (`create_speech_provider`/`build_speech_service`). |
+| `app/identity/` | **V0-021 identities (domain)**: the `Authenticator` port, accounts/roles/scopes (`ROLE_SCOPES` is the one place a role's capabilities are decided), tenant-scoped digest-only repositories, `IdentityService` (login never raises; invite-and-enrol in one step), stable error codes, telemetry and a test double. Imports nothing outside itself and the stdlib. |
+| `app/providers/` | **Replaceable capability adapters**: `deterministic.py` — the one neutral-voice adapter V0 runs with (`neutral-deterministic@1.0.0`, dependency-free and deterministic) — `local_credentials.py` (`local-credentials@1.0.0`, `kind="DEVELOPMENT_MOCK"`: stdlib `scrypt` digest-only credentials, timing-parity on an unknown address) and `factory.py` (`create_speech_provider`/`build_speech_service`, `create_authenticator`/`build_identity_service`). |
 | `app/db/` | SQLite connection handling (`Database`: one connection per thread) + schema/migration application. |
-| `app/api/` | FastAPI app factory; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
+| `app/api/` | FastAPI app factory; `security.py` resolves the principal and enforces capabilities (`require(scope)`), `identity_router.py` serves `/auth/*`; serves the built frontend at `/` when present, with an SPA fallback for client-side routes (`spa.py`). |
 | `app/common/` | Base errors and stable error codes. |
 
 ## Endpoints
 
+Every route below requires a principal and a capability (V0-021), so `401 UNAUTHENTICATED` (`issue_code SESSION_REQUIRED`) and `403 INSUFFICIENT_SCOPE` (`issue_code SCOPE_REQUIRED`) apply to all of them. A request may present either a **session token** (`Authorization: Bearer <token>`) or, while the development tenant shortcut is on, the `X-Institution-Id` header alone (`POST /auth/login` is the exception: it takes its institution in the body, since that is what the credential proves).
+
+- `POST /auth/login` — **V0-021**: exchange a sign-in credential (`institution_id`, `email`, one-time `credential`) for a session. **Never raises on a bad credential**: it returns `ok: false` with `AUTHENTICATION_FAILED` — and the same code and timing for an unknown address as for a wrong credential, so the endpoint is not an account oracle. Success returns the raw `token` (only `token_sha256` is stored), the `principal`, the `authenticator` capability (labelled `DEVELOPMENT_MOCK`) and `expires_at`.
+- `GET /auth/me` — the principal the presented credential authorizes. With no session but a valid tenant header it reports the **development shortcut**: `authenticated: false`, no account, `development_shortcut: true`. This is how a client learns which mode it is in.
+- `POST /auth/logout` — revoke the presented session (a `revoked_at` write the next read honours, `DEC-RUNTIME-007`); idempotent.
 - `POST /courses` — create a course; `title` query param, optional `course_id`.
 - `GET /courses` — list the tenant's courses (used by the frontend picker).
 - `GET /courses/{courseId}/materials` — list the course's uploaded presentations, newest first, each with its version number and compiler-job status (used by the frontend file list).
@@ -84,9 +92,11 @@ break the browser). For normal development the frontend runs on its own server a
 - `GET /classes/{classId}` — the class with its `session` and `session_plan` (both `null` before a start).
 - `POST /classes/{classId}/start` — **V0-009**: resolve the exact runtime tuple **once** — course/version/publication/package/content, lesson plan, knowledge-index pin, policy, capability, home region — pin it immutably and commit the initial durable snapshot with the session in **one transaction**, then go `ACTIVE`. `200` with `created` (false on a replay): a duplicate or concurrent start returns the same session (`DEC-RUNTIME-003`). `409 CLASS_NOT_READY` with an `issue_code` — `VERSION_NOT_PUBLISHED` (draft/never published), `INCOMPATIBLE_INDEX` (the index pin is not about this content), `INCOMPATIBLE_CONTENT` (envelope/lesson plan the runtime does not support, or the package is missing), `CONTENT_DIGEST_MISMATCH` (the pinned bytes no longer match the seal), `WRONG_STATE`, `COMMIT_CONFLICT` — and nothing is written, so the class stays `SCHEDULED` and retryable.
 - `GET /classes/{classId}/snapshot` — the authoritative session snapshot, validated (schema version + checksum) before it is returned; a damaged one is `502 STORAGE_FAILURE` with `issue_code SNAPSHOT_INVALID` rather than being replayed. `404` when the class has not started.
-- `POST /classes/{classId}/enrollments` — enroll a student (`student_id` query param). Idempotent per `(class, student)`: returns the enrollment with `created`.
-- `GET /classes/{classId}/enrollments` — the class roster the join check is made against.
-- `POST /classes/{classId}/bootstrap-token` — **V0-009**: issue a short-lived join credential to a student **enrolled in a running class** (body `{"student_id": ...}`). `403 NOT_ENROLLED` when the principal is in the tenant but not enrolled; `403 TENANT_ACCESS_DENIED` for another institution's class; `409 CLASS_NOT_READY` with `issue_code NOT_STARTED` before a start. The raw token is returned once — only its `token_sha256` is stored — and it binds class/student/session/`actor_epoch`/nonce/expiry with `subscribe` scope only.
+- `POST /classes/{classId}/enrollments` — **enrol a student**. Two mutually exclusive query params: `email` is the teacher's **invitation** (creates-or-links the account in this tenant and enrols it in one step; when the capability provisions a credential it is returned once as `development_credential`), while `student_id` names an account that **already exists in this tenant** (an id that is not one is `404`, never a free-text roster entry). Idempotent per `(class, student)`: returns the enrollment with `created`.
+- `GET /classes/{classId}/enrollments` — the class roster, with the account behind each enrolment. Requires `ENROLLMENT_WRITE` because the roster is other people's identities.
+- `POST /classes/{classId}/bootstrap-token` — **V0-009/V0-021**: issue a join credential to **the caller's own account**, so the request has **no body** — a caller cannot ask for someone else's join. Requires an `ACTIVE` session **and** a tenant-scoped enrollment of that account: `403 NOT_ENROLLED` when the caller is in the tenant but not enrolled; `403 TENANT_ACCESS_DENIED` for another institution's class; `409 CLASS_NOT_READY` with `issue_code NOT_STARTED` before a start; `401 SESSION_REQUIRED` for the development shortcut (it has no account to bind to). The raw token is returned once — only its `token_sha256` is stored — and it binds class/student/session/`actor_epoch`/nonce/expiry with `subscribe` scope only.
+- `GET /classes/{classId}/scenes` — **V0-021**: the slides of **the package this session pinned at start** (never the course's current publication, `DEC-CONTENT-005`), each with its `order` (0-based), `scene_id`, `fidelity`, `text`, `notes`, `warnings`, `object_count` and `step_count` — the student page's navigation and narration.
+- `GET /classes/{classId}/scenes/{order}` — one slide's packaged render (SVG), served **through the package manifest**: a path the manifest does not list is not readable (so this cannot become an arbitrary object read, `DEC-CONTENT-004`) and the bytes are re-checked against the digest the manifest recorded — a swap is `502 STORAGE_FAILURE` with `issue_code SCENE_CHECKSUM_MISMATCH` rather than a presentation.
 - `GET /renderer` — the default render mode, every available mode, the active theme, and the requested mode's identity/capability/circuit-breaker health (`?mode=`, V0-019).
 - `GET /artifacts/{artifactId}` — artifact metadata (the Teacher Studio uses `filename` for its page title).
 - `GET /health`.
@@ -102,8 +112,9 @@ break the browser). For normal development the frontend runs on its own server a
   is isolated in `app/db/schema.sql` so the repository layer can target
   PostgreSQL later; the PostgreSQL reference is `database/migrations/0001_baseline.sql`,
   `database/migrations/0002_review_decisions_and_drafts.sql`,
-  `database/migrations/0003_atomic_publication.sql` and
-  `database/migrations/0004_class_and_session_plan.sql`.
+  `database/migrations/0003_atomic_publication.sql`,
+  `database/migrations/0004_class_and_session_plan.sql` and
+  `database/migrations/0005_identity_and_accounts.sql`.
 - **Connections are thread-scoped (V0-020).** FastAPI serves the sync endpoints
   from a worker threadpool, so requests really do overlap. A `sqlite3.Connection`
   cannot be shared for that: `BEGIN`/`COMMIT` state and cursors are
@@ -131,8 +142,49 @@ break the browser). For normal development the frontend runs on its own server a
   flattens its contents; nested groups are traversed. Containers it does not
   model (e.g. `p:contentPart`, `mc:AlternateContent`) produce an
   `unsupported element` warning instead of being dropped silently.
-- Auth is a stub: the authenticated tenant comes from `X-Institution-Id`. Every
-  repository call is tenant-scoped and cross-tenant access is rejected.
+- **The tenant always comes from a credential, never from a request field.** With a
+  session, `X-Institution-Id` is ignored and the tenant is the session's; with no
+  session it is only the development shortcut below. Every repository call is
+  tenant-scoped and cross-tenant access is rejected.
+- **The credential mechanism is not a decided technology (V0-021).** The spec's
+  requirement is institutional federation, and every identity-provider/token
+  decision in the ledger is `OPEN`; `FND-002` (the identity ADR) is still `TODO`.
+  So `app/identity/` defines the `Authenticator` port, and the only registered
+  implementation is an explicitly-labelled development stand-in
+  (`app/providers/local_credentials.py`, `local-credentials@1.0.0`,
+  `kind="DEVELOPMENT_MOCK"`): stdlib `hashlib.scrypt`, per-account salt,
+  **digest-only** storage, and a constant dummy-salt verification so an unknown
+  address and a wrong credential are the same code **and** the same timing (no
+  enumeration oracle). It issues a one-time sign-in code because federated sign-in
+  would not; the API therefore names it `development_credential`, and the response
+  carries `authenticator.kind` so the stand-in is visible on the wire, exactly as
+  the renderer and the neutral voice do for their own open decisions. An
+  OIDC/OAuth adapter is a second implementation of the same ABC; nothing in the
+  domain changes when one arrives.
+- **The tenant is a session claim.** With a session, `X-Institution-Id` is ignored
+  and the tenant comes from the session, so a caller cannot widen its own
+  institution by naming one. `X-Institution-Id` alone is the **development tenant
+  shortcut** (`MENTORA_DEV_TENANT_HEADER`, default on): it resolves a *teacher*
+  marked `authenticated: false` with no account, and it cannot join a class
+  (`401 SESSION_REQUIRED`). Turning the flag off makes every route require a real
+  session.
+- **Authorization is a capability, re-derived per request.** `app/api/security.py::require(scope)`
+  guards every verb on every router, and a session's stored scopes are
+  **intersected** with what the account's role currently grants on every read — so
+  narrowing a role takes effect on the next request rather than at session expiry,
+  and a session is revoked by a `revoked_at` write the same read honours
+  (`DEC-RUNTIME-007`). A missing principal is `401 UNAUTHENTICATED`; a missing
+  capability is `403 INSUFFICIENT_SCOPE` — distinct from `AUTHENTICATION_FAILED`
+  (a rejected credential) and `AUTHENTICATION_UNAVAILABLE` (`503`, the capability
+  could not be reached — an availability failure, never a denial,
+  `DEC-RELIABILITY-002`).
+- **The class reads what it pinned.** `GET /classes/{id}/scenes[/{order}]` resolve
+  the session's own `RuntimeSessionPlan`, not the course's current publication, so
+  a correction published mid-lesson cannot change the slide a student is looking
+  at (`DEC-CONTENT-005`); each served file is read only because the package
+  manifest lists it and is re-checked against the digest the manifest recorded
+  (`SCENE_CHECKSUM_MISMATCH`), so scene serving is neither an arbitrary object read
+  nor a way to present tampered bytes.
 - **The renderer is not a decided technology.** `DEC-TECH-005` ("Native
   PowerPoint rendering deployment and licensing") is `OPEN`, so
   `docs/adr/proposed/ADR-P005_RENDERER.md` applies: *"Until accepted,
@@ -474,14 +526,18 @@ break the browser). For normal development the frontend runs on its own server a
     `GET /classes/{classId}/snapshot` re-validates schema version *and* checksum and
     refuses a damaged document rather than replaying it.
   - **Join is authorized, not assumed.** `POST /classes/{classId}/bootstrap-token`
-    requires an `ACTIVE` session and a tenant-scoped enrollment; the credential binds
-    class/student/session/`actor_epoch`/nonce/expiry, is stored **only** as
-    `token_sha256`, carries `subscribe` scope only (`DEC-TURN-001`), and
-    `verify_bootstrap_token` refuses unknown/expired/revoked/stale-epoch tokens
-    (`DEC-RUNTIME-007`). It has no HTTP route yet — the media gateway calls it in V1,
-    and the same is true of `revoke_bootstrap_token` — so enrollment is the whole
-    authorization story in V0: `student_id` is client-asserted (federation and roles
-    are not implemented), while the tenant boundary and the class roster are real.
+    requires an `ACTIVE` session and a tenant-scoped enrollment **of the caller's
+    own account** — since V0-021 it takes no body, so there is no student id to
+    assert; the credential binds class/student/session/`actor_epoch`/nonce/expiry,
+    is stored **only** as `token_sha256`, carries `subscribe` scope only
+    (`DEC-TURN-001`), and `verify_bootstrap_token` refuses
+    unknown/expired/revoked/stale-epoch tokens (`DEC-RUNTIME-007`). It has no
+    media-gateway route yet (the gateway calls it in V1, as with
+    `revoke_bootstrap_token`), so enrollment — a real tenant-scoped account on a
+    real class roster (V0-021) — is the whole join authorization story in V0.
+    `PinnedSceneSource` then serves that session's pinned slides through the
+    package manifest with a digest check per file, so the student page's content is
+    both frozen at start and tamper-evident.
   - **Deliberately not here.** No scheduler (`scheduled_for` is recorded, never
     enforced; `DEC-TECH-003` is `OPEN`), no ordered per-class log or outbox (`DEC-DATA-003`
     is `OPEN` and V1-002 owns it, so a start records state/snapshot/telemetry instead),

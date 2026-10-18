@@ -99,6 +99,7 @@ from app.classroom.models import (
     SessionSnapshot,
 )
 from app.classroom.repository import ClassRepository, CommitConflict
+from app.classroom.scene_source import PinnedScene, PinnedSceneSource, PinnedSceneSummary
 from app.classroom.snapshot import (
     first_lesson_position,
     snapshot_checksum,
@@ -181,6 +182,7 @@ class ClassroomService:
         self._courses = course_repository
         self._repository = repository
         self._object_store = object_store
+        self._scenes = PinnedSceneSource(object_store)
         self._catalog = catalog
         self._capability_probe = capability_probe
         self._telemetry = telemetry or ClassroomTelemetry()
@@ -418,6 +420,59 @@ class ClassroomService:
             state_version=snapshot.state_version,
         )
         return snapshot
+
+    def pinned_scene(self, institution_id: str, class_id: str, order: int) -> PinnedScene:
+        """The slide a running session is presenting, from the package it pinned.
+
+        The read resolves the session's own ``RuntimeSessionPlan`` — never the
+        course's *current* publication — so publishing a correction mid-lesson
+        changes nothing a student sees (``DEC-CONTENT-005``: a published artifact is
+        immutable and an active session pins all compatible versions). A class that
+        has not started has no plan and therefore no scene: that is a ``404``, not an
+        empty slide.
+        """
+
+        plan = self._pinned_plan(institution_id, class_id)
+        scene = self._scenes.scene(plan.package_id, order)
+        self._telemetry.record_scene_read(
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=plan.session_plan_id,
+            package_id=plan.package_id,
+            order=order,
+            scene_id=scene.scene_id,
+            byte_size=scene.byte_size,
+        )
+        return scene
+
+    def pinned_scenes(
+        self, institution_id: str, class_id: str
+    ) -> tuple[RuntimeSessionPlan, tuple[PinnedSceneSummary, ...]]:
+        """The slide list of the package the session pinned, with its text.
+
+        A student page needs the number of slides and what each says to offer
+        navigation and narration. This reads the pinned package's scene documents
+        only — the renders are fetched for the one slide on screen — and it resolves
+        the same pinned plan, so nothing here can drift to a newer publication.
+        """
+
+        plan = self._pinned_plan(institution_id, class_id)
+        scenes = self._scenes.scenes(plan.package_id)
+        self._telemetry.record_scene_listing(
+            institution_id=institution_id,
+            class_id=class_id,
+            session_id=plan.session_plan_id,
+            package_id=plan.package_id,
+            scene_count=len(scenes),
+        )
+        return plan, scenes
+
+    def _pinned_plan(self, institution_id: str, class_id: str) -> RuntimeSessionPlan:
+        plan = self._repository.get_session_plan(institution_id, class_id)
+        if plan is None:
+            self._repository.get_class(institution_id, class_id)  # 404/403 first
+            raise NotFoundError(f"class {class_id!r} has not started")
+        return plan
 
     # -- enrollment and join ---------------------------------------------------------
     def enroll(

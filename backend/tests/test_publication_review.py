@@ -291,10 +291,13 @@ def test_review_is_tenant_scoped(client, repository):
     )
 
 
-def test_review_requires_the_institution_header(client):
+def test_review_requires_a_principal(client):
+    """Review is a teacher capability: no session (and no development header)
+    is an authentication failure, not an anonymous read."""
+
     artifact_id = _upload(client)
-    assert client.post(f"/artifacts/{artifact_id}/review-package").status_code == 422
-    assert client.get(f"/artifacts/{artifact_id}/review-package").status_code == 422
+    assert client.post(f"/artifacts/{artifact_id}/review-package").status_code == 401
+    assert client.get(f"/artifacts/{artifact_id}/review-package").status_code == 401
 
 
 def test_review_of_an_unknown_artifact_is_404(client):

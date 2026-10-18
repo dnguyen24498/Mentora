@@ -13,13 +13,16 @@ import {
  * `/studio/{artifactId}`, the Classroom at `/classroom/{classId}` and the
  * learning page at `/learn/{artifactId}`; plus two sectioned areas,
  * `/admin/{section}` (create/read management of the V0 entities) and
- * `/settings/{section}` (client preferences and read-only server facts). Each is
- * its own page on purpose — the studio is the large-screen slide review surface,
- * the classroom is the runtime session view and the learning page is the slide +
- * teaching canvas — so each is opened directly (often in a second tab or on a
- * second monitor) and must survive a deep link and a refresh. Single-origin mode
- * is covered by the backend's SPA fallback (`backend/app/api/spa.py`); the Vite
- * dev server already serves the shell.
+ * `/settings/{section}` (client preferences and read-only server facts), and —
+ * V0-021 — the sign-in page at `/login`, a class's student join page at
+ * `/join/{classId}` and the student's own fullscreen view of it at
+ * `/student/{classId}`. Each is its own page on purpose — the studio is the
+ * large-screen slide review surface, the classroom is the runtime session view,
+ * the learning page is the slide + teaching canvas and the student page is what
+ * a phone in a lecture hall opens — so each is opened directly (often in a
+ * second tab or on a second screen) and must survive a deep link and a refresh.
+ * Single-origin mode is covered by the backend's SPA fallback
+ * (`backend/app/api/spa.py`); the Vite dev server already serves the shell.
  */
 
 export const LIBRARY_PATH = '/'
@@ -28,6 +31,11 @@ export const CLASSROOM_PATH = '/classroom'
 export const LEARN_PATH = '/learn'
 export const ADMIN_PATH = '/admin'
 export const SETTINGS_PATH = '/settings'
+export const LOGIN_PATH = '/login'
+/** Where a student enters a class (V0-021). */
+export const JOIN_PATH = '/join'
+/** The student's own fullscreen view of a class they have joined (V0-021). */
+export const STUDENT_PATH = '/student'
 
 /** The admin (data management) sections, one route each. */
 export const ADMIN_SECTIONS = ['overview', 'courses', 'classes', 'publications'] as const
@@ -44,7 +52,25 @@ export type Route =
   | { name: 'learn'; artifactId: string }
   | { name: 'admin'; section: AdminSection }
   | { name: 'settings'; section: SettingsSection }
+  | { name: 'login' }
+  | { name: 'join'; classId: string }
+  | { name: 'student'; classId: string }
   | { name: 'not-found'; path: string }
+
+/** The canonical URL of the sign-in page, optionally with somewhere to return to. */
+export function loginPath(next?: string): string {
+  return next ? `${LOGIN_PATH}?next=${encodeURIComponent(next)}` : LOGIN_PATH
+}
+
+/** The canonical URL of one class's student join page. */
+export function joinPath(classId: string): string {
+  return `${JOIN_PATH}/${encodeURIComponent(classId)}`
+}
+
+/** The canonical URL of one class's student view. */
+export function studentPath(classId: string): string {
+  return `${STUDENT_PATH}/${encodeURIComponent(classId)}`
+}
 
 /** The canonical URL of one artifact's Teacher Studio page. */
 export function studioPath(artifactId: string): string {
@@ -93,6 +119,18 @@ export function parseRoute(pathname: string): Route {
   const trimmed = path.replace(/\/+$/, '') || LIBRARY_PATH
 
   if (trimmed === LIBRARY_PATH) return { name: 'library' }
+
+  if (trimmed === LOGIN_PATH) return { name: 'login' }
+
+  if (trimmed.startsWith(`${JOIN_PATH}/`)) {
+    const classId = parseId(trimmed.slice(JOIN_PATH.length + 1))
+    if (classId) return { name: 'join', classId }
+  }
+
+  if (trimmed.startsWith(`${STUDENT_PATH}/`)) {
+    const classId = parseId(trimmed.slice(STUDENT_PATH.length + 1))
+    if (classId) return { name: 'student', classId }
+  }
 
   if (trimmed.startsWith(`${STUDIO_PATH}/`)) {
     const artifactId = parseId(trimmed.slice(STUDIO_PATH.length + 1))

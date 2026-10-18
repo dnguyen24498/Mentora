@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Session Claims",
+  "description": "The claims a Mentora API session carries, and the only source of the tenant/role/capability a request is authorized as (V0-021). A request's own fields may never supply a tenant: `institution_id` here is derived from the session record and is what every repository call is scoped by (docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md, \"Every request validates tenant/course/class/resource\"). `scopes` is the intersection of what the session was issued with and what the account's role currently grants, so narrowing a role takes effect on the next request rather than at expiry. The credential mechanism is not a decided technology (the canonical architecture names institutional federation; no ADR accepts an implementation), so `authenticator` is required to name the capability that issued the session, and a stand-in must say so through `capability_kind`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "iss",
+    "aud",
+    "jti",
+    "institution_id",
+    "account_id",
+    "role",
+    "scopes",
+    "authenticator",
+    "capability_kind",
+    "iat",
+    "exp"
+  ],
+  "properties": {
+    "iss": {
+      "type": "string",
+      "description": "Issuing deployment identity."
+    },
+    "aud": {
+      "const": "mentora-api",
+      "description": "A session authorizes the API, not the media plane; the media plane gets a bootstrap token or a floor token."
+    },
+    "jti": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The session id (auth_sessions.session_id); revocation is recorded against it."
+    },
+    "institution_id": {
+      "type": "string",
+      "description": "The tenant. A session claim, never a request field, so a caller cannot widen its own scope by naming one."
+    },
+    "account_id": {
+      "type": "string",
+      "description": "The account this session is for."
+    },
+    "role": {
+      "type": "string",
+      "enum": ["teacher", "student"],
+      "description": "The canonical role name (governance/TERMINOLOGY_REGISTRY.yaml). The spec's wider role list (institution admin, IT operator, moderator, auditor, …) is not yet modelled."
+    },
+    "scopes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "class:write",
+          "class:read",
+          "content:write",
+          "content:read",
+          "review:write",
+          "publication:write",
+          "enrollment:write",
+          "scene:read",
+          "join"
+        ]
+      },
+      "description": "Capabilities, not a role string: a guard is written against the absence of a capability. Stored in a stable order so the same role always produces the same session row."
+    },
+    "authenticator": {
+      "type": "string",
+      "description": "name@version of the credential capability that issued the session, e.g. local-credentials@1.0.0."
+    },
+    "capability_kind": {
+      "type": "string",
+      "enum": ["DEVELOPMENT_MOCK", "IMPLEMENTATION"],
+      "description": "DEVELOPMENT_MOCK marks a stand-in for an OPEN decision (DEC-TECH-*). It is never presented as the platform's authentication."
+    },
+    "iat": {
+      "type": "integer"
+    },
+    "exp": {
+      "type": "integer",
+      "description": "Bounded lifetime. Revocation is the other terminal path; both are enforced on every read (DEC-RUNTIME-007)."
+    }
+  }
+}

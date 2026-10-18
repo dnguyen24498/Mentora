@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, classroomPath } from '../router'
+import { Link, classroomPath, joinPath } from '../router'
 import {
   describeApiError,
-  enrollStudent,
+  enrollStudentByEmail,
+  loadClass,
+  loadRoster,
   listClasses,
   listCourses,
-  listEnrollments,
   listMaterials,
-  loadClass,
   scheduleClass,
   startClass,
   type ClassSummary,
   type ClassView,
   type Course,
-  type Enrollment,
   type Material,
+  type RosterEntry,
 } from '../api/client'
 import { readSelectedClass, writeSelectedClass } from '../institution'
 import { useSettings } from '../settings/store'
@@ -71,11 +71,15 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   const [scheduledFor, setScheduledFor] = useState('')
   const [selected, setSelected] = useState(readSelectedClass)
   const [detail, setDetail] = useState<ClassView | null>(null)
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [studentId, setStudentId] = useState('')
+  const [roster, setRoster] = useState<RosterEntry[]>([])
+  const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // The one-time sign-in code an invitation just provisioned, shown until the
+  // teacher navigates away. It is returned exactly once by the API, so the page
+  // holds it here rather than re-reading it from the roster.
+  const [invited, setInvited] = useState<{ email: string; code: string | null } | null>(null)
   // What the automatic start did, per class. Kept as a record so a class is
   // reported once and a failed attempt is not retried every tick.
   const [autoResults, setAutoResults] = useState<Record<string, string>>({})
@@ -95,16 +99,16 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   const refreshDetail = useCallback(async (classId: string) => {
     if (!classId) {
       setDetail(null)
-      setEnrollments([])
+      setRoster([])
       return
     }
     try {
       const [view, enrolled] = await Promise.all([
         loadClass(institutionId, classId),
-        listEnrollments(institutionId, classId),
+        loadRoster(institutionId, classId),
       ])
       setDetail(view)
-      setEnrollments(enrolled.enrollments)
+      setRoster(enrolled.enrollments)
     } catch (cause) {
       setDetail(null)
       setError(describeApiError(cause))
@@ -207,19 +211,21 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
     }
   }
 
-  async function enrol() {
-    if (!selected || !studentId.trim()) return
+  async function invite() {
+    if (!selected || !email.trim()) return
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      const enrollment = await enrollStudent(institutionId, selected, studentId.trim())
-      setStudentId('')
+      const enrolled = await enrollStudentByEmail(institutionId, selected, email.trim())
+      const address = enrolled.student.email
+      setEmail('')
+      setInvited({ email: address, code: enrolled.development_credential })
       await refreshDetail(selected)
       setNotice(
-        enrollment.created
-          ? `Enrolled ${enrollment.student_id}.`
-          : `${enrollment.student_id} was already enrolled.`,
+        enrolled.account_created
+          ? `Invited ${address}: a student account was created in this institution and enrolled.`
+          : `${address} already had an account here; it is now enrolled (enrolment is idempotent).`,
       )
     } catch (cause) {
       setError(describeApiError(cause))
@@ -468,6 +474,13 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                   >
                     Open classroom
                   </Link>
+                  <Link
+                    to={joinPath(detail.class.class_id)}
+                    data-testid="class-join-link"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 lg:min-h-0 lg:px-2 lg:py-1 lg:text-[11px]"
+                  >
+                    Student join link
+                  </Link>
                   <button
                     type="button"
                     onClick={() => void start()}
@@ -522,44 +535,89 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
               </Panel>
             )}
 
-            <Panel title={`Enrolments (${enrollments.length})`}>
-              <div className="flex gap-2">
+            <Panel title={`Students (${roster.length})`}>
+              <div className="flex flex-wrap gap-2">
                 <input
-                  aria-label="Student id"
-                  value={studentId}
-                  onChange={(event) => setStudentId(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && void enrol()}
-                  placeholder="student-007"
+                  aria-label="Student email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  onKeyDown={(event) => event.key === 'Enter' && void invite()}
+                  placeholder="student@school.example"
                   className={INPUT_CLASS}
                 />
                 <button
                   type="button"
-                  onClick={() => void enrol()}
-                  disabled={busy || !studentId.trim()}
+                  onClick={() => void invite()}
+                  disabled={busy || !email.trim()}
                   className={`${BUTTON_PRIMARY} shrink-0`}
                 >
-                  Enrol
+                  Invite
                 </button>
               </div>
               <p className="text-[11px] text-slate-400">
-                Enrolment is the class-scoped authorization a student needs to be handed a join
-                credential; enrolling twice is one enrolment.
+                Inviting creates the student's account in this institution if it has none for that
+                address, then enrols them — one step, because enrolment is what a join is checked
+                against. Inviting the same address twice is one account and one enrolment, and the
+                account keeps whatever role it already had (an invitation never changes a role).
               </p>
 
+              {invited && (
+                <div
+                  data-testid="invited-credential"
+                  className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                >
+                  <p className="font-medium">Hand this code to {invited.email}</p>
+                  {invited.code ? (
+                    <p className="font-mono text-sm break-all">{invited.code}</p>
+                  ) : (
+                    <p>This account already had a credential; no new code was issued.</p>
+                  )}
+                  <p className="text-[11px]">
+                    It is shown once and is not stored in the clear. The student signs in at{' '}
+                    <Link to="/login" className="underline">
+                      /login
+                    </Link>{' '}
+                    and then opens{' '}
+                    <Link to={joinPath(detail.class.class_id)} className="underline">
+                      the class's join page
+                    </Link>
+                    .
+                  </p>
+                  <p className="text-[11px]">
+                    The credential mechanism is a labelled development mock — no credential mechanism
+                    is a decided technology yet — so a real deployment would federate with the
+                    institution instead of issuing codes.
+                  </p>
+                </div>
+              )}
+
               <ul className="space-y-1">
-                {enrollments.map((enrollment) => (
+                {roster.map((entry) => (
                   <li
-                    key={enrollment.enrollment_id}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs"
+                    key={entry.enrollment_id}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs"
                   >
-                    <span className="font-medium text-slate-800">{enrollment.student_id}</span>
-                    <span className="ml-auto truncate font-mono text-[10px] text-slate-400">
-                      {enrollment.created_at}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-800">
+                        {entry.student?.email ?? entry.student_id}
+                      </span>
+                      {entry.student && <Badge tone="info">{entry.student.role}</Badge>}
+                      <span className="ml-auto truncate font-mono text-[10px] text-slate-400">
+                        {entry.created_at}
+                      </span>
+                    </div>
+                    <span className="block truncate font-mono text-[10px] text-slate-400">
+                      {entry.student_id}
                     </span>
                   </li>
                 ))}
               </ul>
-              {enrollments.length === 0 && <EmptyState>No students enrolled.</EmptyState>}
+              {roster.length === 0 && <EmptyState>No students enrolled.</EmptyState>}
+              <p className="text-[11px] text-slate-400">
+                The roster is a teacher capability: it is other people's identities, so a student's own
+                enrolment is reported by the join check rather than by this list.
+              </p>
             </Panel>
           </>
         )}

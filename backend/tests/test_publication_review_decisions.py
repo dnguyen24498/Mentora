@@ -528,20 +528,22 @@ def test_decisions_and_drafts_are_tenant_scoped(client, repository):
     assert _state(client, artifact_id)["draft_count"] == 0
 
 
-def test_review_actions_require_the_institution_header(client):
+def test_review_actions_require_a_principal(client):
+    """A review action is a teacher capability; without a principal it is a 401."""
+
     artifact_id = _built(client)
     assert (
         client.post(
             f"/artifacts/{artifact_id}/review-package/decision", json={"decision": "APPROVE"}
         ).status_code
-        == 422
+        == 401
     )
-    assert client.get(f"/artifacts/{artifact_id}/review-package/review-state").status_code == 422
+    assert client.get(f"/artifacts/{artifact_id}/review-package/review-state").status_code == 401
     assert (
         client.post(
             f"/artifacts/{artifact_id}/review-package/drafts", json={"sections": []}
         ).status_code
-        == 422
+        == 401
     )
 
 

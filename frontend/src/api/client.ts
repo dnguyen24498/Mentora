@@ -1,10 +1,15 @@
+import { currentToken, type AuthSession, type CapabilityIdentity, type Principal } from '../auth/session'
+
 export class ApiError extends Error {
   code: string
+  /** The precise cause behind a stable code, when the API names one. */
+  issueCode: string | null
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, issueCode: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.code = code
+    this.issueCode = issueCode
   }
 }
 
@@ -106,7 +111,11 @@ const UNREACHABLE_HINT =
 /** Perform a request and turn every failure mode into a stable `ApiError`. */
 async function send(path: string, institutionId: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
-  // `/health` is tenant-independent, so it sends no tenant header at all.
+  // A session is the credential, and the tenant comes from it: when one is
+  // present this header is redundant and the API ignores it. It stays because
+  // the development tenant shortcut has no session and needs it.
+  const token = currentToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   if (institutionId) headers.set('X-Institution-Id', institutionId)
 
   let response: Response
@@ -134,10 +143,10 @@ async function send(path: string, institutionId: string, init?: RequestInit): Pr
 
   const error =
     body && typeof body === 'object'
-      ? (body as { error?: { code?: string; message?: string } }).error
+      ? (body as { error?: { code?: string; message?: string; issue_code?: string } }).error
       : undefined
   if (error?.code) {
-    throw new ApiError(error.code, error.message ?? response.statusText)
+    throw new ApiError(error.code, error.message ?? response.statusText, error.issue_code ?? null)
   }
   if (response.status >= 500 && !text.trim()) {
     // A 5xx with an empty body means the request never reached the API.
@@ -510,7 +519,12 @@ export interface SessionSnapshot {
 /** Turn a failed request into a message that keeps the stable error code. */
 export function describeApiError(cause: unknown): string {
   if (cause instanceof ApiError) {
-    return cause.message ? `${cause.code}: ${cause.message}` : cause.code
+    // The stable code says a request was refused; the `issue_code` says *why*
+    // within that code (NOT_APPROVED vs STALE_APPROVAL, NOT_ENROLLED vs
+    // NOT_STARTED). Both are shown: a page that hid the second would make two
+    // very different refusals look the same. Neither is ever a raw exception.
+    const detail = cause.issueCode ? ` (${cause.issueCode})` : ''
+    return cause.message ? `${cause.code}: ${cause.message}${detail}` : `${cause.code}${detail}`
   }
   return cause instanceof Error ? cause.message : String(cause)
 }
@@ -587,20 +601,6 @@ export const startClass = (institutionId: string, classId: string) =>
   request<ClassView & { created: boolean }>(`/classes/${classId}/start`, institutionId, {
     method: 'POST',
   })
-
-export const listEnrollments = (institutionId: string, classId: string) =>
-  request<{ class_id: string; enrollments: Enrollment[] }>(
-    `/classes/${classId}/enrollments`,
-    institutionId,
-  )
-
-/** Enroll a student. Idempotent: enrolling twice is one enrollment. */
-export const enrollStudent = (institutionId: string, classId: string, studentId: string) =>
-  request<Enrollment & { created: boolean }>(
-    `/classes/${classId}/enrollments?student_id=${encodeURIComponent(studentId)}`,
-    institutionId,
-    { method: 'POST' },
-  )
 
 export interface PublicationIntegrity {
   state: 'VERIFIED' | 'MISMATCH' | 'MISSING'
@@ -694,3 +694,185 @@ export const loadRendererStatus = (institutionId: string, mode?: string) =>
 
 /** Liveness. Needs no tenant: it reports the process, not a tenant's data. */
 export const loadHealth = () => request<{ status: string }>('/health', '')
+
+// -- identity (V0-021) ------------------------------------------------------------
+//
+// The session *is* the credential and it carries the tenant, so these calls pass
+// no institution id. Signing in names the institution the account lives in
+// (that is what the credential proves); every later request derives it from the
+// session.
+
+export interface LoginInput {
+  institutionId: string
+  email: string
+  credential: string
+}
+
+export interface SessionIssuance {
+  authenticated: boolean
+  token: string
+  token_type: string
+  expires_at: string
+  principal: Principal
+  authenticator: CapabilityIdentity
+  notice: string
+}
+
+/**
+ * Sign in. A refusal is a stable code: `AUTHENTICATION_FAILED` with
+ * `issue_code INVALID_CREDENTIALS` for a wrong credential *or* an unknown
+ * account (deliberately indistinguishable), `AUTHENTICATION_UNAVAILABLE` when
+ * the capability could not be reached — an availability failure is not a
+ * denial, so the two are never conflated.
+ */
+export const login = (input: LoginInput) =>
+  request<SessionIssuance>('/auth/login', '', JSON_POST({
+    institution_id: input.institutionId,
+    email: input.email,
+    credential: input.credential,
+  }))
+
+/** Revoke the presented session. Idempotent, and never fails on an expired one. */
+export const logout = () => request<{ revoked: boolean }>('/auth/logout', '', { method: 'POST' })
+
+export interface PrincipalEnvelope {
+  principal: Principal
+  authenticator: CapabilityIdentity
+  notice: string
+  development_shortcut: boolean
+}
+
+/**
+ * The principal the presented credential authorizes.
+ *
+ * The tenant header is sent when one is given, because that is how the
+ * development shortcut resolves: with no session, `/auth/me` is the one call that
+ * can tell a client *which mode it is in*. With a session it wins and the header
+ * is ignored, so a signed-in read is unaffected.
+ */
+export const loadPrincipal = (institutionId = '') =>
+  request<PrincipalEnvelope>('/auth/me', institutionId)
+
+/** Turn an issuance into the session the client stores. */
+export function sessionFrom(issuance: SessionIssuance): AuthSession {
+  return {
+    token: issuance.token,
+    principal: issuance.principal,
+    authenticator: issuance.authenticator,
+    notice: issuance.notice,
+    expiresAt: issuance.expires_at,
+  }
+}
+
+// -- the teacher's roster (V0-021) ------------------------------------------------
+
+/** A platform account, scoped to one institution. */
+export interface Account {
+  account_id: string
+  institution_id: string
+  email: string
+  display_name: string
+  role: string
+  scopes: string[]
+  status: string
+  created_at: string
+}
+
+/** An enrolment with the account behind it, as the teacher's roster shows it. */
+export interface RosterEntry extends Enrollment {
+  student: Account | null
+}
+
+/**
+ * Add a student to the class roster.
+ *
+ * With an `email` this is the teacher's **invitation**: the account is created in
+ * this institution if it has none for that address, or linked if it has, and the
+ * response carries a one-time sign-in code when the credential capability
+ * provisions one (the development mock does; institutional federation would not).
+ * Enrollment is the class-scoped authorization a join is checked against, and it
+ * is idempotent: inviting the same student twice is one identity and one
+ * enrolment.
+ */
+export const enrollStudentByEmail = (institutionId: string, classId: string, email: string) =>
+  request<
+    Enrollment & {
+      student: Account
+      account_created: boolean
+      development_credential: string | null
+      created: boolean
+    }
+  >(
+    `/classes/${classId}/enrollments?email=${encodeURIComponent(email)}`,
+    institutionId,
+    { method: 'POST' },
+  )
+
+/** Enrol an account that already exists, by its id. */
+export const enrollStudentById = (institutionId: string, classId: string, accountId: string) =>
+  request<Enrollment & { student: Account; created: boolean }>(
+    `/classes/${classId}/enrollments?student_id=${encodeURIComponent(accountId)}`,
+    institutionId,
+    { method: 'POST' },
+  )
+
+/** The roster, with the account each enrolment authorizes. A teacher capability. */
+export const loadRoster = (institutionId: string, classId: string) =>
+  request<{ class_id: string; enrollments: RosterEntry[] }>(
+    `/classes/${classId}/enrollments`,
+    institutionId,
+  )
+
+// -- the student's view of a running class (V0-021) -------------------------------
+
+export interface BootstrapToken {
+  token: string
+  class_id: string
+  session_id: string
+  student_id: string
+  actor_epoch: number
+  nonce: string
+  scopes: string[]
+  issued_at: string
+  expires_at: string
+}
+
+/**
+ * Request the caller's **own** join credential.
+ *
+ * There is no student id in the request: the credential is bound to the session's
+ * account, so it cannot be someone else's join. Refusals are precise — `401
+ * SESSION_REQUIRED` when the request has no account (the development shortcut),
+ * `403 NOT_ENROLLED` when the account is not in this class, `409 CLASS_NOT_READY`
+ * with `issue_code NOT_STARTED` when the class has not started.
+ */
+export const issueBootstrapToken = (classId: string) =>
+  request<BootstrapToken>(`/classes/${classId}/bootstrap-token`, '', { method: 'POST' })
+
+/** One slide of the package a session pinned, as the student page needs it. */
+export interface ClassScene {
+  order: number
+  scene_id: string
+  fidelity: string | null
+  notes: string | null
+  text: string[]
+  warnings: string[]
+  object_count: number
+  step_count: number
+}
+
+export interface ClassSceneList {
+  class_id: string
+  package_id: string
+  content_digest: string
+  scene_count: number
+  scenes: ClassScene[]
+}
+
+/** The slides of the pinned package, with their text. Never a `latest` lookup. */
+export const loadClassScenes = (classId: string) =>
+  request<ClassSceneList>(`/classes/${classId}/scenes`, '')
+
+/** One slide's render, from the pinned package. */
+export const classSceneUrl = (classId: string, order: number) =>
+  fetchObjectUrl('', `/classes/${classId}/scenes/${order}`)

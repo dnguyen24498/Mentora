@@ -18,6 +18,13 @@ export interface PageHeaderProps {
   /** The tenant, owned by the page (`useInstitution`) — never a second copy. */
   institution: string
   onInstitutionChange: (value: string) => void
+  /**
+   * Whether the tenant may be typed into. A signed-in page sets this false: the
+   * tenant comes from the session, so a field that silently ignored typing would
+   * be a lie. It is still shown, because "which institution am I in" is a fact a
+   * user needs.
+   */
+  institutionEditable?: boolean
   /** The page's own header action(s), beside the tenant field. */
   actions?: ReactNode
   /** A second row: a page's own section tabs (Admin, Settings). */
@@ -52,6 +59,7 @@ export default function PageHeader({
   classId,
   institution,
   onInstitutionChange,
+  institutionEditable = true,
   actions,
   children,
 }: PageHeaderProps) {
@@ -75,8 +83,14 @@ export default function PageHeader({
           <input
             id="institution"
             value={institution}
+            readOnly={!institutionEditable}
             onChange={(event) => onInstitutionChange(event.target.value)}
-            className={INPUT_CHROME_CLASS}
+            title={
+              institutionEditable
+                ? undefined
+                : 'The institution comes from your session while you are signed in.'
+            }
+            className={`${INPUT_CHROME_CLASS}${institutionEditable ? '' : ' bg-slate-100 text-slate-500'}`}
           />
           {actions}
         </div>

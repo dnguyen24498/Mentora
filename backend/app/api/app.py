@@ -36,11 +36,20 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``POST /classes/{classId}/bootstrap-token`` — short-lived join credential, issued
   only to an enrolled student of a running class (``403`` ``NOT_ENROLLED`` otherwise)
 * ``GET  /renderer`` — renderer capability and health
+* ``POST /auth/login`` — sign in; a short-lived session token, returned once (V0-021)
+* ``POST /auth/logout`` — revoke the presented session (idempotent)
+* ``GET  /auth/me`` — the principal the presented session authorizes
 * ``GET  /health``
 
-Authentication is out of scope for this slice: the authenticated tenant is read
-from ``X-Institution-Id`` and every repository call is tenant-scoped. Replace
-this with the OIDC/JWT dependency from ``docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md``.
+Authentication (V0-021): every request resolves a **principal** and the tenant is
+derived from it, so the tenant can no longer be named by the caller
+(``app/api/security.py``). The credential *mechanism* is not decided — the canonical
+architecture names institutional federation and no ADR accepts an implementation —
+so what is wired is a labelled development mock behind
+``app.identity.port.Authenticator``. When ``Settings.dev_tenant_header`` is on, a
+request with no session is still accepted for the ``X-Institution-Id`` it names and
+gets a principal marked ``authenticated: false``; that shortcut is development-only
+and off in a real deployment.
 """
 
 from __future__ import annotations
@@ -52,6 +61,8 @@ from fastapi import Depends, FastAPI, File, Header, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from app.api.spa import SpaStaticFiles
+from app.api.identity_router import build_identity_router
+from app.api.security import build_api_security
 from app.classroom.catalog import BaselineRuntimeCatalog
 from app.classroom.repository import ClassRepository
 from app.classroom.router import build_class_router
@@ -72,12 +83,14 @@ from app.config import Settings
 from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
 from app.db.database import Database, init_db
+from app.identity.models import Principal, Scope
 from app.publication.index import BaselineIndexBuilder
 from app.publication.repository import PublicationRepository, ReviewRepository
 from app.publication.review import ReviewService
 from app.publication.router import build_publication_router, build_review_router
 from app.publication.service import PublicationService
 from app.publication.workflow import ReviewWorkflow
+from app.providers.factory import build_identity_service
 from app.storage.object_store import LocalObjectStore
 
 
@@ -170,6 +183,23 @@ def create_app(
     app.state.publication_service = publication_service
     app.state.classroom_service = classroom_service
 
+    # Identity (V0-021). The credential *mechanism* is not a decided technology —
+    # the canonical architecture names institutional federation (OIDC/OAuth) and no
+    # ADR accepts an implementation — so the registered adapter is a labelled
+    # development mock behind the provider-neutral Authenticator port
+    # (app/providers/local_credentials.py), the same shape ADR-P007 gives the TTS
+    # mock while DEC-TECH-007 is OPEN.
+    identity_service = build_identity_service(
+        database, session_ttl_seconds=settings.session_ttl_seconds
+    )
+    security = build_api_security(
+        identity_service,
+        allow_dev_header=settings.dev_tenant_header,
+        telemetry=identity_service.telemetry,
+    )
+    app.state.identity_service = identity_service
+    app.state.security = security
+
     @app.exception_handler(AppError)
     async def _handle_app_error(_request, exc: AppError) -> JSONResponse:
         body: dict = {"code": exc.code.value, "message": exc.message}
@@ -181,19 +211,24 @@ def create_app(
             body["issue_code"] = issue_code
         return JSONResponse(status_code=exc.http_status, content={"error": body})
 
-    def tenant(institution_id: str = Header(..., alias="X-Institution-Id")) -> str:
-        return institution_id
+    # The tenant every repository call is scoped by comes from the authenticated
+    # principal now (app/api/security.py), not from a caller-supplied header.
+    tenant = security.tenant
+    # Capability guards: a student token is refused on every teacher verb here.
+    require = security.require
 
+    # Identity (V0-021): sign in, sign out, and who the presented session is.
+    app.include_router(build_identity_router(security))
     # Teacher review (V0-007): read-only projection of a built package plus the
     # approve/reject decision and draft lesson-order revisions.
-    app.include_router(build_review_router(review_service, review_workflow, tenant))
+    app.include_router(build_review_router(review_service, review_workflow, security))
     # Atomic publication (V0-008): seal/index/commit an approved version and serve
     # published versions, including superseded ones.
-    app.include_router(build_publication_router(publication_service, tenant))
+    app.include_router(build_publication_router(publication_service, security))
     # Class and runtime session plan (V0-009): schedule a class, start it by
-    # pinning the exact runtime tuple once, serve the durable snapshot, and
-    # authorize joins against the class enrollment.
-    app.include_router(build_class_router(classroom_service, tenant))
+    # pinning the exact runtime tuple once, serve the durable snapshot, serve the
+    # pinned scene, and authorize joins against the class enrollment.
+    app.include_router(build_class_router(classroom_service, security))
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -202,22 +237,26 @@ def create_app(
     @app.post("/courses", status_code=201)
     def create_course(
         title: str,
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.CONTENT_WRITE)),
         course_id: Optional[str] = None,
     ) -> dict[str, str]:
-        repository.ensure_institution(institution_id)
-        course = repository.create_course(institution_id, title, course_id)
+        repository.ensure_institution(principal.institution_id)
+        course = repository.create_course(principal.institution_id, title, course_id)
         return {"course_id": course.course_id, "institution_id": course.institution_id}
 
     @app.get("/courses")
-    def list_courses(institution_id: str = Depends(tenant)) -> list[dict[str, str]]:
+    def list_courses(
+        principal: Principal = Depends(require(Scope.CONTENT_READ)),
+    ) -> list[dict[str, str]]:
         return [
             {"course_id": course.course_id, "title": course.title}
-            for course in repository.list_courses(institution_id)
+            for course in repository.list_courses(principal.institution_id)
         ]
 
     @app.get("/courses/{course_id}/materials")
-    def list_materials(course_id: str, institution_id: str = Depends(tenant)) -> list[dict]:
+    def list_materials(
+        course_id: str, principal: Principal = Depends(require(Scope.CONTENT_READ))
+    ) -> list[dict]:
         """Materials already stored for a course (drives the file picker in the UI)."""
 
         return [
@@ -234,19 +273,19 @@ def create_app(
                 "job_status": material.job_status,
                 "job_updated_at": material.updated_at,
             }
-            for material in repository.list_materials(institution_id, course_id)
+            for material in repository.list_materials(principal.institution_id, course_id)
         ]
 
     @app.post("/courses/{course_id}/materials", status_code=202)
     async def upload_material(
         course_id: str,
         file: UploadFile = File(...),
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.CONTENT_WRITE)),
         idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     ) -> dict:
         data = await file.read()
         result = upload_service.upload(
-            institution_id=institution_id,
+            institution_id=principal.institution_id,
             course_id=course_id,
             filename=file.filename or "upload.pptx",
             data=data,
@@ -266,8 +305,10 @@ def create_app(
         }
 
     @app.get("/artifacts/{artifact_id}")
-    def get_artifact(artifact_id: str, institution_id: str = Depends(tenant)) -> dict:
-        artifact = repository.get_artifact(institution_id, artifact_id)
+    def get_artifact(
+        artifact_id: str, principal: Principal = Depends(require(Scope.CONTENT_READ))
+    ) -> dict:
+        artifact = repository.get_artifact(principal.institution_id, artifact_id)
         return {
             "artifact_id": artifact.artifact_id,
             "course_id": artifact.course_id,
@@ -281,14 +322,16 @@ def create_app(
         }
 
     @app.post("/artifacts/{artifact_id}/extract")
-    def extract_artifact(artifact_id: str, institution_id: str = Depends(tenant)) -> dict:
-        document = extraction_service.extract(institution_id, artifact_id)
+    def extract_artifact(
+        artifact_id: str, principal: Principal = Depends(require(Scope.CONTENT_WRITE))
+    ) -> dict:
+        document = extraction_service.extract(principal.institution_id, artifact_id)
         return document.to_dict()
 
     @app.post("/artifacts/{artifact_id}/compile")
     def compile_artifact(
         artifact_id: str,
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.CONTENT_WRITE)),
         mode: Optional[str] = None,
     ) -> dict:
         """Extract, render every slide, and run the fidelity gate (V0-005).
@@ -299,17 +342,19 @@ def create_app(
         grouping and re-lays the content out in the platform theme.
         """
 
-        return rendering_service.compile(institution_id, artifact_id, mode=mode).to_dict()
+        return rendering_service.compile(
+            principal.institution_id, artifact_id, mode=mode
+        ).to_dict()
 
     @app.get("/artifacts/{artifact_id}/renders/{order}")
     def get_artifact_render(
         artifact_id: str,
         order: int,
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.CONTENT_READ)),
         mode: Optional[str] = None,
     ) -> Response:
         payload, _scene = rendering_service.render_scene_svg(
-            institution_id, artifact_id, order, mode=mode
+            principal.institution_id, artifact_id, order, mode=mode
         )
         return Response(
             content=payload,
@@ -322,7 +367,8 @@ def create_app(
 
     @app.get("/renderer")
     def renderer_status(
-        institution_id: str = Depends(tenant), mode: Optional[str] = None
+        principal: Principal = Depends(require(Scope.CONTENT_READ)),
+        mode: Optional[str] = None,
     ) -> dict:
         """Capability and circuit-breaker state; drives admission decisions.
 

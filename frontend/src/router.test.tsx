@@ -4,11 +4,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   adminPath,
   classroomPath,
+  joinPath,
   learnPath,
   Link,
+  loginPath,
   navigate,
   parseRoute,
   settingsPath,
+  studentPath,
   studioPath,
 } from './router'
 
@@ -136,6 +139,40 @@ describe('adminPath and settingsPath', () => {
     expect(settingsPath('general')).toBe('/settings')
     expect(settingsPath('teaching')).toBe('/settings/teaching')
     expect(parseRoute(settingsPath('teaching'))).toEqual({ name: 'settings', section: 'teaching' })
+  })
+})
+
+describe('identity routes (V0-021)', () => {
+  it('maps /login to the sign-in page', () => {
+    expect(parseRoute('/login')).toEqual({ name: 'login' })
+    expect(parseRoute('/login/')).toEqual({ name: 'login' })
+    // `?next=` is where to return to, not part of the route.
+    expect(parseRoute('/login?next=%2Fjoin%2Fclass-1')).toEqual({ name: 'login' })
+  })
+
+  it('maps /join/{classId} to the student join page and /student/{classId} to the student view', () => {
+    expect(parseRoute('/join/class-1')).toEqual({ name: 'join', classId: 'class-1' })
+    expect(parseRoute('/join/class-1/')).toEqual({ name: 'join', classId: 'class-1' })
+    expect(parseRoute('/student/class-1')).toEqual({ name: 'student', classId: 'class-1' })
+    expect(parseRoute('/student/class-1?slide=2')).toEqual({ name: 'student', classId: 'class-1' })
+    // No class id is not the page: a join with nothing to join would be a trap.
+    expect(parseRoute('/join')).toEqual({ name: 'not-found', path: '/join' })
+    expect(parseRoute('/join/')).toEqual({ name: 'not-found', path: '/join' })
+    expect(parseRoute('/student')).toEqual({ name: 'not-found', path: '/student' })
+    expect(parseRoute('/student/a/b')).toEqual({ name: 'not-found', path: '/student/a/b' })
+  })
+})
+
+describe('loginPath, joinPath and studentPath', () => {
+  it('builds canonical URLs that round-trip through parseRoute', () => {
+    expect(loginPath()).toBe('/login')
+    expect(loginPath('/join/class-1')).toBe('/login?next=%2Fjoin%2Fclass-1')
+    expect(parseRoute(loginPath('/join/class-1'))).toEqual({ name: 'login' })
+
+    expect(joinPath('class-1')).toBe('/join/class-1')
+    expect(parseRoute(joinPath('class-1'))).toEqual({ name: 'join', classId: 'class-1' })
+    expect(studentPath('class-1')).toBe('/student/class-1')
+    expect(parseRoute(studentPath('class-1'))).toEqual({ name: 'student', classId: 'class-1' })
   })
 })
 

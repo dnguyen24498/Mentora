@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import {
   loadArtifact,
+  loadClass,
   loadReviewPackage,
   loadReviewState,
   loadSnapshot,
@@ -10,7 +11,9 @@ import {
   listCourses,
   listMaterials,
 } from './api/client'
-import { ARTIFACT, makeArtifact, makePackage, makeState } from './test/fixtures'
+import { writeSession } from './auth/session'
+import { writeSelectedClass } from './institution'
+import { ARTIFACT, INSTITUTION, makeArtifact, makePackage, makeState } from './test/fixtures'
 import { TEST_CLASS, makeSnapshot } from './classroom/state/testing'
 
 vi.mock('./api/client', async (importOriginal) => {
@@ -24,6 +27,7 @@ vi.mock('./api/client', async (importOriginal) => {
     listClasses: vi.fn(),
     listMaterials: vi.fn(),
     loadArtifact: vi.fn(),
+    loadClass: vi.fn(),
     loadReviewPackage: vi.fn(),
     loadReviewState: vi.fn(),
     loadSnapshot: vi.fn(),
@@ -32,6 +36,31 @@ vi.mock('./api/client', async (importOriginal) => {
     uploadMaterial: vi.fn(),
   }
 })
+
+/** Sign this browser in as a student, the way the login page would. */
+function signInAsStudent() {
+  writeSession({
+    token: 'tok-1',
+    principal: {
+      authenticated: true,
+      institution_id: INSTITUTION,
+      role: 'student',
+      scopes: ['class:read', 'scene:read', 'join'],
+      account_id: 'account-7',
+      email: 'student7@school.example',
+      display_name: 'Student Seven',
+      session_id: 'session-1',
+    },
+    authenticator: {
+      id: 'local-credentials@1.0.0',
+      name: 'local-credentials',
+      version: '1.0.0',
+      kind: 'DEVELOPMENT_MOCK',
+    },
+    notice: 'mock',
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  })
+}
 
 /** Point the test at a URL the way a deep link or a refresh would. */
 function visit(path: string) {
@@ -118,5 +147,81 @@ describe('App — routing between the pages', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy()
     // The teaching section is the one on screen, and it is honest about the audio.
     expect(await screen.findByText('Text only.')).toBeTruthy()
+  })
+})
+
+describe('App — identities (V0-021)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(listCourses).mockResolvedValue([])
+    vi.mocked(listClasses).mockResolvedValue([])
+    vi.mocked(listMaterials).mockResolvedValue([])
+  })
+
+  it('serves the sign-in page at /login', async () => {
+    visit('/login')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in' })).toBeTruthy()
+  })
+
+  it('serves a class join page at /join/{classId}', async () => {
+    visit('/join/class-1')
+    vi.mocked(loadClass).mockResolvedValue({
+      class: {
+        class_id: 'class-1',
+        institution_id: INSTITUTION,
+        course_id: 'course-1',
+        title: 'Period 3',
+        version_id: null,
+        scheduled_for: null,
+        state: 'SCHEDULED',
+        created_at: '2026-10-16T09:00:00Z',
+        started_at: null,
+      },
+      session: null,
+      session_plan: null,
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join a class' })).toBeTruthy()
+  })
+
+  it('keeps a student out of the authoring pages, and offers their class instead', async () => {
+    signInAsStudent()
+    writeSelectedClass('class-1')
+    // A student who follows an authoring link is told so rather than shown a
+    // page whose every request would answer 403.
+    visit(`/studio/${ARTIFACT}`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Your classes' })).toBeTruthy()
+    expect(screen.queryByTestId('teacher-studio')).toBeNull()
+    // The landing is usable, not just a refusal: the remembered class opens.
+    expect(screen.getByRole('button', { name: 'Open class' })).toBeTruthy()
+    expect(screen.getByLabelText('Class id')).toBeTruthy()
+  })
+
+  it('gives a student with no remembered class a way in by id', async () => {
+    signInAsStudent()
+    visit('/admin')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Your classes' })).toBeTruthy()
+    // The join link's shape is shown, so a student knows what to look for.
+    expect(screen.getByText(/join\/<class id>/)).toBeTruthy()
+    expect((screen.getByLabelText('Class id') as HTMLInputElement).value).toBe('')
+  })
+
+  it('still lets a student reach Settings, which belongs to no role', async () => {
+    signInAsStudent()
+    visit('/settings')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy()
   })
 })

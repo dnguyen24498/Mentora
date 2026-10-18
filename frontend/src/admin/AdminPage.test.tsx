@@ -6,18 +6,19 @@ import {
   ApiError,
   compileArtifact,
   createCourse,
-  enrollStudent,
+  enrollStudentByEmail,
   listClasses,
   listCourses,
-  listEnrollments,
   listMaterials,
   listPublications,
   loadClass,
   loadPublication,
+  loadRoster,
   publishVersion,
   scheduleClass,
   startClass,
   uploadMaterial,
+  type Account,
   type ClassSummary,
   type ClassView,
   type Material,
@@ -34,14 +35,14 @@ vi.mock('../api/client', async (importOriginal) => {
     ...actual,
     compileArtifact: vi.fn(),
     createCourse: vi.fn(),
-    enrollStudent: vi.fn(),
+    enrollStudentByEmail: vi.fn(),
     listClasses: vi.fn(),
     listCourses: vi.fn(),
-    listEnrollments: vi.fn(),
     listMaterials: vi.fn(),
     listPublications: vi.fn(),
     loadClass: vi.fn(),
     loadPublication: vi.fn(),
+    loadRoster: vi.fn(),
     publishVersion: vi.fn(),
     scheduleClass: vi.fn(),
     startClass: vi.fn(),
@@ -75,6 +76,17 @@ const CLASS: ClassSummary = {
   state: 'SCHEDULED',
   created_at: '2026-10-16T09:00:00Z',
   started_at: null,
+}
+
+const STUDENT: Account = {
+  account_id: 'account-7',
+  institution_id: INSTITUTION,
+  email: 'student7@school.example',
+  display_name: 'Student Seven',
+  role: 'student',
+  scopes: ['class:read', 'scene:read', 'join'],
+  status: 'ACTIVE',
+  created_at: '2026-10-16T09:06:00Z',
 }
 
 const STARTED: ClassView & { created: boolean } = {
@@ -239,7 +251,7 @@ describe('AdminPage — classes', () => {
     const user = userEvent.setup()
     vi.mocked(scheduleClass).mockResolvedValue(CLASS)
     vi.mocked(loadClass).mockResolvedValue({ class: CLASS, session: null, session_plan: null })
-    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+    vi.mocked(loadRoster).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
     render(<AdminPage section="classes" />)
 
     await user.type(await screen.findByLabelText('Title'), 'Period 3')
@@ -266,7 +278,7 @@ describe('AdminPage — classes', () => {
     }
     vi.mocked(scheduleClass).mockResolvedValue(created)
     vi.mocked(loadClass).mockResolvedValue({ class: created, session: null, session_plan: null })
-    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+    vi.mocked(loadRoster).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
     render(<AdminPage section="classes" />)
 
     await user.type(await screen.findByLabelText('Title'), 'Period 4')
@@ -289,7 +301,7 @@ describe('AdminPage — classes', () => {
     expect(await screen.findByText(/Scheduled "Period 4" for/)).toBeTruthy()
   })
 
-  it('starts a class and enrols students', async () => {
+  it('starts a class and invites a student onto the roster', async () => {
     const user = userEvent.setup()
     vi.mocked(listClasses).mockResolvedValue([CLASS])
     vi.mocked(loadClass).mockResolvedValue({
@@ -297,15 +309,18 @@ describe('AdminPage — classes', () => {
       session: null,
       session_plan: null,
     })
-    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+    vi.mocked(loadRoster).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
     vi.mocked(startClass).mockResolvedValue(STARTED)
-    vi.mocked(enrollStudent).mockResolvedValue({
+    vi.mocked(enrollStudentByEmail).mockResolvedValue({
       enrollment_id: 'enrollment-1',
       institution_id: INSTITUTION,
       class_id: 'class-1',
-      student_id: 'student-7',
+      student_id: STUDENT.account_id,
       created_at: '2026-10-16T09:06:00Z',
       created: true,
+      student: STUDENT,
+      account_created: true,
+      development_credential: 'dev-code-7',
     })
     render(<AdminPage section="classes" />)
 
@@ -316,12 +331,21 @@ describe('AdminPage — classes', () => {
     await waitFor(() => expect(startClass).toHaveBeenCalledWith(INSTITUTION, 'class-1'))
     expect(await screen.findByText(/runtime tuple is now pinned/)).toBeTruthy()
 
-    await user.type(screen.getByLabelText('Student id'), 'student-7')
-    await user.click(screen.getByRole('button', { name: 'Enrol' }))
+    // Inviting by address creates-or-links the account in the tenant and enrols
+    // it in one step, because enrolment is what a join is checked against.
+    await user.type(screen.getByLabelText('Student email'), 'student7@school.example')
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
     await waitFor(() =>
-      expect(enrollStudent).toHaveBeenCalledWith(INSTITUTION, 'class-1', 'student-7'),
+      expect(enrollStudentByEmail).toHaveBeenCalledWith(
+        INSTITUTION,
+        'class-1',
+        'student7@school.example',
+      ),
     )
-    expect(await screen.findByText(/Enrolled student-7/)).toBeTruthy()
+    expect(await screen.findByText(/Invited student7@school.example/)).toBeTruthy()
+    // The one-time sign-in code is shown to hand over; it is returned once and
+    // never stored in the clear.
+    expect(screen.getByTestId('invited-credential').textContent).toContain('dev-code-7')
   })
 })
 
@@ -336,7 +360,7 @@ describe('AdminPage — classes started at their own scheduled time', () => {
   function primeAttached(list: ClassSummary[]) {
     vi.mocked(listClasses).mockResolvedValue(list)
     vi.mocked(loadClass).mockResolvedValue({ class: list[0], session: null, session_plan: null })
-    vi.mocked(listEnrollments).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
+    vi.mocked(loadRoster).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
   }
 
   it('starts a due class while the page is open, when auto-start is on', async () => {

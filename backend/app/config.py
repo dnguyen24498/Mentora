@@ -22,6 +22,12 @@ DEFAULT_MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # zip-bomb guard
 #: single-host deployment rather than asserting a cloud region.
 DEFAULT_HOME_REGION = "local-1"
 
+#: Lifetime of an authenticated session token (V0-021). ``docs/security/
+#: IDENTITY_AUTHORIZATION_AND_TOKENS.md`` requires **short-lived** least-privilege
+#: tokens; the concrete number is configuration, not architecture. Eight hours
+#: covers a teaching day without a session outliving it.
+DEFAULT_SESSION_TTL_SECONDS = 8 * 60 * 60
+
 
 def _default_frontend_dist() -> Path:
     # backend/app/config.py -> repo root/frontend/dist
@@ -38,13 +44,28 @@ class Settings:
     max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED_BYTES
     #: The home region a session pins (``DEC-DEPLOY-002``); see DEFAULT_HOME_REGION.
     home_region: str = DEFAULT_HOME_REGION
+    #: Whether the **pre-auth development shortcut** is accepted: a request with no
+    #: session is trusted for whatever ``X-Institution-Id`` it names. V0-021 makes
+    #: the tenant come from an authenticated principal; this shortcut exists so the
+    #: V0 flows (and their tests) keep working before an institutional-federation
+    #: deployment, and it is *not* authentication — a request that uses it is
+    #: reported as ``authenticated: false``. Set ``MENTORA_DEV_TENANT_HEADER=0`` to
+    #: require a session on every route.
+    dev_tenant_header: bool = True
+    #: How long an issued session token stays valid (short-lived, least privilege).
+    session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS
 
     @classmethod
     def from_env(cls, base_dir: Path | str | None = None) -> "Settings":
         base = Path(base_dir or os.environ.get("MENTORA_DATA_DIR", "var"))
+        shortcut = os.environ.get("MENTORA_DEV_TENANT_HEADER", "1").strip().lower()
         return cls(
             database_path=Path(os.environ.get("MENTORA_DB_PATH", base / "mentora.db")),
             object_root=Path(os.environ.get("MENTORA_OBJECT_ROOT", base / "objects")),
             frontend_dist=Path(os.environ.get("MENTORA_FRONTEND_DIST", _default_frontend_dist())),
             home_region=os.environ.get("MENTORA_HOME_REGION", DEFAULT_HOME_REGION),
+            dev_tenant_header=shortcut not in {"0", "false", "no", "off"},
+            session_ttl_seconds=int(
+                os.environ.get("MENTORA_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)
+            ),
         )

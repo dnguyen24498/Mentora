@@ -31,13 +31,71 @@ material library (`/`), the Teacher Studio (`/studio/{artifactId}`), the
 classroom (`/classroom/{classId}`) and the learning page (`/learn/{artifactId}`),
 plus two **sectioned areas**: the Admin area (`/admin/{section}` —
 overview, courses, classes, publications) and Settings (`/settings/{section}` —
-general, rendering, teaching, accessibility). A shared navigation
+general, rendering, teaching, accessibility). V0-021 adds three: **sign in**
+(`/login`), a class's **student join page** (`/join/{classId}`) and the student's
+**own fullscreen view** of a class (`/student/{classId}`). A shared navigation
 (`frontend/src/components/SiteNav.tsx`) is embedded in every page header, so each
 page is reachable from every other. The deck/class-scoped entries use the id the
 page holds or the last one opened — remembered in `localStorage` alongside the
 tenant — and are disabled with an explanation before an id exists. The library is
 the hub: it lists the tenant's classes (`GET /classes`) and links each to its
 classroom, and offers both the Studio and the learning page for a selected deck.
+
+## Implemented identities and the student surface (V0-021)
+
+`frontend/src/auth/` holds the identity half. `session.ts` is the signed-in
+session (`localStorage`, shared across tabs like the tenant): the raw token for
+the API client, the principal, the capability that issued it, and a memoised read
+for `useSyncExternalStore`. Two things are deliberate:
+
+- an **expired session is not a session** — the same rule on write as on read,
+  because the server would refuse it anyway and a page that looked signed in while
+  every request 401ed would be worse than one that asks again;
+- `hasScope()` is **advisory**: it decides what the UI offers, never what is
+  allowed. The server re-derives scopes from the account's current role on every
+  request, so a stale client can only ever show a button that fails.
+
+`mode.ts` answers "which mode is this browser in?". It cannot be read from local
+state, because the **development tenant shortcut has no session at all**, so it
+asks `GET /auth/me` — the endpoint reports `authenticated: false` for the
+shortcut and `401 SESSION_REQUIRED` when the deployment has switched it off. The
+answer is cached for the page and shown as "Development mode"; the app never
+presents the shortcut as a sign-in, nor as signed out while it is in fact acting
+as a teacher. `LoginPage.tsx` is the credential exchange — institution, address,
+opaque **sign-in code** — and says in the page that no credential mechanism is a
+decided technology and that the adapter behind the form is a labelled development
+mock. `fetchObjectUrl` and every other request carry the session token through
+`api/client.ts::send`.
+
+A student who opens a teacher's page is *not* shown a page whose every request
+would answer `403`: `StudentNotice.tsx` is a real landing, offering the remembered
+class, the class id from their join link, and Sign out. That is a courtesy, not
+the control — the server enforces the role on every request.
+
+`frontend/src/student/` is the student's surface, built for the device a student
+actually holds. `JoinClassPage.tsx` (`/join/{classId}`) establishes *who is
+asking* before anything else: signed out it asks for a sign-in and says the
+development shortcut cannot join; signed in it shows the class and asks the
+server for the caller's own join credential, reporting a refusal by its precise
+cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
+`StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
+slide fills the viewport (a real Fullscreen button as well as the layout, because
+a phone browser still shows its own chrome), one tap or one arrow key moves a
+slide, the controls keep their ≥44px tap area, and the current slide's own text
+and notes are shown as the narration. Two properties it does not overstate: the
+slide shown is the one *this student* is on, because the ordered per-class event
+stream that would carry "the teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`,
+live path V1-002); and the narration is **text only**, the deck's own words — no
+model wrote it and it is not audio (`DEC-TECH-007` is `OPEN`). What *is*
+authoritative is the content: every scene comes from the package the session
+pinned at start (`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`,
+so a correction published mid-lesson cannot change the slide under the student,
+and a tampered file is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown.
+
+Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster: **invite by email**
+creates-or-links the account in the tenant and enrols it in one step, then shows
+the one-time sign-in code to hand over (returned once, never stored in the clear),
+and the class detail offers the student join link to share.
 
 ## Implemented responsive layout (phone and large screen)
 

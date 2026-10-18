@@ -1,4 +1,4 @@
-"""HTTP surface for classes, start, snapshots and join authorization (V0-009).
+"""HTTP surface for classes, start, snapshots, scenes and join authorization.
 
 Routes (``contracts/openapi/openapi.yaml``):
 
@@ -9,41 +9,49 @@ Routes (``contracts/openapi/openapi.yaml``):
   exact version tuple once and commits the initial snapshot with it. Idempotent: a
   replay returns the same session with ``created: false``.
 * ``GET  /classes/{classId}/snapshot`` — the authoritative snapshot, checksum-validated.
-* ``POST/GET /classes/{classId}/enrollments`` — the class roster the join check uses.
-* ``POST /classes/{classId}/bootstrap-token`` — the join credential, issued only to
-  an enrolled student of a running class.
+* ``GET  /classes/{classId}/scenes`` — the slide list of the package the session
+  pinned, with each slide's text (navigation + narration).
+* ``GET  /classes/{classId}/scenes/{order}`` — the slide the session is presenting,
+  read from the package the session **pinned** (``DEC-CONTENT-005``).
+* ``POST /classes/{classId}/enrollments`` — add a student to the roster: invite by
+  email (create-or-link the account) or enrol an account by id.
+* ``GET  /classes/{classId}/enrollments`` — the class roster the join check uses.
+* ``POST /classes/{classId}/bootstrap-token`` — the join credential, issued to the
+  **authenticated** student and only when they are enrolled in a running class.
 
-Every route is tenant-scoped through ``X-Institution-Id``; without the header the
-request is rejected before reaching the service (422).
+Every route resolves a principal through :mod:`app.api.security`, and the tenant is
+derived from it, so a caller cannot read or write another institution's class by
+naming it. Write verbs additionally require a capability: a student token is refused
+(``403`` ``INSUFFICIENT_SCOPE``) on scheduling, starting, enrolling and the roster,
+and a student's join credential is always their **own** — the request cannot name
+whose credential it wants.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from fastapi.responses import Response
 
+from app.api.security import ApiSecurity
 from app.classroom.service import ClassroomService
-
-
-class BootstrapTokenRequest(BaseModel):
-    """The principal asking to join. Identity/federation is not implemented yet, so
-    this is *who they claim to be* — enrollment is what actually authorizes it."""
-
-    student_id: str = Field(min_length=1, max_length=256)
+from app.common.errors import ValidationError
+from app.identity.errors import ISSUE_SESSION_REQUIRED, SessionError
+from app.identity.models import Principal, Scope
 
 
 def build_class_router(
     service: ClassroomService,
-    tenant: Callable[..., str],
+    security: ApiSecurity,
 ) -> APIRouter:
     router = APIRouter()
+    require = security.require
 
     @router.post("/classes", status_code=201)
     def schedule_class(
         course_id: str,
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.CLASS_WRITE)),
         title: Optional[str] = None,
         version_id: Optional[str] = None,
         scheduled_for: Optional[str] = None,
@@ -51,7 +59,7 @@ def build_class_router(
         """Schedule a class. ``scheduled_for`` is recorded, not enforced (no timer)."""
 
         return service.schedule_class(
-            institution_id,
+            principal.institution_id,
             course_id,
             title=title,
             version_id=version_id,
@@ -60,18 +68,25 @@ def build_class_router(
 
     @router.get("/classes")
     def list_classes(
-        institution_id: str = Depends(tenant), limit: int = 100
+        principal: Principal = Depends(require(Scope.CLASS_READ)), limit: int = 100
     ) -> list[dict]:
-        return [item.to_dict() for item in service.list_classes(institution_id, limit=limit)]
+        return [
+            item.to_dict()
+            for item in service.list_classes(principal.institution_id, limit=limit)
+        ]
 
     @router.get("/classes/{class_id}")
-    def get_class(class_id: str, institution_id: str = Depends(tenant)) -> dict:
+    def get_class(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_READ))
+    ) -> dict:
         """The class with its session and pinned tuple (both ``null`` before start)."""
 
-        return service.class_view(institution_id, class_id)
+        return service.class_view(principal.institution_id, class_id)
 
     @router.post("/classes/{class_id}/start")
-    def start_class(class_id: str, institution_id: str = Depends(tenant)) -> dict:
+    def start_class(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_WRITE))
+    ) -> dict:
         """Resolve and pin the exact version tuple, then go ``ACTIVE``.
 
         ``200`` whether the session was created or replayed (``DEC-RUNTIME-003``).
@@ -81,51 +96,171 @@ def build_class_router(
         ``SCHEDULED``. Nothing is written on a refusal.
         """
 
-        return service.start_class(institution_id, class_id).to_dict()
+        return service.start_class(principal.institution_id, class_id).to_dict()
 
     @router.get("/classes/{class_id}/snapshot")
-    def get_snapshot(class_id: str, institution_id: str = Depends(tenant)) -> dict:
+    def get_snapshot(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_READ))
+    ) -> dict:
         """The authoritative snapshot (checksum + schema validated before returned)."""
 
-        return service.get_snapshot(institution_id, class_id).to_dict()
+        return service.get_snapshot(principal.institution_id, class_id).to_dict()
+
+    @router.get("/classes/{class_id}/scenes")
+    def list_scenes(
+        class_id: str, principal: Principal = Depends(require(Scope.SCENE_READ))
+    ) -> dict[str, Any]:
+        """The slide list of the package this session pinned, with each slide's text.
+
+        A student page uses it to offer navigation and gather narration; the
+        *renders* are fetched one at a time by ``GET .../scenes/{order}``, so opening
+        a lesson does not read every asset. Both resolve the session's own pinned
+        plan, so neither can drift to a newer publication (``DEC-CONTENT-005``).
+        """
+
+        plan, scenes = service.pinned_scenes(principal.institution_id, class_id)
+        return {
+            "class_id": class_id,
+            "package_id": plan.package_id,
+            "content_digest": plan.content_digest,
+            "scene_count": len(scenes),
+            "scenes": [scene.to_dict() for scene in scenes],
+        }
+
+    @router.get("/classes/{class_id}/scenes/{order}")
+    def get_scene(
+        class_id: str,
+        order: int,
+        principal: Principal = Depends(require(Scope.SCENE_READ)),
+    ) -> Response:
+        """One slide of the package the session pinned, as an SVG.
+
+        Resolved from the session's own ``RuntimeSessionPlan``, so a correction
+        published after the start does not change what this class sees
+        (``DEC-CONTENT-005``). ``404`` when the class has not started or the package
+        has no such scene; ``502`` when the pinned bytes no longer match their
+        recorded digest.
+        """
+
+        scene = service.pinned_scene(principal.institution_id, class_id, order)
+        return Response(
+            content=scene.svg,
+            media_type=scene.media_type,
+            headers={
+                # Per class and per scene position, and the pinned bytes never
+                # change, so a client may reuse it while the page is open — but a
+                # shared cache must not, because the URL names a class.
+                "Cache-Control": "private, max-age=3600",
+                "X-Mentora-Package": scene.package_id,
+                "X-Mentora-Scene": scene.scene_id or "",
+            },
+        )
 
     @router.post("/classes/{class_id}/enrollments")
     def enroll_student(
         class_id: str,
-        student_id: str,
-        institution_id: str = Depends(tenant),
-    ) -> dict:
-        """Enroll a student in the class. Idempotent: enrolling twice is one enrollment."""
+        principal: Principal = Depends(require(Scope.ENROLLMENT_WRITE)),
+        email: Optional[str] = None,
+        student_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Add a student to the class roster. Idempotent per ``(class, student)``.
 
-        enrollment, created = service.enroll(institution_id, class_id, student_id)
-        return {**enrollment.to_dict(), "created": created}
+        Two ways in, both of which enrol a **real account**:
+
+        * ``email`` — the teacher's invitation. The account is created if this tenant
+          has none for that address, or linked if it has, so inviting the same
+          student twice is one identity and a retried invitation is not an error.
+          The response carries the account and, when the credential capability
+          provisions one (the development mock does; federation would not), a
+          one-time sign-in code.
+        * ``student_id`` — enrol an account that already exists, by its id.
+
+        The class is validated *before* an account is created, so a bad class id
+        cannot leave an orphan account behind.
+        """
+
+        institution_id = principal.institution_id
+        if email:
+            service.class_view(institution_id, class_id)  # 404/403 before any write
+            invitation = security.identity.invite_student(
+                institution_id, email, class_id=class_id
+            )
+            account = invitation.account
+            enrollment, created = service.enroll(
+                institution_id, class_id, account.account_id
+            )
+            return {
+                **enrollment.to_dict(),
+                "created": created,
+                "student": account.to_dict(),
+                "account_created": invitation.created,
+                "development_credential": invitation.development_credential,
+            }
+
+        if student_id:
+            account = security.identity.account(institution_id, student_id)
+            enrollment, created = service.enroll(
+                institution_id, class_id, account.account_id
+            )
+            return {
+                **enrollment.to_dict(),
+                "created": created,
+                "student": account.to_dict(),
+                "account_created": False,
+                "development_credential": None,
+            }
+
+        raise ValidationError("provide an email to invite, or a student_id to enrol")
 
     @router.get("/classes/{class_id}/enrollments")
-    def list_enrollments(class_id: str, institution_id: str = Depends(tenant)) -> dict:
-        return {
-            "class_id": class_id,
-            "enrollments": [
-                enrollment.to_dict()
-                for enrollment in service.list_enrollments(institution_id, class_id)
-            ],
-        }
+    def list_enrollments(
+        class_id: str, principal: Principal = Depends(require(Scope.ENROLLMENT_WRITE))
+    ) -> dict:
+        """The roster.
+
+        A teacher capability, not a shared read: the roster is other people's
+        identities, so a student's own enrolment is reported by the join check and
+        by ``GET /classes/{classId}``, not by this list.
+        """
+
+        institution_id = principal.institution_id
+        enrollments = []
+        for enrollment in service.list_enrollments(institution_id, class_id):
+            account = security.identity.find_account(
+                institution_id, enrollment.student_id
+            )
+            enrollments.append(
+                {
+                    **enrollment.to_dict(),
+                    "student": account.to_dict() if account is not None else None,
+                }
+            )
+        return {"class_id": class_id, "enrollments": enrollments}
 
     @router.post("/classes/{class_id}/bootstrap-token")
     def issue_bootstrap_token(
         class_id: str,
-        body: BootstrapTokenRequest,
-        institution_id: str = Depends(tenant),
+        principal: Principal = Depends(require(Scope.JOIN)),
     ) -> dict:
-        """Issue a short-lived join credential to an enrolled student of a running class.
+        """Issue a short-lived join credential to the **authenticated** student.
 
-        ``403`` ``NOT_ENROLLED`` when the principal is in the tenant but not enrolled
-        in this class; ``409`` ``CLASS_NOT_READY`` when the class has not started.
-        The token is returned once — only its digest is stored — and it carries
-        ``subscribe`` scope only.
+        There is no student id in the request any more: the credential is bound to
+        the session's own account, so a caller cannot ask for someone else's
+        credential. ``401`` when the request has no account behind it (the
+        development tenant shortcut, which is not a sign-in); ``403``
+        ``NOT_ENROLLED`` when the account is in the tenant but not in this class;
+        ``409`` ``CLASS_NOT_READY`` when the class has not started. The token is
+        returned once — only its digest is stored — and it carries ``subscribe``
+        scope only (``DEC-TURN-001``).
         """
 
+        if principal.account_id is None:
+            raise SessionError(
+                "joining a class requires a signed-in student account",
+                issue_code=ISSUE_SESSION_REQUIRED,
+            )
         return service.issue_bootstrap_token(
-            institution_id, class_id, body.student_id
+            principal.institution_id, class_id, principal.account_id
         ).to_dict()
 
     return router

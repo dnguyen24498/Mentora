@@ -698,13 +698,71 @@ material library (`/`), the Teacher Studio (`/studio/{artifactId}`), the
 classroom (`/classroom/{classId}`) and the learning page (`/learn/{artifactId}`),
 plus two **sectioned areas**: the Admin area (`/admin/{section}` —
 overview, courses, classes, publications) and Settings (`/settings/{section}` —
-general, rendering, teaching, accessibility). A shared navigation
+general, rendering, teaching, accessibility). V0-021 adds three: **sign in**
+(`/login`), a class's **student join page** (`/join/{classId}`) and the student's
+**own fullscreen view** of a class (`/student/{classId}`). A shared navigation
 (`frontend/src/components/SiteNav.tsx`) is embedded in every page header, so each
 page is reachable from every other. The deck/class-scoped entries use the id the
 page holds or the last one opened — remembered in `localStorage` alongside the
 tenant — and are disabled with an explanation before an id exists. The library is
 the hub: it lists the tenant's classes (`GET /classes`) and links each to its
 classroom, and offers both the Studio and the learning page for a selected deck.
+
+## Implemented identities and the student surface (V0-021)
+
+`frontend/src/auth/` holds the identity half. `session.ts` is the signed-in
+session (`localStorage`, shared across tabs like the tenant): the raw token for
+the API client, the principal, the capability that issued it, and a memoised read
+for `useSyncExternalStore`. Two things are deliberate:
+
+- an **expired session is not a session** — the same rule on write as on read,
+  because the server would refuse it anyway and a page that looked signed in while
+  every request 401ed would be worse than one that asks again;
+- `hasScope()` is **advisory**: it decides what the UI offers, never what is
+  allowed. The server re-derives scopes from the account's current role on every
+  request, so a stale client can only ever show a button that fails.
+
+`mode.ts` answers "which mode is this browser in?". It cannot be read from local
+state, because the **development tenant shortcut has no session at all**, so it
+asks `GET /auth/me` — the endpoint reports `authenticated: false` for the
+shortcut and `401 SESSION_REQUIRED` when the deployment has switched it off. The
+answer is cached for the page and shown as "Development mode"; the app never
+presents the shortcut as a sign-in, nor as signed out while it is in fact acting
+as a teacher. `LoginPage.tsx` is the credential exchange — institution, address,
+opaque **sign-in code** — and says in the page that no credential mechanism is a
+decided technology and that the adapter behind the form is a labelled development
+mock. `fetchObjectUrl` and every other request carry the session token through
+`api/client.ts::send`.
+
+A student who opens a teacher's page is *not* shown a page whose every request
+would answer `403`: `StudentNotice.tsx` is a real landing, offering the remembered
+class, the class id from their join link, and Sign out. That is a courtesy, not
+the control — the server enforces the role on every request.
+
+`frontend/src/student/` is the student's surface, built for the device a student
+actually holds. `JoinClassPage.tsx` (`/join/{classId}`) establishes *who is
+asking* before anything else: signed out it asks for a sign-in and says the
+development shortcut cannot join; signed in it shows the class and asks the
+server for the caller's own join credential, reporting a refusal by its precise
+cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
+`StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
+slide fills the viewport (a real Fullscreen button as well as the layout, because
+a phone browser still shows its own chrome), one tap or one arrow key moves a
+slide, the controls keep their ≥44px tap area, and the current slide's own text
+and notes are shown as the narration. Two properties it does not overstate: the
+slide shown is the one *this student* is on, because the ordered per-class event
+stream that would carry "the teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`,
+live path V1-002); and the narration is **text only**, the deck's own words — no
+model wrote it and it is not audio (`DEC-TECH-007` is `OPEN`). What *is*
+authoritative is the content: every scene comes from the package the session
+pinned at start (`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`,
+so a correction published mid-lesson cannot change the slide under the student,
+and a tampered file is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown.
+
+Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster: **invite by email**
+creates-or-links the account in the tenant and enrols it in one step, then shows
+the one-time sign-in code to hand over (returned once, never stored in the clear),
+and the class detail offers the student join link to share.
 
 ## Implemented responsive layout (phone and large screen)
 
@@ -932,6 +990,37 @@ Controls include sandboxing, provenance, schema validation, pre-retrieval author
 - `DEC-TURN-008`
 - `DEC-DATA-005`
 - `DEC-RELIABILITY-002`
+- `DEC-RUNTIME-007` (V0-021: a session is honoured against its current role, and revocation is checked on every read)
+
+## Implemented identity boundary (V0-021)
+
+Full detail is in `docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md`. The part
+that belongs to the trust boundary:
+
+- **The tenant is derived, never supplied.** A request's tenant comes from the
+  session the API resolves; `X-Institution-Id` is the *development* shortcut
+  (`MENTORA_DEV_TENANT_HEADER`, default on) and is ignored whenever a session is
+  present. A caller can therefore never widen its own institution by naming one.
+- **Authorization is a capability, checked at the route.** Every verb on every
+  router carries `require(scope)`; `ROLE_SCOPES` is the single place a role's
+  capabilities are decided. No route is protected only by its client.
+- **Least privilege is enforced where it is decided.** A student session carries
+  `class:read`, `scene:read` and `join` and nothing else; it cannot publish, write
+  content, review, or read the roster. A join credential carries `subscribe` only
+  (`DEC-TURN-001`).
+- **Credentials and tokens are stored as digests.** A session stores
+  `sha256(token)`; a credential stores scrypt digest + per-account salt. Neither
+  raw value is retrievable after the response that issued it.
+- **No enumeration oracle.** An unknown account and a wrong credential are the
+  same stable code and the same timing (a dummy salt is verified either way).
+- **A refusal is not a fault.** Installed-capability unavailability is `503
+  AUTHENTICATION_UNAVAILABLE`; a rejected credential is `401
+  AUTHENTICATION_FAILED`; a missing principal is `401 UNAUTHENTICATED`; a missing
+  capability is `403 INSUFFICIENT_SCOPE`. Clients and tests can tell them apart
+  (`DEC-RELIABILITY-002`).
+- **The stand-in is visible.** The credential adapter is a labelled
+  `DEVELOPMENT_MOCK` and says so in every response and in the client UI; the
+  mechanism is not a decided technology and is not presented as one.
 
 
 <!-- SOURCE: 18_ACCESSIBILITY_AND_INCLUSION.md -->

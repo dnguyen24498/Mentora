@@ -56,9 +56,34 @@ def test_duplicate_upload_reports_not_created(client):
     assert second["artifact_id"] == first["artifact_id"]
 
 
-def test_missing_tenant_header_is_rejected(client):
+def test_a_request_without_a_principal_is_unauthenticated(client):
+    """No session and no development header: there is nobody to authorize (V0-021).
+
+    This replaces the old "the tenant header is required" (``422``): a missing
+    principal is an authentication failure, and it names its cause.
+    """
+
     response = client.post("/courses", params={"title": "x"})
-    assert response.status_code in (400, 422)
+    assert response.status_code == 401, response.text
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+    assert response.json()["error"]["issue_code"] == "SESSION_REQUIRED"
+
+
+def test_the_development_shortcut_can_be_switched_off(settings):
+    """With the shortcut off, the tenant header authorizes nothing at all."""
+
+    from app.config import Settings
+
+    assert settings.dev_tenant_header is True  # the default this suite runs with
+    strict = Settings(
+        database_path=settings.database_path,
+        object_root=settings.object_root,
+        dev_tenant_header=False,
+    )
+    with TestClient(create_app(strict)) as strict_client:
+        denied = strict_client.post("/courses", params={"title": "x"}, headers=HEADERS)
+        assert denied.status_code == 401, denied.text
+        assert denied.json()["error"]["issue_code"] == "SESSION_REQUIRED"
 
 
 def test_cross_tenant_upload_is_forbidden(client):

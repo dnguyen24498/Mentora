@@ -1,6 +1,100 @@
 openapi: 3.1.0
-info: {title: Mentora API, version: 1.0.0}
+info:
+  title: Mentora API
+  version: 1.0.0
+  description: >-
+    Every request resolves a **principal**, and the tenant is derived from that
+    principal — never from a request field — so an institution boundary cannot be
+    widened by what a caller names (V0-021; `docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md`).
+
+    Two credentials are accepted, in this order:
+
+    * `Authorization: Bearer <session token>` — a signed-in account. The tenant is
+      the session's, and `X-Institution-Id` is **ignored** when a session is present.
+    * `X-Institution-Id: <institution>` — the development tenant shortcut. It
+      resolves a teacher principal with `authenticated: false` and **no account**, so
+      it cannot request a class join. It is only accepted while
+      `MENTORA_DEV_TENANT_HEADER` is on (default on); switching it off makes every
+      route require a real session.
+
+    A request with neither is `401 UNAUTHENTICATED` (issue_code `SESSION_REQUIRED`).
+    Authorization is expressed as **capabilities**, not role names: a verb requires a
+    scope, and a principal that lacks it is refused with `403 INSUFFICIENT_SCOPE`
+    (issue_code `SCOPE_REQUIRED`). Scopes are re-derived from the account's current
+    role on every request, and a session stores the intersection, so narrowing a role
+    takes effect on the next request rather than at session expiry.
+security:
+  - bearerSession: []
+  - developmentTenant: []
 paths:
+  /auth/login:
+    post:
+      operationId: login
+      description: >-
+        Present a credential for a subject in an institution. On success a
+        short-lived session token is returned **once** — only its sha256 digest is
+        stored — together with the principal it authorizes. A refusal is a stable
+        code: `401 AUTHENTICATION_FAILED` (issue_code `INVALID_CREDENTIALS`), and an
+        unknown account and a wrong credential are indistinguishable, so this is not
+        an enumeration oracle. An availability failure is `503`
+        `AUTHENTICATION_UNAVAILABLE` instead, because it is not a denial
+        (DEC-RELIABILITY-002).
+
+        The credential *mechanism* is **not a decided technology**: the canonical
+        architecture names institutional federation (OIDC/OAuth) and no ADR accepts
+        an implementation. The registered adapter is therefore a labelled
+        development mock (`local-credentials@1.0.0`, `kind: DEVELOPMENT_MOCK`), and
+        the response reports it so a client never presents it as the platform's
+        authentication.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          description: The issued session (the only view of the raw token)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionIssuance'}
+        '401':
+          description: 'Credentials were not accepted (stable code AUTHENTICATION_FAILED)'
+        '503':
+          description: 'The capability is unavailable, not denying (stable code AUTHENTICATION_UNAVAILABLE)'
+  /auth/logout:
+    post:
+      operationId: logout
+      description: >-
+        Revoke the presented session. Idempotent, and deliberately usable with an
+        already-expired token: signing out must never fail. `revoked` is false when
+        there was nothing to revoke.
+      security: []
+      responses:
+        '200':
+          description: Whether a session was revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties: {revoked: {type: boolean}}
+  /auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      description: >-
+        The principal the presented credential authorizes. `authenticated` is false
+        for the development tenant shortcut, so a client can label it as development
+        instead of showing a signed-in user. The response also reports the credential
+        capability, so the mock is visible from the client.
+      responses:
+        '200':
+          description: The resolved principal and the capability that resolved it
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PrincipalEnvelope'}
+        '401':
+          description: 'No session and no development header (stable code UNAUTHENTICATED, issue_code SESSION_REQUIRED)'
   /courses/{courseId}/materials:
     get:
       operationId: listMaterials
@@ -444,65 +538,137 @@ paths:
           description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'
         '502':
           description: 'Stored snapshot fails validation (stable code STORAGE_FAILURE, issue_code SNAPSHOT_INVALID)'
+  /classes/{classId}/scenes:
+    get:
+      operationId: listClassScenes
+      description: >-
+        The slide list of the package the session **pinned** at start, with each
+        scene's text and notes. A student page uses it to offer navigation and to
+        gather narration, and reads `GET /classes/{classId}/scenes/{order}` for the
+        one slide on screen — so opening a lesson does not read every asset. Like the
+        single-scene read it resolves the session's own pinned plan, never the
+        course's current publication (DEC-CONTENT-005). Requires `scene:read`.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The pinned package's slide list, in slide order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassSceneList'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '404': {description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'}
+        '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
+  /classes/{classId}/scenes/{order}:
+    get:
+      operationId: getClassScene
+      description: >-
+        The slide the session is presenting, read from the package the session
+        **pinned** at start — never the course's current publication — so publishing
+        a correction mid-lesson changes nothing the class sees (DEC-CONTENT-005). The
+        response is the packaged fallback render, served through the manifest so a
+        caller cannot turn this into an arbitrary object read (DEC-CONTENT-004), and
+        each served file is re-checked against the digest the manifest recorded, so a
+        file swapped in storage is refused rather than presented. Requires
+        `scene:read`.
+      parameters:
+        - {$ref: '#/components/parameters/ClassId'}
+        - in: path
+          name: order
+          required: true
+          description: >-
+            The scene's `order` as recorded in the pinned package (the CTF `order`
+            field, from 0), not a count of slides.
+          schema: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: >-
+            The slide SVG. `X-Mentora-Package` names the pinned package the bytes came
+            from and `X-Mentora-Scene` the scene id, so a client can attribute what it
+            is showing.
+          headers:
+            X-Mentora-Package: {schema: {type: string}, description: 'The pinned package id'}
+            X-Mentora-Scene: {schema: {type: string}, description: 'The scene id inside that package'}
+          content:
+            image/svg+xml:
+              schema: {type: string}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '404': {description: 'Unknown class, the class has not started, or the pinned package has no such scene (stable code NOT_FOUND)'}
+        '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
   /classes/{classId}/enrollments:
     post:
       operationId: enrollStudent
       description: >-
-        Enroll a student in a class. Idempotent per (class, student): enrolling
-        twice is one enrollment, so a retried command is not an error.
+        Add a student to the class roster; requires `enrollment:write`. Two ways in,
+        both of which enrol a **real account**:
+
+        * `email` — the teacher's invitation. The account is created in this tenant if
+          it has none for that address, or linked if it has, so inviting the same
+          student twice is one identity and a retried invitation is not an error
+          (DEC-RUNTIME-003). When the credential capability provisions one (the
+          development mock does; federation would not) the response carries a
+          one-time sign-in code.
+        * `student_id` — enrol an account that already exists, by its id. An id that
+          is not an account of this tenant is `404`, not a free-text roster entry.
+
+        The class is validated before an account is created, so a bad class id cannot
+        leave an orphan account behind.
       parameters:
         - {$ref: '#/components/parameters/ClassId'}
-        - {in: query, name: student_id, required: true, schema: {type: string, maxLength: 256}}
+        - {in: query, name: email, required: false, schema: {type: string, format: email, maxLength: 320}}
+        - {in: query, name: student_id, required: false, schema: {type: string, maxLength: 256}}
       responses:
         '200':
-          description: The enrollment (`created` is false on a replay)
+          description: >-
+            The enrollment (`created` is false on a replay), the account it is for, and
+            the one-time development sign-in code when one was provisioned.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Enrollment'}
-        '400': {description: 'Missing student_id (stable code INVALID_REQUEST)'}
-        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
-        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+              schema: {$ref: '#/components/schemas/EnrollmentResult'}
+        '400': {description: 'Neither email nor student_id was given (stable code INVALID_REQUEST)'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or the principal lacks enrollment:write (stable code INSUFFICIENT_SCOPE)'}
+        '404': {description: 'Unknown class, or no such account in this tenant (stable code NOT_FOUND)'}
+        '409': {description: 'The address exists in this tenant with another role; an invitation cannot change a role (stable code CONFLICT)'}
     get:
       operationId: listEnrollments
-      description: The class roster the join check is made against.
+      description: >-
+        The class roster the join check is made against; requires `enrollment:write`.
+        The roster is other people's identities, so it is a teacher capability: a
+        student's own enrolment is reported by the join check and `GET
+        /classes/{classId}`, not by this list.
       parameters: [$ref: '#/components/parameters/ClassId']
       responses:
         '200':
-          description: The class's enrollments
+          description: The class's enrollments, each with the account it authorizes
           content:
             application/json:
               schema: {$ref: '#/components/schemas/EnrollmentList'}
-        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or the principal lacks enrollment:write (stable code INSUFFICIENT_SCOPE)'}
         '404': {description: 'Unknown class (stable code NOT_FOUND)'}
   /classes/{classId}/bootstrap-token:
     post:
       operationId: issueBootstrapToken
       description: >-
-        Issue a short-lived join credential — only to a student enrolled in a
-        running class. This is where "only authorized enrollment can join" is
-        enforced: the class must be ACTIVE and the principal must be enrolled in
-        this class in this tenant. The raw token is returned once and only its
-        digest is stored; it binds class, student, session and actor epoch
-        (DEC-RUNTIME-007) and carries `subscribe` scope only — group student
-        microphones are unpublished by default (DEC-TURN-001). The media gateway
-        validates it in V1; this endpoint creates no room/SFU (out of scope).
+        Issue a short-lived join credential to the **authenticated** student. There is
+        no student id in the request: the credential is bound to the session's own
+        account, so a caller cannot ask for someone else's join. This is where "only
+        authorized enrollment can join" is enforced: the class must be ACTIVE and the
+        caller's account must be enrolled in it, in the caller's own tenant. The raw
+        token is returned once and only its sha256 digest is stored; it binds class,
+        student, session and actor epoch (DEC-RUNTIME-007) and carries `subscribe`
+        scope only — group student microphones are unpublished by default
+        (DEC-TURN-001). The media gateway validates it in V1; this endpoint creates no
+        room/SFU (out of scope).
       parameters: [$ref: '#/components/parameters/ClassId']
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/BootstrapTokenRequest'}
       responses:
         '200':
           description: The issued credential (the only view of the raw token)
           content:
             application/json:
               schema: {$ref: '#/components/schemas/BootstrapToken'}
-        '403':
-          description: 'Not enrolled in this class (stable code NOT_ENROLLED), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '401': {description: 'No account behind the request (stable code UNAUTHENTICATED, issue_code SESSION_REQUIRED) — the development tenant shortcut is not a sign-in and cannot join'}
+        '403': {description: 'Not enrolled in this class (stable code NOT_ENROLLED), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'}
         '404': {description: 'Unknown class (stable code NOT_FOUND)'}
-        '409':
-          description: 'The class has not started (stable code CLASS_NOT_READY, issue_code NOT_STARTED)'
+        '409': {description: 'The class has not started (stable code CLASS_NOT_READY, issue_code NOT_STARTED)'}
   /renderer:
     get:
       operationId: getRendererStatus
@@ -517,6 +683,24 @@ paths:
         '400':
           description: 'Unknown render mode (stable code INVALID_REQUEST, issue_code UNKNOWN_RENDER_MODE)'
 components:
+  securitySchemes:
+    bearerSession:
+      type: http
+      scheme: bearer
+      description: >-
+        A session token from `POST /auth/login`. The tenant it authorizes is the
+        session's own, and it takes precedence over `X-Institution-Id` when both are
+        present. Only the token's sha256 digest is stored server-side (V0-021).
+    developmentTenant:
+      type: apiKey
+      in: header
+      name: X-Institution-Id
+      description: >-
+        The development tenant shortcut. It resolves a teacher principal marked
+        `authenticated: false` with **no account**, so it can do everything a teacher
+        can except anything that needs an account (a class join, for instance). It is
+        accepted only while `MENTORA_DEV_TENANT_HEADER` is on; it is not
+        authentication and must not be relied on in a deployment.
   parameters:
     RenderMode:
       in: query
@@ -1051,6 +1235,36 @@ components:
         created:
           type: boolean
           description: 'False when the request replayed an existing session (DEC-RUNTIME-003)'
+    ClassSceneList:
+      description: >-
+        The slides of the package a session pinned, with each scene's text and notes.
+        One entry per scene document; the render for one of them is `GET
+        /classes/{classId}/scenes/{order}`.
+      type: object
+      required: [class_id, package_id, content_digest, scene_count, scenes]
+      properties:
+        class_id: {type: string}
+        package_id: {type: string}
+        content_digest: {type: string, description: 'The seal of the package these bytes came from'}
+        scene_count: {type: integer}
+        scenes: {type: array, items: {$ref: '#/components/schemas/ClassScene'}}
+    ClassScene:
+      type: object
+      required: [order, scene_id, fidelity, notes, text, warnings, object_count, step_count]
+      properties:
+        order: {type: integer, description: 'The CTF scene order (from 0), which is also the id to render'}
+        scene_id: {type: string}
+        fidelity: {oneOf: [{type: string}, {type: 'null'}]}
+        notes: {oneOf: [{type: string}, {type: 'null'}], description: 'Speaker notes, when the author wrote any'}
+        text:
+          type: array
+          items: {type: string}
+          description: >-
+            The slide's own text, in paint order, blank paragraphs dropped — the same
+            rule the teacher review projection uses, so the two never disagree.
+        warnings: {type: array, items: {type: string}}
+        object_count: {type: integer}
+        step_count: {type: integer}
     Enrollment:
       description: One student's authorization to join one class.
       type: object
@@ -1058,7 +1272,7 @@ components:
       properties:
         enrollment_id: {type: string}
         class_id: {type: string}
-        student_id: {type: string}
+        student_id: {type: string, description: 'The account id this enrolment authorizes'}
         created_at: {type: string}
         created:
           type: boolean
@@ -1068,17 +1282,122 @@ components:
       required: [class_id, enrollments]
       properties:
         class_id: {type: string}
-        enrollments: {type: array, items: {$ref: '#/components/schemas/Enrollment'}}
-    BootstrapTokenRequest:
+        enrollments: {type: array, items: {$ref: '#/components/schemas/EnrollmentWithAccount'}}
+    EnrollmentWithAccount:
+      description: >-
+        An enrollment plus the account behind it, for the teacher roster. `student` is
+        null when the recorded student id is not an account of this tenant (possible
+        only for rows written before identities existed).
+      allOf:
+        - {$ref: '#/components/schemas/Enrollment'}
+        - type: object
+          properties:
+            student: {oneOf: [{$ref: '#/components/schemas/Account'}, {type: 'null'}]}
+    EnrollmentResult:
+      description: The outcome of the teacher's enrolment action.
+      allOf:
+        - {$ref: '#/components/schemas/Enrollment'}
+        - type: object
+          required: [student, account_created]
+          properties:
+            student: {$ref: '#/components/schemas/Account'}
+            account_created:
+              type: boolean
+              description: 'True when this invitation created the account rather than linking it'
+            development_credential:
+              oneOf: [{type: string}, {type: 'null'}]
+              description: >-
+                A one-time sign-in code, when the credential capability provisions one
+                (the development mock does; institutional federation would not). It is
+                never stored in the clear and is returned only here.
+    Account:
+      description: A platform account, scoped to one institution (V0-021).
       type: object
-      required: [student_id]
+      required: [account_id, institution_id, email, display_name, role, scopes, status, created_at]
+      properties:
+        account_id: {type: string}
+        institution_id: {type: string}
+        email: {type: string}
+        display_name: {type: string}
+        role:
+          type: string
+          enum: [teacher, student]
+          description: >-
+            The canonical role names in `governance/TERMINOLOGY_REGISTRY.yaml`. This is
+            the platform's own pair for V0; the spec's wider role list (institution
+            admin, IT operator, moderator, auditor, …) is not yet modelled here.
+        scopes: {type: array, items: {type: string}, description: 'The capabilities this account currently holds'}
+        status: {type: string, enum: [ACTIVE, DISABLED]}
+        created_at: {type: string}
+    Principal:
+      description: >-
+        The identity a request is authorized as. `authenticated` distinguishes a real
+        sign-in from the development tenant shortcut; `account_id` is null for the
+        latter, and a class join requires an account.
+      type: object
+      required: [authenticated, institution_id, role, scopes, account_id, email, display_name, session_id]
+      properties:
+        authenticated: {type: boolean}
+        institution_id: {type: string}
+        role: {type: string, enum: [teacher, student]}
+        scopes: {type: array, items: {type: string}}
+        account_id: {oneOf: [{type: string}, {type: 'null'}]}
+        email: {oneOf: [{type: string}, {type: 'null'}]}
+        display_name: {oneOf: [{type: string}, {type: 'null'}]}
+        session_id: {oneOf: [{type: string}, {type: 'null'}]}
+    LoginRequest:
+      description: A subject proving it is an account in an institution.
+      type: object
+      required: [institution_id, email, credential]
       additionalProperties: false
       properties:
-        student_id:
+        institution_id: {type: string, minLength: 1, maxLength: 256}
+        email: {type: string, minLength: 1, maxLength: 320}
+        credential:
           type: string
           minLength: 1
-          maxLength: 256
-          description: 'Who is asking to join; enrollment is what authorizes it'
+          maxLength: 1024
+          description: >-
+            Opaque to the API: a development sign-in code today, an authorization-code
+            result or an assertion once federation is decided.
+    SessionIssuance:
+      description: >-
+        The result of a sign-in. The token is returned **once**; only its digest is
+        stored. `authenticator` names the capability that answered, so a client can see
+        when it is a development mock.
+      type: object
+      required: [authenticated, token, token_type, expires_at, principal, authenticator]
+      properties:
+        authenticated: {type: boolean}
+        token: {type: string, description: 'The raw session token; the only time it is returned'}
+        token_type: {type: string, enum: [Bearer]}
+        expires_at: {type: string, description: 'Bounded lifetime; revocation is the other terminal path'}
+        principal: {$ref: '#/components/schemas/Principal'}
+        authenticator: {$ref: '#/components/schemas/CapabilityIdentity'}
+        notice: {type: string, description: 'A sentence a client may show verbatim about which mechanism answered'}
+    PrincipalEnvelope:
+      description: The current principal plus the capability that resolved it.
+      type: object
+      required: [principal, authenticator, development_shortcut]
+      properties:
+        principal: {$ref: '#/components/schemas/Principal'}
+        authenticator: {$ref: '#/components/schemas/CapabilityIdentity'}
+        notice: {type: string}
+        development_shortcut:
+          type: boolean
+          description: 'True when the development tenant header is accepted by this deployment'
+    CapabilityIdentity:
+      description: >-
+        Who provided a replaceable capability, and whether it is a real implementation
+        or a stand-in for an OPEN decision (the same shape the renderer and voice
+        capabilities report).
+      type: object
+      required: [id, name, version, kind]
+      properties:
+        id: {type: string, description: 'name@version, e.g. local-credentials@1.0.0'}
+        name: {type: string}
+        version: {type: string}
+        kind: {type: string, enum: [DEVELOPMENT_MOCK, IMPLEMENTATION]}
     BootstrapToken:
       description: >-
         A short-lived join credential. Returned once — only its sha256 digest is
