@@ -64,7 +64,7 @@ All tests pass; no architecture contradiction; telemetry and traceability are up
 
 ## Completion Evidence
 
-- Link to commit/PR: `TBD` (see `STATUS.yaml` for the recorded hash)
+- Link to commit/PR: `11dfd98`
 - Test command and result: `cd backend && env -u PYTHONPATH .venv/bin/python -m pytest tests/speech -q` — **37 passed**; full suite `env -u PYTHONPATH .venv/bin/python -m pytest -q` — **463 passed** (was 426; +37)
 - Demo recording/screenshot: `python3 dev/mocks/tts_mock.py --text "Hello class, welcome to the lesson." --marker 0:start --marker 12:welcome --out /tmp/tts.wav` — prints the classified outcome as JSON and writes a playable deterministic WAV (verified with the stdlib `wave` module: 1 channel, 8000 Hz, 16-bit)
 - Metrics observed: `SpeechTelemetry` counters (`reservations_granted/denied/released`, `generations_started/completed/failed/cancelled`, `cancel_acks/replays`, `retries`, `timeouts`, `voice_fallbacks`, `text_fallbacks`, `characters_synthesized`, `audio_ms_total`) plus structured events (`speech.reserved/reservation_denied/released/segment/cancel/voice_fallback/text_fallback/outcome/health`) — identities, counts and sizes only, **never** the spoken text.
