@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { describeApiError, login, logout, sessionFrom } from '../api/client'
+import {
+  ApiError,
+  bootstrapAdministrator,
+  describeApiError,
+  login,
+  logout,
+  sessionFrom,
+} from '../api/client'
 import { DEFAULT_INSTITUTION, useInstitution, writeInstitution } from '../institution'
 import {
   clearSession,
@@ -21,7 +28,7 @@ import {
 import { LIBRARY_PATH, Link, navigate } from '../router'
 
 /**
- * Sign in — `/login` (V0-021).
+ * Sign in — `/login` (V0-021), and the institution's first administrator (V0-022).
  *
  * The form is the whole credential exchange: an institution (the tenant the
  * account lives in), an address and an opaque *sign-in code*. The code is
@@ -31,9 +38,16 @@ import { LIBRARY_PATH, Link, navigate } from '../router'
  * form is a labelled development mock — and the page says so rather than
  * presenting it as the platform's authentication.
  *
- * A teacher hands a student their code when adding them to a class
- * (`Admin → Classes`), so this page is also where a student starts: sign in, then
+ * A student is given a code when an administrator creates their account
+ * (`Admin → Accounts`), so this page is also where a student starts: sign in, then
  * open the class's join page.
+ *
+ * Three roles sign in through this one form — an institution administrator, a
+ * teacher and a student — because who you are is the account's role, not a choice on
+ * this page. The **first** administrator is the one thing that cannot be signed into
+ * into existence: a fresh installation has no accounts at all, so the deployment
+ * bootstrap creates that account here, once, while the development shortcut is on.
+ * After that the tenant refuses it, and `Admin → Accounts` creates everyone else.
  *
  * What this page must never do is imply that signing in is required for the rest
  * of the app. The backend accepts an `X-Institution-Id` header as a *development*
@@ -48,6 +62,13 @@ export default function LoginPage() {
   const [credential, setCredential] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The first-administrator bootstrap. Kept beside the sign-in form rather than on
+  // its own page, because creating that account is a *precondition* for signing in
+  // as anyone who can administer anything.
+  const [adminEmail, setAdminEmail] = useState('')
+  const [adminBusy, setAdminBusy] = useState(false)
+  const [adminError, setAdminError] = useState<string | null>(null)
+  const [adminCode, setAdminCode] = useState<{ email: string; credential: string } | null>(null)
 
   function nextPath(): string {
     // `/login?next=/join/abc` returns the teacher (or the student) to what they
@@ -82,6 +103,35 @@ export default function LoginPage() {
       setError(describeApiError(cause))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function bootstrap() {
+    const tenant = institution.trim() || DEFAULT_INSTITUTION
+    const address = adminEmail.trim()
+    if (!address) return
+    setAdminBusy(true)
+    setAdminError(null)
+    try {
+      const mutation = await bootstrapAdministrator(tenant, address)
+      const code = mutation.development_credential
+      if (code) {
+        // Prefill the sign-in form: the next step is always to sign in as the
+        // administrator that was just created, and re-typing the code is pointless.
+        setEmail(mutation.account.email)
+        setCredential(code)
+        setAdminCode({ email: mutation.account.email, credential: code })
+        setAdminEmail('')
+      } else {
+        setAdminError(
+          `${mutation.account.email} already exists in ${tenant}, so nothing new was created. Sign in with its existing code.`,
+        )
+      }
+    } catch (cause) {
+      setAdminCode(null)
+      setAdminError(describeBootstrapError(cause, tenant))
+    } finally {
+      setAdminBusy(false)
     }
   }
 
@@ -169,7 +219,7 @@ export default function LoginPage() {
               <Field
                 label="Sign-in code"
                 htmlFor="login-credential"
-                hint="Your teacher gives you one when they add you to a class."
+                hint="An administrator gives you one when they create your account."
               >
                 <input
                   id="login-credential"
@@ -225,8 +275,69 @@ export default function LoginPage() {
               A student opens the join link their teacher gave them, or signs in above and then opens it.
             </p>
           </Panel>
+
+          {!session && (
+            <Panel title="First administrator">
+              <p className="text-sm text-slate-700">
+                A new installation has no accounts yet, so there is nobody who can sign in to create
+                one. The <strong>first</strong> institution administrator is created here, once, by the
+                deployment — after that this institution refuses it, and{' '}
+                <span className="font-medium">Admin → Accounts</span> creates teachers and students.
+              </p>
+              {adminCode ? (
+                <div className="mt-3 space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p className="font-medium">
+                    The administrator {adminCode.email} exists. Its sign-in code is filled in above.
+                  </p>
+                  <p className="font-mono text-sm break-all">{adminCode.credential}</p>
+                  <p className="text-[11px]">
+                    Shown once and stored only as a digest. Press <strong>Sign in</strong>.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <Field
+                    label="Administrator email"
+                    htmlFor="bootstrap-email"
+                    hint="The address this installation's administrator signs in with."
+                  >
+                    <input
+                      id="bootstrap-email"
+                      type="email"
+                      value={adminEmail}
+                      onChange={(event) => setAdminEmail(event.target.value)}
+                      onKeyDown={(event) => event.key === 'Enter' && void bootstrap()}
+                      className={INPUT_CLASS}
+                    />
+                  </Field>
+                  <button
+                    type="button"
+                    onClick={() => void bootstrap()}
+                    disabled={adminBusy || !adminEmail.trim()}
+                    className={`${BUTTON_SECONDARY} w-full`}
+                  >
+                    Create the first administrator
+                  </button>
+                  {adminError && <Banner tone="warn">{adminError}</Banner>}
+                </div>
+              )}
+            </Panel>
+          )}
         </div>
       </main>
     </div>
   )
+}
+
+/** A bootstrap refusal, named by its precise cause (`issue_code`). */
+function describeBootstrapError(cause: unknown, institution: string): string {
+  if (cause instanceof ApiError) {
+    if (cause.issueCode === 'TENANT_ALREADY_PROVISIONED') {
+      return `${institution} already has an administrator, so this one-shot creation is closed. Sign in with that account — its administrator can create every other account in Admin → Accounts.`
+    }
+    if (cause.issueCode === 'BOOTSTRAP_DISABLED') {
+      return 'This deployment does not expose the first-administrator bootstrap: with institutional federation the identity provider provisions that account. Ask your operator.'
+    }
+  }
+  return describeApiError(cause)
 }

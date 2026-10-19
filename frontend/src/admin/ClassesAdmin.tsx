@@ -2,14 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, classroomPath, joinPath } from '../router'
 import {
   describeApiError,
-  enrollStudentByEmail,
+  enrollStudentById,
   loadClass,
   loadRoster,
+  listAccounts,
   listClasses,
   listCourses,
   listMaterials,
   scheduleClass,
   startClass,
+  unenrollStudent,
+  type Account,
   type ClassSummary,
   type ClassView,
   type Course,
@@ -28,6 +31,7 @@ import {
   Badge,
   Banner,
   BUTTON_PRIMARY,
+  BUTTON_SMALL,
   EmptyState,
   INPUT_CLASS,
   Panel,
@@ -47,9 +51,15 @@ const STATE_TONE: Record<string, Tone> = {
  *
  * The write verbs are the runtime's own: **schedule** a class (it is not running
  * yet), **start** it (which pins the exact runtime tuple once, `V0-009`) and
- * **enrol** a student (idempotent). There is no "edit class" or "delete class":
- * once started, a session's pinned versions and snapshot are the historical
+ * **assign** a student to it (idempotent). There is no "edit class" or "delete
+ * class": once started, a session's pinned versions and snapshot are the historical
  * record, and a correction is a new class on a new version.
+ *
+ * The roster picks from the directory rather than typing an address (V0-022). That
+ * is the separation of duties made visible: an institution administrator **creates**
+ * accounts (the Accounts section), and a teacher **assigns** them — so this page
+ * offers the students who exist, and says who to ask when one is missing. Enrolment
+ * itself never creates an account, so there is no implicit signup behind an address.
  *
  * A class can be given a datetime, and this page can **start it when that time
  * arrives** while it is open. That trigger is deliberately client-local: the
@@ -72,14 +82,13 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
   const [selected, setSelected] = useState(readSelectedClass)
   const [detail, setDetail] = useState<ClassView | null>(null)
   const [roster, setRoster] = useState<RosterEntry[]>([])
-  const [email, setEmail] = useState('')
+  // The students this institution has, for the picker. A teacher may list students
+  // and no other role (`account:read` without `account:write`, V0-022).
+  const [students, setStudents] = useState<Account[]>([])
+  const [studentId, setStudentId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // The one-time sign-in code an invitation just provisioned, shown until the
-  // teacher navigates away. It is returned exactly once by the API, so the page
-  // holds it here rather than re-reading it from the roster.
-  const [invited, setInvited] = useState<{ email: string; code: string | null } | null>(null)
   // What the automatic start did, per class. Kept as a record so a class is
   // reported once and a failed attempt is not retried every tick.
   const [autoResults, setAutoResults] = useState<Record<string, string>>({})
@@ -115,6 +124,23 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
     }
   }, [institutionId])
 
+  // The students who exist, for the picker. This is the one directory read a
+  // teacher holds: students, never colleagues (V0-022).
+  const refreshStudents = useCallback(async () => {
+    try {
+      const loaded = await listAccounts(institutionId, 'student')
+      setStudents(loaded.accounts)
+      setStudentId((previous) =>
+        loaded.accounts.some((account) => account.account_id === previous)
+          ? previous
+          : (loaded.accounts[0]?.account_id ?? ''),
+      )
+    } catch (cause) {
+      setStudents([])
+      setError(describeApiError(cause))
+    }
+  }, [institutionId])
+
   useEffect(() => {
     let cancelled = false
     setError(null)
@@ -124,12 +150,12 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
       if (cancelled) return
       setCourses(loaded)
       setCourseId((previous) => previous || (loaded[0]?.course_id ?? ''))
-      await refreshClasses()
+      await Promise.all([refreshClasses(), refreshStudents()])
     })()
     return () => {
       cancelled = true
     }
-  }, [institutionId, refreshClasses])
+  }, [institutionId, refreshClasses, refreshStudents])
 
   useEffect(() => {
     writeSelectedClass(selected)
@@ -211,21 +237,40 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
     }
   }
 
-  async function invite() {
-    if (!selected || !email.trim()) return
+  async function enrol() {
+    if (!selected || !studentId) return
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      const enrolled = await enrollStudentByEmail(institutionId, selected, email.trim())
+      const enrolled = await enrollStudentById(institutionId, selected, studentId)
       const address = enrolled.student.email
-      setEmail('')
-      setInvited({ email: address, code: enrolled.development_credential })
       await refreshDetail(selected)
       setNotice(
-        enrolled.account_created
-          ? `Invited ${address}: a student account was created in this institution and enrolled.`
-          : `${address} already had an account here; it is now enrolled (enrolment is idempotent).`,
+        enrolled.created
+          ? `Enrolled ${address} in this class.`
+          : `${address} was already on this class's roster — one enrolment, not two.`,
+      )
+    } catch (cause) {
+      setError(describeApiError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(studentAccountId: string) {
+    if (!selected) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const removed = await unenrollStudent(institutionId, selected, studentAccountId)
+      const account = students.find((item) => item.account_id === studentAccountId)
+      await refreshDetail(selected)
+      setNotice(
+        removed.removed
+          ? `Removed ${account?.email ?? studentAccountId} from this class. The account itself is unchanged — an administrator owns the directory.`
+          : `${account?.email ?? studentAccountId} was not on this roster; nothing changed.`,
       )
     } catch (cause) {
       setError(describeApiError(cause))
@@ -536,61 +581,53 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
             )}
 
             <Panel title={`Students (${roster.length})`}>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  aria-label="Student email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && void invite()}
-                  placeholder="student@school.example"
-                  className={INPUT_CLASS}
-                />
-                <button
-                  type="button"
-                  onClick={() => void invite()}
-                  disabled={busy || !email.trim()}
-                  className={`${BUTTON_PRIMARY} shrink-0`}
-                >
-                  Invite
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Inviting creates the student's account in this institution if it has none for that
-                address, then enrols them — one step, because enrolment is what a join is checked
-                against. Inviting the same address twice is one account and one enrolment, and the
-                account keeps whatever role it already had (an invitation never changes a role).
-              </p>
-
-              {invited && (
-                <div
-                  data-testid="invited-credential"
-                  className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                >
-                  <p className="font-medium">Hand this code to {invited.email}</p>
-                  {invited.code ? (
-                    <p className="font-mono text-sm break-all">{invited.code}</p>
-                  ) : (
-                    <p>This account already had a credential; no new code was issued.</p>
-                  )}
-                  <p className="text-[11px]">
-                    It is shown once and is not stored in the clear. The student signs in at{' '}
-                    <Link to="/login" className="underline">
-                      /login
-                    </Link>{' '}
-                    and then opens{' '}
-                    <Link to={joinPath(detail.class.class_id)} className="underline">
-                      the class's join page
-                    </Link>
-                    .
-                  </p>
-                  <p className="text-[11px]">
-                    The credential mechanism is a labelled development mock — no credential mechanism
-                    is a decided technology yet — so a real deployment would federate with the
-                    institution instead of issuing codes.
-                  </p>
+              {students.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  <label htmlFor="class-student" className="sr-only">
+                    Student
+                  </label>
+                  <select
+                    id="class-student"
+                    aria-label="Student"
+                    value={studentId}
+                    onChange={(event) => setStudentId(event.target.value)}
+                    className={`${INPUT_CLASS} min-w-0 flex-1`}
+                  >
+                    {students.map((account) => {
+                      const already = roster.some((entry) => entry.student_id === account.account_id)
+                      return (
+                        <option key={account.account_id} value={account.account_id}>
+                          {account.email}
+                          {account.display_name && account.display_name !== account.email
+                            ? ` — ${account.display_name}`
+                            : ''}
+                          {already ? ' (already enrolled)' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void enrol()}
+                    disabled={busy || !studentId}
+                    className={`${BUTTON_PRIMARY} shrink-0`}
+                  >
+                    Add to class
+                  </button>
                 </div>
+              ) : (
+                <EmptyState>
+                  No student accounts in this institution yet. An institution administrator creates
+                  them in <span className="font-medium">Admin → Accounts</span>; a teacher assigns the
+                  students who exist.
+                </EmptyState>
               )}
+              <p className="text-[11px] text-slate-400">
+                Assigning an existing student — not creating one. Teaching chooses who attends; the
+                institution's administrator owns who exists (V0-022), so there is no address to type
+                here and no account is ever created by enrolling. Assigning the same student twice is
+                one roster entry.
+              </p>
 
               <ul className="space-y-1">
                 {roster.map((entry) => (
@@ -599,23 +636,42 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs"
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-slate-800">
+                      <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                         {entry.student?.email ?? entry.student_id}
                       </span>
-                      {entry.student && <Badge tone="info">{entry.student.role}</Badge>}
-                      <span className="ml-auto truncate font-mono text-[10px] text-slate-400">
+                      {entry.student && (
+                        <Badge tone={entry.student.status === 'DISABLED' ? 'warn' : 'info'}>
+                          {entry.student.status === 'DISABLED'
+                            ? 'ACCOUNT DISABLED'
+                            : entry.student.role}
+                        </Badge>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void remove(entry.student_id)}
+                        disabled={busy}
+                        aria-label={`Remove ${entry.student?.email ?? entry.student_id} from this class`}
+                        className={BUTTON_SMALL}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-400">
+                        {entry.student_id}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-slate-400">
                         {entry.created_at}
                       </span>
                     </div>
-                    <span className="block truncate font-mono text-[10px] text-slate-400">
-                      {entry.student_id}
-                    </span>
                   </li>
                 ))}
               </ul>
               {roster.length === 0 && <EmptyState>No students enrolled.</EmptyState>}
               <p className="text-[11px] text-slate-400">
-                The roster is a teacher capability: it is other people's identities, so a student's own
+                Removing a student takes them off this class only: the account and its sign-in stay
+                with the institution, and a credential they already hold keeps its own expiry. The
+                roster is a teacher capability — it is other people's identities, so a student's own
                 enrolment is reported by the join check rather than by this list.
               </p>
             </Panel>

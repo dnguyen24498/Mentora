@@ -25,6 +25,13 @@ info:
     account's role on every request, so narrowing a role takes effect on the next
     request rather than at session expiry and a role change can never grant a session
     a capability it was not issued with.
+
+    Three roles are modelled, from the canonical list in `docs/ARC_OVERVIEW.md` §27:
+    an **institution administrator** (`account:read`, `account:write`, and the
+    read-only oversight scopes `content:read` and `class:read`) who owns the
+    directory; a **teacher** who authors, publishes and runs classes; and a
+    **student** who attends one. The other canonical roles are deliberately not
+    modelled. Every account signs in and out through the same `/auth/*` surface.
 security:
   - bearerSession: []
   - developmentTenant: []
@@ -97,6 +104,134 @@ paths:
               schema: {$ref: '#/components/schemas/PrincipalEnvelope'}
         '401':
           description: 'No session and no development header (stable code UNAUTHENTICATED, issue_code SESSION_REQUIRED)'
+  /auth/bootstrap-admin:
+    post:
+      operationId: bootstrapInstitutionAdministrator
+      description: >-
+        Create the institution's **first** administrator, and nothing else. This is
+        the deployment operator's one-shot seam: under institutional federation the
+        identity provider provisions the first administrator, which is why this route
+        only exists while the development shortcut is enabled
+        (`MENTORA_DEV_TENANT_HEADER`) and refuses (`409`, issue_code
+        `TENANT_ALREADY_PROVISIONED`) as soon as the tenant has an administrator.
+        It is unauthenticated by necessity — there is no administrator yet to
+        authorize it — so it is never present on a hardened deployment and it writes
+        nothing when it refuses. Returns a one-time development credential, like
+        account creation.
+      security: []
+      parameters:
+        - {in: query, name: institution_id, required: true, schema: {type: string, minLength: 1, maxLength: 256}}
+        - {in: query, name: email, required: true, schema: {type: string, format: email, maxLength: 320}}
+        - {in: query, name: display_name, required: false, schema: {type: string, maxLength: 200}}
+      responses:
+        '201':
+          description: The administrator account (the only view of its one-time credential)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountMutation'}
+        '403':
+          description: 'The development bootstrap is disabled on this deployment — the route is absent (stable code NOT_FOUND, issue_code BOOTSTRAP_DISABLED)'
+        '409':
+          description: 'This tenant already has an administrator (stable code CONFLICT, issue_code TENANT_ALREADY_PROVISIONED)'
+  /accounts:
+    get:
+      operationId: listAccounts
+      description: >-
+        The institution's accounts. Requires `account:read`, and an explicit `role`,
+        so listing cannot become an accidental directory dump: a teacher holds
+        `account:read` (they choose students for their rosters) but may list
+        **students** only, while an administrator may list teachers and students.
+      parameters:
+        - in: query
+          name: role
+          required: true
+          schema: {type: string, enum: [teacher, student]}
+      responses:
+        '200':
+          description: The tenant's accounts of that role
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountList'}
+        '403':
+          description: 'Lacks account:read, or asked for a role they may not list (stable code INSUFFICIENT_SCOPE)'
+    post:
+      operationId: createAccount
+      description: >-
+        Create a teacher or a student. Requires `account:write` — an administrator
+        capability, so a teacher cannot bring an account into existence (that is the
+        separation of duties this slice adds; a teacher enrols an *existing* student).
+        Create-or-link: the same address and role returns the existing account with
+        `created: false` and no new credential, so a retry is not an error
+        (DEC-RUNTIME-003); the same address with a different role is `409`
+        `EMAIL_ROLE_CONFLICT`, because a create never silently changes a role.
+        Returns the account and, when the credential capability provisions one (the
+        development mock does; federation would not), a **one-time** credential.
+      parameters:
+        - {in: query, name: email, required: true, schema: {type: string, format: email, maxLength: 320}}
+        - {in: query, name: role, required: true, schema: {type: string, enum: [teacher, student]}}
+        - {in: query, name: display_name, required: false, schema: {type: string, maxLength: 200}}
+      responses:
+        '201':
+          description: The created (or already existing) account
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountMutation'}
+        '403': {description: 'Lacks account:write (stable code INSUFFICIENT_SCOPE)'}
+        '409': {description: 'The address exists as another role (stable code CONFLICT, issue_code EMAIL_ROLE_CONFLICT), or the role is not manageable (issue_code ROLE_NOT_MANAGEABLE)'}
+        '422': {description: 'The address or role is not valid (stable code INVALID_REQUEST)'}
+  /accounts/{accountId}:
+    parameters: [{in: path, name: accountId, required: true, schema: {type: string}}]
+    get:
+      operationId: getAccount
+      description: One account of this institution. Requires `account:read`.
+      responses:
+        '200':
+          description: The account
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Account'}
+        '403': {description: 'Lacks account:read (stable code INSUFFICIENT_SCOPE)'}
+        '404': {description: 'No such account in this institution (stable code NOT_FOUND)'}
+    patch:
+      operationId: updateAccount
+      description: >-
+        Update an account's display name, role or enabled state. Requires
+        `account:write`. Disabling (`status: DISABLED`) also **revokes the account's
+        live sessions in the same transaction**, so it takes effect on the next
+        request rather than at session expiry (DEC-RUNTIME-007); re-enabling restores
+        sign-in. A role change is applied the same way a role edit always is: a live
+        session's capabilities are re-derived from the account's current role, so a
+        change can only ever remove (a promotion needs a fresh sign-in).
+      parameters:
+        - {in: query, name: display_name, required: false, schema: {type: string, maxLength: 200}}
+        - {in: query, name: role, required: false, schema: {type: string, enum: [teacher, student]}}
+        - {in: query, name: status, required: false, schema: {type: string, enum: [ACTIVE, DISABLED]}}
+      responses:
+        '200':
+          description: The updated account
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountMutation'}
+        '403': {description: 'Lacks account:write (stable code INSUFFICIENT_SCOPE)'}
+        '404': {description: 'No such account in this institution (stable code NOT_FOUND)'}
+        '409': {description: 'The requested role is not manageable (stable code CONFLICT, issue_code ROLE_NOT_MANAGEABLE)'}
+    delete:
+      operationId: deleteAccount
+      description: >-
+        Remove an account. Requires `account:write`. Only an account with **no
+        enrolment** can be removed — identities are referenced by rosters and audit,
+        so an account that has been in a class is deactivated instead (`PATCH
+        status: DISABLED`), and this refuses with `409 ACCOUNT_IN_USE`. The account's
+        credential material and sessions are removed with it, in one transaction.
+      responses:
+        '200':
+          description: Whether the account was removed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccountDeletion'}
+        '403': {description: 'Lacks account:write (stable code INSUFFICIENT_SCOPE)'}
+        '404': {description: 'No such account in this institution (stable code NOT_FOUND)'}
+        '409': {description: 'The account is on a class roster (stable code CONFLICT, issue_code ACCOUNT_IN_USE) — deactivate it instead'}
   /courses/{courseId}/materials:
     get:
       operationId: listMaterials
@@ -600,36 +735,33 @@ paths:
     post:
       operationId: enrollStudent
       description: >-
-        Add a student to the class roster; requires `enrollment:write`. Two ways in,
-        both of which enrol a **real account**:
+        Add a student to the class roster; requires `enrollment:write`. Two ways to
+        name the student, and **neither creates an account**:
 
-        * `email` — the teacher's invitation. The account is created in this tenant if
-          it has none for that address, or linked if it has, so inviting the same
-          student twice is one identity and a retried invitation is not an error
-          (DEC-RUNTIME-003). When the credential capability provisions one (the
-          development mock does; federation would not) the response carries a
-          one-time sign-in code.
+        * `email` — resolved against this institution's accounts. An address with no
+          account here is `404 ACCOUNT_REQUIRED`: an institution administrator creates
+          accounts (`POST /accounts`), a teacher enrols them — teaching assigns people,
+          it does not create them (V0-022). The enrolment is idempotent per
+          ``(class, student)``, so a retried call is not an error (DEC-RUNTIME-003).
         * `student_id` — enrol an account that already exists, by its id. An id that
           is not an account of this tenant is `404`, not a free-text roster entry.
 
-        The class is validated before an account is created, so a bad class id cannot
-        leave an orphan account behind.
+        The class is validated before the student is resolved, and a refusal writes
+        nothing at all.
       parameters:
         - {$ref: '#/components/parameters/ClassId'}
         - {in: query, name: email, required: false, schema: {type: string, format: email, maxLength: 320}}
         - {in: query, name: student_id, required: false, schema: {type: string, maxLength: 256}}
       responses:
         '200':
-          description: >-
-            The enrollment (`created` is false on a replay), the account it is for, and
-            the one-time development sign-in code when one was provisioned.
+          description: The enrollment (`created` is false on a replay) and the account it is for.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/EnrollmentResult'}
         '400': {description: 'Neither email nor student_id was given (stable code INVALID_REQUEST)'}
         '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or the principal lacks enrollment:write (stable code INSUFFICIENT_SCOPE)'}
-        '404': {description: 'Unknown class, or no such account in this tenant (stable code NOT_FOUND)'}
-        '409': {description: 'The address exists in this tenant with another role; an invitation cannot change a role (stable code CONFLICT)'}
+        '404': {description: 'Unknown class; no such account in this tenant; or the address has no account here (stable code NOT_FOUND, issue_code ACCOUNT_REQUIRED)'}
+        '409': {description: 'The address exists in this tenant with another role; an enrolment cannot change a role (stable code CONFLICT)'}
     get:
       operationId: listEnrollments
       description: >-
@@ -644,6 +776,27 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/EnrollmentList'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or the principal lacks enrollment:write (stable code INSUFFICIENT_SCOPE)'}
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+  /classes/{classId}/enrollments/{studentId}:
+    delete:
+      operationId: unenrollStudent
+      description: >-
+        Remove a student from the class roster; requires `enrollment:write`, and is
+        idempotent (removing a student who is not enrolled is not an error,
+        DEC-RUNTIME-003). The account is untouched — this is a roster correction, not
+        an account change. A credential the student already holds stays valid until it
+        expires or the actor epoch moves (DEC-RUNTIME-007); what ends immediately is
+        the ability to obtain a **new** one, because the join check reads the roster.
+      parameters:
+        - {$ref: '#/components/parameters/ClassId'}
+        - {in: path, name: studentId, required: true, schema: {type: string, maxLength: 256}}
+      responses:
+        '200':
+          description: Whether a roster entry was removed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnrollmentRemoval'}
         '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or the principal lacks enrollment:write (stable code INSUFFICIENT_SCOPE)'}
         '404': {description: 'Unknown class (stable code NOT_FOUND)'}
   /classes/{classId}/bootstrap-token:
@@ -1301,24 +1454,18 @@ components:
           properties:
             student: {oneOf: [{$ref: '#/components/schemas/Account'}, {type: 'null'}]}
     EnrollmentResult:
-      description: The outcome of the teacher's enrolment action.
+      description: >-
+        The outcome of an enrolment. Enrolment **never creates an account**, so there
+        is no credential here: an administrator creates accounts (`POST /accounts`),
+        a teacher enrols them (V0-022).
       allOf:
         - {$ref: '#/components/schemas/Enrollment'}
         - type: object
-          required: [student, account_created]
+          required: [student]
           properties:
             student: {$ref: '#/components/schemas/Account'}
-            account_created:
-              type: boolean
-              description: 'True when this invitation created the account rather than linking it'
-            development_credential:
-              oneOf: [{type: string}, {type: 'null'}]
-              description: >-
-                A one-time sign-in code, when the credential capability provisions one
-                (the development mock does; institutional federation would not). It is
-                never stored in the clear and is returned only here.
     Account:
-      description: A platform account, scoped to one institution (V0-021).
+      description: A platform account, scoped to one institution (V0-021, V0-022).
       type: object
       required: [account_id, institution_id, email, display_name, role, scopes, status, created_at]
       properties:
@@ -1328,14 +1475,53 @@ components:
         display_name: {type: string}
         role:
           type: string
-          enum: [teacher, student]
+          enum: [institution_admin, teacher, student]
           description: >-
-            The canonical role names in `governance/TERMINOLOGY_REGISTRY.yaml`. This is
-            the platform's own pair for V0; the spec's wider role list (institution
-            admin, IT operator, moderator, auditor, …) is not yet modelled here.
+            Canonical role names from `docs/ARC_OVERVIEW.md` §27 (*Identity, SSO, and
+            Roles*). V0 has a product surface for three of that list's roles and models
+            exactly those: `institution_admin` (Institution Administrator),
+            `teacher` and `student`. The others (platform administrator, IT operator,
+            course administrator, teaching assistant, moderator, auditor) are **not**
+            modelled; naming them here would be inventing policy the specification has
+            not fixed.
         scopes: {type: array, items: {type: string}, description: 'The capabilities this account currently holds'}
         status: {type: string, enum: [ACTIVE, DISABLED]}
         created_at: {type: string}
+    AccountList:
+      description: The institution's accounts of one role.
+      type: object
+      required: [institution_id, role, accounts]
+      properties:
+        institution_id: {type: string}
+        role: {type: string, enum: [teacher, student]}
+        accounts: {type: array, items: {$ref: '#/components/schemas/Account'}}
+    AccountMutation:
+      description: >-
+        The result of creating or updating an account. `development_credential` is a
+        mock's affordance, returned **once** at creation and `null` on a replay or an
+        update; only its digest is stored, and with federation there is no such value.
+      type: object
+      required: [created, account, development_credential]
+      properties:
+        created: {type: boolean, description: 'False when the account already existed (replay)'}
+        account: {$ref: '#/components/schemas/Account'}
+        development_credential: {type: [string, 'null'], description: 'One-time sign-in code from a credential-issuing adapter, or null'}
+        sessions_revoked: {type: integer, description: 'Live sessions revoked by this change (a disable)'}
+    AccountDeletion:
+      description: Whether an unreferenced account was removed.
+      type: object
+      required: [account_id, deleted]
+      properties:
+        account_id: {type: string}
+        deleted: {type: boolean}
+    EnrollmentRemoval:
+      description: Whether a roster entry was removed.
+      type: object
+      required: [class_id, student_id, removed]
+      properties:
+        class_id: {type: string}
+        student_id: {type: string}
+        removed: {type: boolean, description: 'False when the student was not enrolled (idempotent)'}
     Principal:
       description: >-
         The identity a request is authorized as. `authenticated` distinguishes a real
@@ -1348,7 +1534,7 @@ components:
       properties:
         authenticated: {type: boolean}
         institution_id: {type: string}
-        role: {type: string, enum: [teacher, student]}
+        role: {type: string, enum: [institution_admin, teacher, student]}
         scopes: {type: array, items: {type: string}}
         account_id: {oneOf: [{type: string}, {type: 'null'}]}
         email: {oneOf: [{type: string}, {type: 'null'}]}

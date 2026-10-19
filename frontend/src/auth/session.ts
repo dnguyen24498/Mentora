@@ -1,13 +1,14 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * The signed-in session, shared by every page (V0-021).
+ * The signed-in session, shared by every page (V0-021, V0-022).
  *
  * The session is the *only* thing that decides the tenant: the API derives it
  * from the token, so a page never has to send a tenant with a session (the
  * `X-Institution-Id` header stays for the development shortcut, described
  * below). This module is where the token lives and where the vocabulary of a
- * principal is defined.
+ * principal is defined — the three roles the platform models, and the
+ * capabilities that decide what each page offers.
  *
  * Two things are deliberately explicit rather than smoothed over:
  *
@@ -35,8 +36,10 @@ export type Scope =
   | 'enrollment:write'
   | 'scene:read'
   | 'join'
+  | 'account:read'
+  | 'account:write'
 
-export type Role = 'teacher' | 'student'
+export type Role = 'institution_admin' | 'teacher' | 'student'
 
 /** The identity a request is authorized as (`GET /auth/me`). */
 export interface Principal {
@@ -158,6 +161,26 @@ export function useSession(): AuthSession | null {
 }
 
 /**
+ * The capabilities the development tenant shortcut resolves to (V0-021).
+ *
+ * The shortcut is a **teacher** with no account behind it, so these are exactly
+ * `ROLE_SCOPES[teacher]`. It is spelled out rather than assumed so that a surface
+ * guarded by a capability the teacher does not hold — the Accounts directory
+ * (`account:write`) — stays hidden in development mode too.
+ */
+const DEVELOPMENT_SCOPES: readonly Scope[] = [
+  'account:read',
+  'class:read',
+  'class:write',
+  'content:read',
+  'content:write',
+  'enrollment:write',
+  'publication:write',
+  'review:write',
+  'scene:read',
+]
+
+/**
  * Whether the principal behind this request holds a capability.
  *
  * The check is **advisory**: it decides what the UI offers, never what is
@@ -166,10 +189,11 @@ export function useSession(): AuthSession | null {
  * ever show a button that fails — never perform the action.
  *
  * With no session the development tenant shortcut is in use, which resolves a
- * teacher server-side, so teacher surfaces stay visible.
+ * teacher server-side, so teacher surfaces stay visible and administrator ones do
+ * not.
  */
 export function hasScope(session: AuthSession | null, scope: Scope): boolean {
-  if (!session) return true
+  if (!session) return DEVELOPMENT_SCOPES.includes(scope)
   return session.principal.scopes.includes(scope)
 }
 
@@ -183,12 +207,32 @@ export function isStudent(session: AuthSession | null): boolean {
   return session?.principal.role === 'student'
 }
 
+/**
+ * Whether the caller administers the institution's directory (V0-022).
+ *
+ * Read from the **capability**, not the role name: `account:write` is what the
+ * Accounts surface needs, and it is what the server checks. A session that is not
+ * signed in is the development tenant shortcut, which resolves a teacher — so it is
+ * emphatically not an administrator.
+ */
+export function isAdministrator(session: AuthSession | null): boolean {
+  return session?.principal.scopes.includes('account:write') === true
+}
+
+/** A short human label for a role, for a chip or a heading. */
+export function describeRole(role: Role | null | undefined): string {
+  if (role === 'institution_admin') return 'Administrator'
+  if (role === 'teacher') return 'Teacher'
+  if (role === 'student') return 'Student'
+  return 'Development mode'
+}
+
 /** A short human label for whose session this is. */
 export function describePrincipal(session: AuthSession | null): string {
   if (!session) return 'Development mode'
   const who =
     session.principal.display_name || session.principal.email || session.principal.account_id
-  return `${who ?? 'Signed in'} · ${session.principal.role}`
+  return `${who ?? 'Signed in'} · ${describeRole(session.principal.role)}`
 }
 
 /** A sentence about the credential mechanism, for a page to show honestly. */

@@ -18,7 +18,7 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from app.common.errors import NotFoundError, TenantAccessError
 from app.db.database import transaction
@@ -123,6 +123,80 @@ class IdentityRepository:
                 (institution_id, role.value),
             ).fetchall()
         return [Account.from_row(row) for row in rows]
+
+    def count_accounts(self, institution_id: str, *, role: Role) -> int:
+        """How many accounts of one role this tenant has (the bootstrap precondition)."""
+
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM accounts WHERE institution_id = ? AND role = ?",
+            (institution_id, role.value),
+        ).fetchone()
+        return int(row["n"])
+
+    def update_account(
+        self,
+        *,
+        institution_id: str,
+        account_id: str,
+        display_name: Optional[str] = None,
+        role: Optional[Role] = None,
+        disabled: Optional[bool] = None,
+        disabled_at: Optional[str] = None,
+    ) -> Account:
+        """Change the mutable fields of an account, and nothing else.
+
+        ``disabled`` is tri-state on purpose: ``None`` leaves the column alone,
+        ``True`` sets it, ``False`` clears it — so an update that only renames an
+        account cannot accidentally re-enable it, and re-enabling is expressible.
+        """
+
+        assignments: list[str] = []
+        values: list[Any] = []
+        if display_name is not None:
+            assignments.append("display_name = ?")
+            values.append(display_name.strip() or account_id)
+        if role is not None:
+            assignments.append("role = ?")
+            values.append(role.value)
+        if disabled is not None:
+            assignments.append("disabled_at = ?")
+            values.append((disabled_at or _now()) if disabled else None)
+        if assignments:
+            values.extend([account_id, institution_id])
+            with transaction(self._conn):
+                self._conn.execute(
+                    f"UPDATE accounts SET {', '.join(assignments)} "
+                    "WHERE account_id = ? AND institution_id = ?",
+                    tuple(values),
+                )
+        return self.get_account(institution_id, account_id)
+
+    def delete_account(self, institution_id: str, account_id: str) -> bool:
+        """Remove an account with its credential material and sessions, atomically.
+
+        The account row is what sessions and credentials reference, so all three go
+        in one transaction: a partially removed identity would be a session that
+        outlives its subject. Callers decide *whether* an account may be removed
+        (``IdentityService`` + the roster check in the API layer, V0-022).
+        """
+
+        account = self.find_account(institution_id, account_id)
+        if account is None:
+            return False
+        with transaction(self._conn):
+            self._conn.execute(
+                "DELETE FROM auth_sessions WHERE institution_id = ? AND account_id = ?",
+                (institution_id, account_id),
+            )
+            self._conn.execute(
+                "DELETE FROM account_credentials WHERE institution_id = ? AND account_id = ?",
+                (institution_id, account_id),
+            )
+            self._conn.execute(
+                "DELETE FROM accounts WHERE account_id = ? AND institution_id = ?",
+                (account_id, institution_id),
+            )
+        return True
 
     # -- sessions --------------------------------------------------------------------
     def create_session(

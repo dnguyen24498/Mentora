@@ -1,0 +1,10 @@
+id: V0-022
+title: "Administration accounts and role separation"
+week: W8
+status: IN_PROGRESS
+depends_on: ["V0-021"]
+started_at: "2026-10-19"
+completed_at: null
+commit: null
+blockers:
+  - "No accepted ADR for the identity mechanism (FND-002 is TODO). The role separation is authorization, which V0-021 already fixed, so nothing here depends on that ADR; the credential adapter stays a labelled development mock."

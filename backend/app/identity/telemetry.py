@@ -45,7 +45,11 @@ class IdentityMetrics:
     scope_denials: int = 0
     accounts_created: int = 0
     accounts_linked: int = 0
-    invitations_issued: int = 0
+    #: V0-022: administration of the directory.
+    accounts_updated: int = 0
+    accounts_deleted: int = 0
+    accounts_disabled: int = 0
+    admins_bootstrapped: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return dict(self.__dict__)
@@ -125,30 +129,92 @@ class IdentityTelemetry:
             route=route,
         )
 
-    def record_invitation(
+    # -- directory administration (V0-022) ---------------------------------------------
+    def record_account_created(
         self,
         *,
         institution_id: str,
-        class_id: str,
         subject: str,
+        role: str,
         created: bool,
         credential_issued: bool,
-        role: str,
+        actor_role: str,
     ) -> dict[str, Any]:
+        """An administrator created (or re-named) an account.
+
+        The subject is recorded as a digest, as everywhere else: an address
+        identifies a person and a log is not the place for one.
+        """
+
         if created:
             self.metrics.accounts_created += 1
         else:
             self.metrics.accounts_linked += 1
-        if credential_issued:
-            self.metrics.invitations_issued += 1
         return self.emit(
-            "identity.invitation",
+            "identity.account_created",
             institution_id=institution_id,
-            class_id=class_id,
             subject_digest=subject_digest(subject),
+            role=role,
             created=created,
             credential_issued=credential_issued,
+            actor_role=actor_role,
+        )
+
+    def record_account_updated(
+        self,
+        *,
+        institution_id: str,
+        account_id: str,
+        changed: tuple[str, ...],
+        role: str,
+        status: str,
+        sessions_revoked: int,
+        actor_role: str,
+    ) -> dict[str, Any]:
+        """Which *fields* changed, never their values (a display name is personal)."""
+
+        self.metrics.accounts_updated += 1
+        if status == "DISABLED":
+            self.metrics.accounts_disabled += 1
+        return self.emit(
+            "identity.account_updated",
+            institution_id=institution_id,
+            account_id=account_id,
+            changed=list(changed),
             role=role,
+            status=status,
+            sessions_revoked=sessions_revoked,
+            actor_role=actor_role,
+        )
+
+    def record_account_deleted(
+        self, *, institution_id: str, account_id: str, role: str, actor_role: str
+    ) -> dict[str, Any]:
+        self.metrics.accounts_deleted += 1
+        return self.emit(
+            "identity.account_deleted",
+            institution_id=institution_id,
+            account_id=account_id,
+            role=role,
+            actor_role=actor_role,
+        )
+
+    def record_admin_bootstrapped(
+        self, *, institution_id: str, subject: str, credential_issued: bool
+    ) -> dict[str, Any]:
+        """The one-shot first-administrator creation, which is a security event.
+
+        Emitted on success only: the *refusal* is a ``409`` the caller sees, and it
+        needs no counter — what is worth recording is that an institution acquired its
+        administrator, and from where.
+        """
+
+        self.metrics.admins_bootstrapped += 1
+        return self.emit(
+            "identity.admin_bootstrap",
+            institution_id=institution_id,
+            subject_digest=subject_digest(subject),
+            credential_issued=credential_issued,
         )
 
 

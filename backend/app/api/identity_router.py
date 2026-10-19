@@ -7,6 +7,13 @@ Routes (``contracts/openapi/openapi.yaml``):
 * ``POST /auth/logout`` — revoke the presented session. Idempotent, and deliberately
   usable with an already-expired token, because signing out must never fail.
 * ``GET  /auth/me`` — the principal the presented session authorizes.
+* ``POST /auth/bootstrap-admin`` — the deployment's one-shot creation of the
+  institution's **first** administrator (V0-022). It is unauthenticated by
+  necessity (there is no administrator yet to authorize it), it exists only while
+  the development shortcut is enabled, and it closes the moment the tenant has an
+  administrator. Under institutional federation the identity provider provisions
+  that account, which is why this route is a development seam and not the platform's
+  account-creation path.
 
 Two honesty requirements shape the responses:
 
@@ -31,6 +38,7 @@ from app.identity.errors import (
     ISSUE_ACCOUNT_DISABLED,
     ISSUE_INVALID_CREDENTIALS,
     RETRYABLE_IDENTITY_CODES,
+    BootstrapDisabledError,
     CredentialDeniedError,
     CredentialUnavailableError,
 )
@@ -93,6 +101,30 @@ def build_identity_router(security: ApiSecurity) -> APIRouter:
             "authenticator": capability,
             "notice": _notice(capability),
         }
+
+    @router.post("/auth/bootstrap-admin", status_code=201)
+    def bootstrap_admin(
+        institution_id: str,
+        email: str,
+        display_name: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create the institution's first administrator — once, in development.
+
+        Refused with ``404 BOOTSTRAP_DISABLED`` when the deployment has the
+        development shortcut off (institutional federation owns provisioning there,
+        so the route is *absent* rather than denied), and with ``409`` once the
+        tenant already has an administrator. It writes nothing when it refuses.
+        """
+
+        if not security.development_shortcut:
+            raise BootstrapDisabledError(
+                "this deployment does not expose the first-administrator bootstrap; "
+                "an administrator is provisioned by the institution's identity provider"
+            )
+        mutation = identity.bootstrap_administrator(
+            institution_id, email=email, display_name=display_name or ""
+        )
+        return mutation.to_dict()
 
     @router.post("/auth/logout")
     def logout(

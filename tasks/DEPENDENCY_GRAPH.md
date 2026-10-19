@@ -60,6 +60,11 @@ graph TD
   V0_001 --> V0_020
   V0_004 --> V0_020
   V0_007 --> V0_020
+  V0_021["V0-021 Identity accounts and the student surface"]
+  V0_009 --> V0_021
+  V0_011 --> V0_021
+  V0_022["V0-022 Administration accounts and role separation"]
+  V0_021 --> V0_022
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

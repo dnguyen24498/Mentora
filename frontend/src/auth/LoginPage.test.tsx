@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginPage from './LoginPage'
-import { ApiError, login, logout, type SessionIssuance } from '../api/client'
+import { ApiError, bootstrapAdministrator, login, logout, type SessionIssuance } from '../api/client'
 import { clearSession, readSession, writeSession } from './session'
 import { INSTITUTION } from '../test/fixtures'
 
@@ -10,7 +10,7 @@ import { INSTITUTION } from '../test/fixtures'
 // the backend tests, so the client is mocked.
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, login: vi.fn(), logout: vi.fn() }
+  return { ...actual, bootstrapAdministrator: vi.fn(), login: vi.fn(), logout: vi.fn() }
 })
 
 const ISSUANCE: SessionIssuance = {
@@ -127,7 +127,7 @@ describe('LoginPage', () => {
     vi.mocked(logout).mockResolvedValue({ revoked: true })
     render(<LoginPage />)
 
-    expect(screen.getByText(/Student Seven · student/)).toBeTruthy()
+    expect(screen.getByText(/Student Seven · Student/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
 
     await waitFor(() => expect(readSession()).toBeNull())
@@ -174,5 +174,83 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     await waitFor(() => expect(window.location.pathname).toBe('/'))
+  })
+
+  // -- the first administrator (V0-022) ----------------------------------------------
+
+  it('creates the institution’s first administrator and fills in its code for signing in', async () => {
+    const user = userEvent.setup()
+    vi.mocked(bootstrapAdministrator).mockResolvedValue({
+      created: true,
+      account: {
+        account_id: 'account-root',
+        institution_id: INSTITUTION,
+        email: 'root@school.example',
+        display_name: 'Root',
+        role: 'institution_admin',
+        scopes: ['account:read', 'account:write', 'class:read', 'content:read'],
+        status: 'ACTIVE',
+        created_at: '2026-10-16T09:00:00Z',
+      },
+      development_credential: 'admin-code-1',
+      sessions_revoked: 0,
+    })
+    render(<LoginPage />)
+
+    await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
+
+    await waitFor(() =>
+      expect(bootstrapAdministrator).toHaveBeenCalledWith(INSTITUTION, 'root@school.example'),
+    )
+    // The one-time code is shown once, and the sign-in form is ready to use it: the
+    // point of the panel is to get the operator to a session.
+    expect(await screen.findByText(/code is filled in above/)).toBeTruthy()
+    expect((screen.getByLabelText('Sign-in code') as HTMLInputElement).value).toBe('admin-code-1')
+    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
+      'root@school.example',
+    )
+  })
+
+  it('says the bootstrap is closed when the institution already has an administrator', async () => {
+    const user = userEvent.setup()
+    vi.mocked(bootstrapAdministrator).mockRejectedValue(
+      new ApiError('CONFLICT', 'already provisioned', 'TENANT_ALREADY_PROVISIONED'),
+    )
+    render(<LoginPage />)
+
+    await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
+
+    const banner = await screen.findByText(/already has an administrator/)
+    expect(banner.textContent).toMatch(/Sign in with that account/)
+  })
+
+  it('says a hardened deployment provisions administrators elsewhere', async () => {
+    const user = userEvent.setup()
+    vi.mocked(bootstrapAdministrator).mockRejectedValue(
+      new ApiError('NOT_FOUND', 'not exposed', 'BOOTSTRAP_DISABLED'),
+    )
+    render(<LoginPage />)
+
+    await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
+
+    // Institutional federation owns that account, so the page points at the operator
+    // rather than pretending the route is merely denied.
+    expect(await screen.findByText(/does not expose the first-administrator/)).toBeTruthy()
+  })
+
+  it('hides the bootstrap once a session exists', () => {
+    writeSession({
+      token: 'tok-1',
+      principal: ISSUANCE.principal,
+      authenticator: ISSUANCE.authenticator,
+      notice: ISSUANCE.notice,
+      expiresAt: ISSUANCE.expires_at,
+    })
+    render(<LoginPage />)
+
+    expect(screen.queryByLabelText('Administrator email')).toBeNull()
   })
 })

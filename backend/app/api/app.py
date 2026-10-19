@@ -62,6 +62,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.api.spa import SpaStaticFiles
 from app.api.identity_router import build_identity_router
+from app.api.accounts_router import build_accounts_router
 from app.api.security import build_api_security
 from app.classroom.catalog import BaselineRuntimeCatalog
 from app.classroom.repository import ClassRepository
@@ -219,6 +220,10 @@ def create_app(
 
     # Identity (V0-021): sign in, sign out, and who the presented session is.
     app.include_router(build_identity_router(security))
+    # The directory (V0-022): an institution administrator creates, reads, changes
+    # and removes teacher and student accounts. Composed with the classroom service
+    # so that removing an account a class references is refused.
+    app.include_router(build_accounts_router(security, classroom_service))
     # Teacher review (V0-007): read-only projection of a built package plus the
     # approve/reject decision and draft lesson-order revisions.
     app.include_router(build_review_router(review_service, review_workflow, security))

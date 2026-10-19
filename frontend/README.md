@@ -3,8 +3,9 @@
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
 runtime page, the Learning page (slide + teaching canvas + automatic text-only
 narration, which can also be set to start at a chosen time), an Admin area
-(courses, classes, publications), Settings, and — V0-021 — sign-in, a class join
-page and a student's own class view, as real
+(accounts, courses, classes, publications), Settings, and — V0-021/V0-022 —
+sign-in for the three account types (administrator, teacher, student), a class
+join page and a student's own class view, as real
 pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
@@ -15,7 +16,7 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
 | `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
 | `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
-| `/admin/{section}` | Admin — overview, courses, classes, publications | `src/admin/AdminPage.tsx` |
+| `/admin/{section}` | Admin — overview, accounts, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility | `src/settings/SettingsPage.tsx` |
 | `/login` | Sign in — institution, address, one-time code (V0-021) | `src/auth/LoginPage.tsx` |
 | `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
@@ -44,8 +45,12 @@ are always available.
 With identities (V0-021) the nav also answers "who am I": it shows the signed-in
 principal and **Sign out**, an amber **Development mode** chip when the browser is
 on the tenant-header shortcut (a teacher with no account behind it), or a
-**Sign in** link otherwise. A **student** is offered **My class** and **Attend**
-instead of the authoring entries — see "Identities and the student pages" below.
+**Sign in** link otherwise. V0-022 chooses the entries by **capability** rather
+than by role name, so a principal is offered exactly the pages the server would
+allow: an **institution administrator** (who authors nothing and attends nothing)
+sees Library, Admin and Settings; a **teacher** sees all of them; a **student**
+sees **My class** and **Attend** instead — see "Identities and the student pages"
+below.
 
 The library is the hub: selecting a deck offers **Open Teacher Studio** and
 **Open learning page**, and the **Classes** panel (`GET /classes`) links each
@@ -283,12 +288,29 @@ reserves for presentation work:
 
 `src/admin/` manages the V0 entities **through the existing API only**. That
 constraint is deliberate and is stated on the pages: the API has no generic update
-or delete, and that is a property of the domain rather than a gap — content is
-immutable, a draft is append-only and a publication is never deleted
-(`DEC-CONTENT-005`), so a correction is a **new version**.
+or delete *of content*, and that is a property of the domain rather than a gap —
+content is immutable, a draft is append-only and a publication is never deleted
+(`DEC-CONTENT-005`), so a correction is a **new version**. An **account** is the
+exception that proves the rule — a name, a role and an enabled state are genuinely
+mutable — so the directory has a real rename, role switch, disable/enable and
+removal (V0-022). The section list itself is filtered by **capability**, so the
+tabs a principal sees are the ones the server would allow; a section reached by URL
+that the role does not hold renders an honest **Not available for this account**
+card with links to the ones it does hold, rather than a page whose every request
+would `403`.
 
 - **Overview** — what the tenant holds (courses, classes, running classes) and
   links to the section that can act on it. It never mutates anything itself.
+- **Accounts** (V0-022) — the institution's teacher and student directory: create
+  an account, rename it, switch its role, disable/enable it and delete it, with the
+  one-time sign-in code shown **once** on creation. Two refusals are turned into
+  the remedy they point at: an address that already belongs to the other role says
+  to change *that* account's role rather than split one person in two, and a
+  deletion refused with `ACCOUNT_IN_USE` says to **Disable** instead (a removal
+  would orphan the roster). It never offers to create an administrator — the API
+  refuses that (`ROLE_NOT_MANAGEABLE`), and the page explains that the first
+  administrator comes from the sign-in page's bootstrap. The section is visible only
+  to a principal holding `account:write`.
 - **Courses & materials** — create a course, select one, upload a `.pptx` into it,
   and act on a deck: **Compile** (in the render mode chosen in Settings),
   **Details** (the stored metadata), **Studio** and **Learn**. A deduplicated
@@ -297,8 +319,12 @@ immutable, a draft is append-only and a publication is never deleted
 - **Classes** — schedule a class onto a course (optionally pinned to a version and
   optionally given a **datetime**), then select it to see its state, its session and
   its **pinned runtime tuple**, **Start** it (the tuple is resolved once and never
-  looked up as "latest" again), and manage **enrolments** (enrol is idempotent). A
-  replayed start is reported as such.
+  looked up as "latest" again), and manage **enrolments**. V0-022 replaced the
+  invite-by-address field with a **student picker** (`GET /accounts?role=student`,
+  the one directory read a teacher holds): assigning chooses a student who already
+  exists, each roster row has a **Remove** action, and the panel says that creating
+  an account is the administrator's job — enrolment never creates one. A replayed
+  start is reported as such.
   - The datetime is read on the teacher's own clock (`src/time.ts`, the
     `datetime-local` value ↔ instant conversion) and shown with a live countdown, so
     a class that is due says so.
@@ -350,7 +376,7 @@ publishes.
   (`readClassroomPreferences`/`updateClassroomPreferences`) rather than kept a
   second time, so the two can never drift.
 
-## Identities and the student pages (V0-021)
+## Identities, the directory and the student pages (V0-021, V0-022)
 
 Sign-in is a page (`/login`) rather than a browser prompt, because the app has to
 be honest about what it is: **no credential mechanism is a decided technology** in
@@ -360,6 +386,16 @@ says so and the adapter behind it is a labelled development stand-in —
 `GET /auth/me` reports `authenticator.kind: "DEVELOPMENT_MOCK"` and the page
 renders that word rather than implying federation.
 
+**Three account types sign in through the one form** (V0-022) — an institution
+administrator, a teacher and a student — because who you are is the account's role,
+not a choice on the page. The same page carries the **first-administrator** panel,
+since a fresh installation has no accounts and therefore nobody who could sign in to
+create one: it posts to `POST /auth/bootstrap-admin`, shows the one-time code once
+and **fills it into the sign-in form** so the next step is one click; a refusal is
+named by cause — the institution already has an administrator (`TENANT_ALREADY_PROVISIONED`,
+"sign in instead"), or a hardened deployment provisions them through the identity
+provider (`BOOTSTRAP_DISABLED`).
+
 - **`src/auth/session.ts`** holds the session — the raw token for the API client,
   the principal (tenant, role, scopes), the capability that issued it and its
   expiry — in `localStorage`, shared across tabs like the tenant (a `storage`
@@ -368,7 +404,9 @@ renders that word rather than implying federation.
   and a page that looked signed in while every request 401ed would be worse.
   `hasScope()` is **advisory** — it decides what the UI offers, never what is
   allowed (the server re-derives scopes from the account's current role on every
-  request, so a stale client can only ever show a button that fails).
+  request, so a stale client can only ever show a button that fails). V0-022 adds
+  the third role, the two directory capabilities (`account:read`, `account:write`)
+  and `isAdministrator` (read from `account:write`, never from the role name).
 - **`src/auth/mode.ts`** answers "which mode is this browser in?" by asking
   `GET /auth/me`. It cannot be read from local state, because the **development
   tenant shortcut has no session at all** — that endpoint reports
@@ -377,11 +415,15 @@ renders that word rather than implying federation.
   **Development mode** chip, or a **Sign in** link accordingly: never the shortcut
   presented as a user, and never "signed out" while the app is in fact acting as a
   teacher.
-- **The nav is role-aware.** A student sees **My class** (`/join/{id}`) and
-  **Attend** (`/student/{id}`) instead of Studio/Classroom/Learn/Admin; without a
-  remembered class they are disabled labels that say why. This is courtesy, not
-  access control: the server refuses a student's teacher verbs with
-  `403 INSUFFICIENT_SCOPE` regardless.
+- **The nav is role-aware, chosen by capability.** A student sees **My class**
+  (`/join/{id}`) and **Attend** (`/student/{id}`) instead of Studio/Classroom/Learn/Admin;
+  an institution administrator sees Library/Admin/Settings because the authoring
+  surfaces would only answer `403`; without a remembered class the id-scoped
+  entries are disabled labels that say why. This is courtesy, not access control:
+  the server refuses a student's teacher verbs with `403 INSUFFICIENT_SCOPE`
+  regardless. In development mode (no session) `hasScope` answers `false` for
+  `account:write`, because the shortcut resolves a *teacher* server-side — so the
+  developer sees a teacher's surfaces, not an administrator's that would `403`.
 - **`src/auth/StudentNotice.tsx`** is where a student lands if they open a
   teacher's page: a real landing — the class they were last in, a field to open a
   class by the id in their join link, and Sign out — rather than a page whose every
@@ -411,10 +453,14 @@ renders that word rather than implying federation.
   (`SCENE_CHECKSUM_MISMATCH`) is refused by the server and reported, never drawn.
 
 Teacher-side, the Admin area's **classes** section (`src/admin/ClassesAdmin.tsx`)
-uses the real roster: **invite by email** creates-or-links the account in the
-tenant and enrols it in one step and then shows the one-time sign-in code to hand
-over (returned once, never stored in the clear — the panel says so), and the class
-detail offers the **student join link** to share.
+uses the real roster: V0-022 changed how a student gets onto it — the **picker
+chooses from the students who exist** (`GET /accounts?role=student`, the only
+directory read a teacher holds), each roster row has a **Remove** action
+(`DELETE /classes/{id}/enrollments/{studentId}`, which takes them off the class and
+leaves the account and its sign-in untouched), and the panel says that creating an
+account is the institution administrator's job in **Admin → Accounts**. Enrolment
+never creates an account, so there is no address to type and no implicit signup
+behind one; the class detail still offers the **student join link** to share.
 
 ## Classroom (V0-011)
 
@@ -527,8 +573,22 @@ the ends of the deck disabled rather than wrapping, the text-only narration, a
 degraded scene). `src/components/SiteNav.test.tsx` and `src/App.test.tsx` add the
 identity cases: the role-aware nav, the "Development mode" chip appearing only
 when `GET /auth/me` reports the shortcut, the student landing, and the student
-route guard. Note the test environment has **no jest-dom**, so assertions use the
-DOM directly (`button.disabled`, `getAttribute('disabled')`).
+route guard.
+
+For V0-022, those suites grew a third role: `LoginPage.test.tsx` covers the
+first-administrator bootstrap (creating it fills the code into the sign-in form,
+"already provisioned" reads as "sign in instead", a hardened deployment says the
+provider owns the account, and the panel disappears once a session exists);
+`AdminPage.test.tsx` covers the **Accounts** directory (creating a teacher and
+handing over the one-time code once, a refused removal explained with the
+`ACCOUNT_IN_USE` remedy, disabling with the revoked-session count, and no
+administrator-creation option) **and the capability filter** (an administrator sees
+Accounts and not the authoring sections, a teacher the reverse, and a section the
+role does not hold renders **Not available for this account**), plus the classes
+**picker/unassign** path; and `SiteNav.test.tsx` checks that an administrator is
+offered the library and the directory and not the authoring surfaces. Note the
+test environment has **no jest-dom**, so assertions use
+the DOM directly (`button.disabled`, `getAttribute('disabled')`).
 
 Only `.pptx` (OOXML) is accepted; legacy `.ppt` is rejected by the backend with
 `UNSUPPORTED_LEGACY_FORMAT`.

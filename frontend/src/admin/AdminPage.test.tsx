@@ -5,8 +5,11 @@ import AdminPage from './AdminPage'
 import {
   ApiError,
   compileArtifact,
+  createAccount,
   createCourse,
-  enrollStudentByEmail,
+  deleteAccount,
+  enrollStudentById,
+  listAccounts,
   listClasses,
   listCourses,
   listMaterials,
@@ -17,6 +20,8 @@ import {
   publishVersion,
   scheduleClass,
   startClass,
+  unenrollStudent,
+  updateAccount,
   uploadMaterial,
   type Account,
   type ClassSummary,
@@ -24,6 +29,7 @@ import {
   type Material,
   type Publication,
 } from '../api/client'
+import { clearSession, writeSession, type AuthSession, type Principal, type Scope } from '../auth/session'
 import { fromDateTimeLocalValue } from '../time'
 import { ARTIFACT, INSTITUTION } from '../test/fixtures'
 
@@ -34,8 +40,11 @@ vi.mock('../api/client', async (importOriginal) => {
   return {
     ...actual,
     compileArtifact: vi.fn(),
+    createAccount: vi.fn(),
     createCourse: vi.fn(),
-    enrollStudentByEmail: vi.fn(),
+    deleteAccount: vi.fn(),
+    enrollStudentById: vi.fn(),
+    listAccounts: vi.fn(),
     listClasses: vi.fn(),
     listCourses: vi.fn(),
     listMaterials: vi.fn(),
@@ -46,6 +55,8 @@ vi.mock('../api/client', async (importOriginal) => {
     publishVersion: vi.fn(),
     scheduleClass: vi.fn(),
     startClass: vi.fn(),
+    unenrollStudent: vi.fn(),
+    updateAccount: vi.fn(),
     uploadMaterial: vi.fn(),
   }
 })
@@ -140,12 +151,45 @@ const PUBLICATION: Publication = {
 
 beforeEach(() => {
   localStorage.clear()
+  clearSession()
   vi.clearAllMocks()
   vi.mocked(listCourses).mockResolvedValue([COURSE])
   vi.mocked(listClasses).mockResolvedValue([])
   vi.mocked(listMaterials).mockResolvedValue([])
   vi.mocked(listPublications).mockResolvedValue({ course_id: 'course-1', publications: [] })
+  vi.mocked(listAccounts).mockResolvedValue({
+    institution_id: INSTITUTION,
+    role: 'student',
+    accounts: [],
+  })
 })
+
+/** A signed-in principal for a role, so a section's capability filter is exercised. */
+function signIn(role: 'institution_admin' | 'teacher', scopes: Scope[]) {
+  const principal: Principal = {
+    authenticated: true,
+    institution_id: INSTITUTION,
+    role,
+    scopes,
+    account_id: 'account-self',
+    email: `${role}@uni.test`,
+    display_name: null,
+    session_id: 'session-1',
+  }
+  const session: AuthSession = {
+    token: 'token-1',
+    principal,
+    authenticator: {
+      id: 'local-credentials@1.0.0',
+      name: 'Local development credentials',
+      version: '1.0.0',
+      kind: 'DEVELOPMENT_MOCK',
+    },
+    notice: 'Answered by a development mock.',
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  }
+  writeSession(session)
+}
 
 describe('AdminPage — overview', () => {
   it('reports what the institution holds without mutating anything', async () => {
@@ -301,7 +345,7 @@ describe('AdminPage — classes', () => {
     expect(await screen.findByText(/Scheduled "Period 4" for/)).toBeTruthy()
   })
 
-  it('starts a class and invites a student onto the roster', async () => {
+  it('starts a class and assigns an existing student to its roster', async () => {
     const user = userEvent.setup()
     vi.mocked(listClasses).mockResolvedValue([CLASS])
     vi.mocked(loadClass).mockResolvedValue({
@@ -311,7 +355,13 @@ describe('AdminPage — classes', () => {
     })
     vi.mocked(loadRoster).mockResolvedValue({ class_id: 'class-1', enrollments: [] })
     vi.mocked(startClass).mockResolvedValue(STARTED)
-    vi.mocked(enrollStudentByEmail).mockResolvedValue({
+    // A teacher picks from the students who exist: `account:read` lists students.
+    vi.mocked(listAccounts).mockResolvedValue({
+      institution_id: INSTITUTION,
+      role: 'student',
+      accounts: [STUDENT],
+    })
+    vi.mocked(enrollStudentById).mockResolvedValue({
       enrollment_id: 'enrollment-1',
       institution_id: INSTITUTION,
       class_id: 'class-1',
@@ -319,8 +369,6 @@ describe('AdminPage — classes', () => {
       created_at: '2026-10-16T09:06:00Z',
       created: true,
       student: STUDENT,
-      account_created: true,
-      development_credential: 'dev-code-7',
     })
     render(<AdminPage section="classes" />)
 
@@ -331,21 +379,185 @@ describe('AdminPage — classes', () => {
     await waitFor(() => expect(startClass).toHaveBeenCalledWith(INSTITUTION, 'class-1'))
     expect(await screen.findByText(/runtime tuple is now pinned/)).toBeTruthy()
 
-    // Inviting by address creates-or-links the account in the tenant and enrols
-    // it in one step, because enrolment is what a join is checked against.
-    await user.type(screen.getByLabelText('Student email'), 'student7@school.example')
-    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    // Assigning picks an account that already exists — enrolment never creates one
+    // (V0-022), so there is an address list rather than an address to type.
+    await user.selectOptions(await screen.findByLabelText('Student'), STUDENT.account_id)
+    await user.click(screen.getByRole('button', { name: 'Add to class' }))
     await waitFor(() =>
-      expect(enrollStudentByEmail).toHaveBeenCalledWith(
+      expect(enrollStudentById).toHaveBeenCalledWith(INSTITUTION, 'class-1', STUDENT.account_id),
+    )
+    expect(await screen.findByText(/Enrolled student7@school.example/)).toBeTruthy()
+    expect(createAccount).not.toHaveBeenCalled()
+  })
+
+  it('removes a student from the roster without touching the account', async () => {
+    const user = userEvent.setup()
+    vi.mocked(listClasses).mockResolvedValue([CLASS])
+    vi.mocked(loadClass).mockResolvedValue({ class: CLASS, session: null, session_plan: null })
+    vi.mocked(loadRoster).mockResolvedValue({
+      class_id: 'class-1',
+      enrollments: [
+        {
+          enrollment_id: 'enrollment-1',
+          institution_id: INSTITUTION,
+          class_id: 'class-1',
+          student_id: STUDENT.account_id,
+          created_at: '2026-10-16T09:06:00Z',
+          student: STUDENT,
+        },
+      ],
+    })
+    vi.mocked(listAccounts).mockResolvedValue({
+      institution_id: INSTITUTION,
+      role: 'student',
+      accounts: [STUDENT],
+    })
+    vi.mocked(unenrollStudent).mockResolvedValue({
+      class_id: 'class-1',
+      student_id: STUDENT.account_id,
+      removed: true,
+    })
+    render(<AdminPage section="classes" />)
+
+    await user.click(await screen.findByRole('button', { name: /Period 3/ }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: `Remove ${STUDENT.email} from this class`,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(unenrollStudent).toHaveBeenCalledWith(INSTITUTION, 'class-1', STUDENT.account_id),
+    )
+    expect(await screen.findByText(/The account itself is unchanged/)).toBeTruthy()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+})
+
+describe('AdminPage — the directory, by capability', () => {
+  const ADMIN_SCOPES: Scope[] = ['account:read', 'account:write', 'content:read', 'class:read']
+
+  it('offers Accounts to an administrator and withholds the authoring sections', async () => {
+    signIn('institution_admin', ADMIN_SCOPES)
+    render(<AdminPage section="overview" />)
+
+    expect(await screen.findByRole('link', { name: 'Accounts' })).toBeTruthy()
+    // An administrator authors nothing, so the authoring sections would only 403.
+    expect(screen.queryByRole('link', { name: 'Courses & materials' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Classes' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Publications' })).toBeNull()
+  })
+
+  it('withholds Accounts from a teacher', async () => {
+    signIn('teacher', [
+      'account:read',
+      'class:read',
+      'class:write',
+      'content:read',
+      'content:write',
+      'enrollment:write',
+      'publication:write',
+      'review:write',
+      'scene:read',
+    ])
+    render(<AdminPage section="overview" />)
+
+    expect(await screen.findByRole('link', { name: 'Courses & materials' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Accounts' })).toBeNull()
+  })
+
+  it('says a section is unavailable rather than showing a page that would 403', async () => {
+    signIn('teacher', ['account:read', 'content:read'])
+
+    // A URL the nav does not offer for this role reaches an honest dead end.
+    render(<AdminPage section="accounts" />)
+
+    expect(await screen.findByText('Not available for this account')).toBeTruthy()
+    expect(screen.queryByLabelText('Email address')).toBeNull()
+  })
+
+  it('creates a teacher and hands over the one-time code exactly once', async () => {
+    const user = userEvent.setup()
+    signIn('institution_admin', ADMIN_SCOPES)
+    vi.mocked(createAccount).mockResolvedValue({
+      created: true,
+      account: { ...STUDENT, role: 'teacher', status: 'ACTIVE' },
+      development_credential: 'dev-code-9',
+      sessions_revoked: 0,
+    })
+    render(<AdminPage section="accounts" />)
+
+    await user.type(await screen.findByLabelText('Email address'), 'new@school.example')
+    await user.selectOptions(screen.getByLabelText('Role'), 'teacher')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() =>
+      expect(createAccount).toHaveBeenCalledWith(
         INSTITUTION,
-        'class-1',
-        'student7@school.example',
+        'new@school.example',
+        'teacher',
+        '',
       ),
     )
-    expect(await screen.findByText(/Invited student7@school.example/)).toBeTruthy()
-    // The one-time sign-in code is shown to hand over; it is returned once and
-    // never stored in the clear.
-    expect(screen.getByTestId('invited-credential').textContent).toContain('dev-code-7')
+    expect(screen.getByTestId('issued-credential').textContent).toContain('dev-code-9')
+    // The code is a labelled development mock, and the page says so.
+    expect(screen.getByTestId('issued-credential').textContent).toMatch(/development mock/)
+  })
+
+  it('explains a refused removal with the remedy the guard points at', async () => {
+    const user = userEvent.setup()
+    signIn('institution_admin', ADMIN_SCOPES)
+    vi.mocked(listAccounts).mockResolvedValue({
+      institution_id: INSTITUTION,
+      role: 'student',
+      accounts: [STUDENT],
+    })
+    vi.mocked(deleteAccount).mockRejectedValue(
+      new ApiError('CONFLICT', 'the account is on a class roster', 'ACCOUNT_IN_USE'),
+    )
+    render(<AdminPage section="accounts" />)
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toMatch(/ACCOUNT_IN_USE|on a class roster/)
+    expect(banner.textContent).toMatch(/Disable instead/)
+  })
+
+  it('disables an account and reports the sessions it revoked', async () => {
+    const user = userEvent.setup()
+    signIn('institution_admin', ADMIN_SCOPES)
+    vi.mocked(listAccounts).mockResolvedValue({
+      institution_id: INSTITUTION,
+      role: 'student',
+      accounts: [STUDENT],
+    })
+    vi.mocked(updateAccount).mockResolvedValue({
+      created: false,
+      account: { ...STUDENT, status: 'DISABLED' },
+      development_credential: null,
+      sessions_revoked: 2,
+    })
+    render(<AdminPage section="accounts" />)
+
+    await user.click(await screen.findByRole('button', { name: 'Disable' }))
+
+    await waitFor(() =>
+      expect(updateAccount).toHaveBeenCalledWith(INSTITUTION, STUDENT.account_id, {
+        status: 'DISABLED',
+      }),
+    )
+    expect(await screen.findByText(/revoked 2 live session/)).toBeTruthy()
+  })
+
+  it('does not offer administrator creation through the directory', async () => {
+    signIn('institution_admin', ADMIN_SCOPES)
+    render(<AdminPage section="accounts" />)
+
+    // Administrator accounts come from the deployment bootstrap, and the page says
+    // so instead of offering a role the API refuses.
+    expect(await screen.findByText(/Administrators are not created here/)).toBeTruthy()
+    expect(screen.queryByRole('option', { name: /administrator/i })).toBeNull()
   })
 })
 

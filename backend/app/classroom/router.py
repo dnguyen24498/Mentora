@@ -13,8 +13,11 @@ Routes (``contracts/openapi/openapi.yaml``):
   pinned, with each slide's text (navigation + narration).
 * ``GET  /classes/{classId}/scenes/{order}`` — the slide the session is presenting,
   read from the package the session **pinned** (``DEC-CONTENT-005``).
-* ``POST /classes/{classId}/enrollments`` — add a student to the roster: invite by
-  email (create-or-link the account) or enrol an account by id.
+* ``POST /classes/{classId}/enrollments`` — add a student to the roster: enrol an
+  account that already exists, by address or by id. Enrolment never creates an
+  account, so an unknown address is a named refusal rather than an implicit signup.
+* ``DELETE /classes/{classId}/enrollments/{studentId}`` — remove a student from the
+  roster (idempotent).
 * ``GET  /classes/{classId}/enrollments`` — the class roster the join check uses.
 * ``POST /classes/{classId}/bootstrap-token`` — the join credential, issued to the
   **authenticated** student and only when they are enrolled in a running class.
@@ -37,7 +40,11 @@ from fastapi.responses import Response
 from app.api.security import ApiSecurity
 from app.classroom.service import ClassroomService
 from app.common.errors import ValidationError
-from app.identity.errors import ISSUE_SESSION_REQUIRED, SessionError
+from app.identity.errors import (
+    ISSUE_SESSION_REQUIRED,
+    AccountRequiredError,
+    SessionError,
+)
 from app.identity.models import Principal, Scope
 
 
@@ -165,52 +172,59 @@ def build_class_router(
     ) -> dict[str, Any]:
         """Add a student to the class roster. Idempotent per ``(class, student)``.
 
-        Two ways in, both of which enrol a **real account**:
+        Two ways to name the student, and **neither creates an account**:
 
-        * ``email`` — the teacher's invitation. The account is created if this tenant
-          has none for that address, or linked if it has, so inviting the same
-          student twice is one identity and a retried invitation is not an error.
-          The response carries the account and, when the credential capability
-          provisions one (the development mock does; federation would not), a
-          one-time sign-in code.
-        * ``student_id`` — enrol an account that already exists, by its id.
+        * ``email`` — resolved against this institution's accounts. An address with no
+          account here is ``404 ACCOUNT_REQUIRED``: an institution administrator
+          creates accounts (``POST /accounts``), a teacher enrols them (V0-022).
+        * ``student_id`` — enrol an account that already exists, by its id. An id that
+          is not an account of this tenant is ``404``, not a free-text roster entry.
 
-        The class is validated *before* an account is created, so a bad class id
-        cannot leave an orphan account behind.
+        The class is validated before the student is resolved, so a bad class id is a
+        bad class id regardless of who is named — and a refusal writes nothing at all.
         """
 
         institution_id = principal.institution_id
+        service.class_view(institution_id, class_id)  # 404/403 before any write
+
         if email:
-            service.class_view(institution_id, class_id)  # 404/403 before any write
-            invitation = security.identity.invite_student(
-                institution_id, email, class_id=class_id
-            )
-            account = invitation.account
-            enrollment, created = service.enroll(
-                institution_id, class_id, account.account_id
-            )
-            return {
-                **enrollment.to_dict(),
-                "created": created,
-                "student": account.to_dict(),
-                "account_created": invitation.created,
-                "development_credential": invitation.development_credential,
-            }
-
-        if student_id:
+            account = security.identity.find_account_by_email(institution_id, email)
+            if account is None:
+                raise AccountRequiredError(
+                    f"this institution has no account for {email!r}. An institution "
+                    "administrator creates accounts; a teacher enrols the students "
+                    "an administrator has created"
+                )
+        elif student_id:
             account = security.identity.account(institution_id, student_id)
-            enrollment, created = service.enroll(
-                institution_id, class_id, account.account_id
-            )
-            return {
-                **enrollment.to_dict(),
-                "created": created,
-                "student": account.to_dict(),
-                "account_created": False,
-                "development_credential": None,
-            }
+        else:
+            raise ValidationError("provide an email or a student_id to enrol")
 
-        raise ValidationError("provide an email to invite, or a student_id to enrol")
+        enrollment, created = service.enroll(
+            institution_id, class_id, account.account_id
+        )
+        return {
+            **enrollment.to_dict(),
+            "created": created,
+            "student": account.to_dict(),
+        }
+
+    @router.delete("/classes/{class_id}/enrollments/{student_id}")
+    def unenroll_student(
+        class_id: str,
+        student_id: str,
+        principal: Principal = Depends(require(Scope.ENROLLMENT_WRITE)),
+    ) -> dict[str, Any]:
+        """Remove a student from the class roster. Idempotent (V0-022).
+
+        A roster correction, not an account change: the account survives, and the
+        credential a student already holds keeps working until it expires or the
+        actor epoch moves (``DEC-RUNTIME-007``). What ends immediately is the ability
+        to obtain a **new** join credential, because the join check reads this roster.
+        """
+
+        removed = service.unenroll(principal.institution_id, class_id, student_id)
+        return {"class_id": class_id, "student_id": student_id, "removed": removed}
 
     @router.get("/classes/{class_id}/enrollments")
     def list_enrollments(

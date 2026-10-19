@@ -1,7 +1,7 @@
 import { Link, adminPath, classroomPath, joinPath, learnPath, settingsPath, studioPath, loginPath } from '../router'
 import { readSelectedArtifact, readSelectedClass } from '../institution'
 import { TOUCH_TARGET } from './ui'
-import { clearSession, describePrincipal, isStudent, useSession } from '../auth/session'
+import { clearSession, describePrincipal, hasScope, isStudent, useSession } from '../auth/session'
 import { resetDevelopmentMode, useMode } from '../auth/mode'
 import { logout } from '../api/client'
 
@@ -26,6 +26,12 @@ import { logout } from '../api/client'
  *   version of the same fact;
  * * the right-hand end says who you are, or that you are in **development mode**
  *   (the `X-Institution-Id` shortcut, which is not a sign-in).
+ *
+ * V0-022 widens that first point from two roles to three: the entries are chosen by
+ * **capability**, not by role name, so an institution administrator (who authors
+ * nothing) sees the library, the Admin area and Settings — while a teacher sees the
+ * authoring surfaces and a student sees their class. The rule is the same one the
+ * server applies; the nav is simply its honest client-side projection.
  *
  * It is built to be a phone's primary navigation as well as a laptop's: each
  * entry is a chip with the 44px minimum tap area below `lg`
@@ -119,31 +125,44 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
         </>
       ) : (
         <>
-          <NavEntry to="/" label="Library" current={current === 'library'} hint="The material library" />
-          <NavEntry
-            to={artifact ? studioPath(artifact) : null}
-            label="Studio"
-            current={current === 'studio'}
-            hint="Open a deck from the library to reach its Teacher Studio"
-          />
-          <NavEntry
-            to={klass ? classroomPath(klass) : null}
-            label="Classroom"
-            current={current === 'classroom'}
-            hint="No class yet — schedule one to reach its classroom"
-          />
-          <NavEntry
-            to={artifact ? learnPath(artifact) : null}
-            label="Learn"
-            current={current === 'learn'}
-            hint="Open a deck from the library to reach its learning page"
-          />
+          {hasScope(session, 'content:read') && (
+            <NavEntry
+              to="/"
+              label="Library"
+              current={current === 'library'}
+              hint="The material library"
+            />
+          )}
+          {hasScope(session, 'content:write') && (
+            <NavEntry
+              to={artifact ? studioPath(artifact) : null}
+              label="Studio"
+              current={current === 'studio'}
+              hint="Open a deck from the library to reach its Teacher Studio"
+            />
+          )}
+          {hasScope(session, 'class:write') && (
+            <NavEntry
+              to={klass ? classroomPath(klass) : null}
+              label="Classroom"
+              current={current === 'classroom'}
+              hint="No class yet — schedule one to reach its classroom"
+            />
+          )}
+          {hasScope(session, 'scene:read') && (
+            <NavEntry
+              to={artifact ? learnPath(artifact) : null}
+              label="Learn"
+              current={current === 'learn'}
+              hint="Open a deck from the library to reach its learning page"
+            />
+          )}
           <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-slate-200" />
           <NavEntry
             to={adminPath()}
             label="Admin"
             current={current === 'admin'}
-            hint="Manage courses, classes and publications"
+            hint="Manage accounts, courses, classes and publications"
           />
           <NavEntry
             to={settingsPath()}

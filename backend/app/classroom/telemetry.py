@@ -35,6 +35,8 @@ class ClassroomMetrics:
     classes_scheduled: int = 0
     enrollments_created: int = 0
     enrollments_replayed: int = 0
+    #: V0-022: a roster correction (the count of *successful* removals).
+    enrollments_removed: int = 0
     sessions_started: int = 0
     starts_replayed: int = 0
     starts_blocked: int = 0

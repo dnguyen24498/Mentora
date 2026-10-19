@@ -41,8 +41,8 @@
     },
     "role": {
       "type": "string",
-      "enum": ["teacher", "student"],
-      "description": "The canonical role name (governance/TERMINOLOGY_REGISTRY.yaml). The spec's wider role list (institution admin, IT operator, moderator, auditor, …) is not yet modelled."
+      "enum": ["institution_admin", "teacher", "student"],
+      "description": "The canonical role name (docs/ARC_OVERVIEW.md §27: Identity, SSO, and Roles). V0 models Institution Administrator, Teacher and Student and names exactly those; the list's other roles (platform administrator, IT operator, course administrator, teaching assistant, moderator, auditor) are not modelled."
     },
     "scopes": {
       "type": "array",
@@ -58,10 +58,12 @@
           "publication:write",
           "enrollment:write",
           "scene:read",
-          "join"
+          "join",
+          "account:read",
+          "account:write"
         ]
       },
-      "description": "Capabilities, not a role string: a guard is written against the absence of a capability. A session carries the intersection of what it was issued and the account's current role, so a role change can only remove a capability, never add one. `join` is the student's participant capability: a teacher holds no `join`, and a class join binds to the authenticated student's own account (DEC-TURN-001). Stored in a stable order so the same role always produces the same session row."
+      "description": "Capabilities, not a role string: a guard is written against the absence of a capability. A session carries the intersection of what it was issued and the account's current role, so a role change can only remove a capability, never add one. `join` is the student's participant capability: a teacher holds no `join`, and a class join binds to the authenticated student's own account (DEC-TURN-001). `account:write` is the administrator's: it is what lets a caller create, change or remove an account, so a teacher can enrol an existing student but cannot bring one into existence. Stored in a stable order so the same role always produces the same session row."
     },
     "authenticator": {
       "type": "string",

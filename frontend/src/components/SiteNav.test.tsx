@@ -168,13 +168,31 @@ describe('SiteNav — identities', () => {
     writeSelectedArtifact(ARTIFACT)
     render(<SiteNav current="library" />)
 
-    expect(screen.getByTestId('session-principal').textContent).toContain('Teacher · teacher')
+    expect(screen.getByTestId('session-principal').textContent).toContain('Teacher · Teacher')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     // A teacher keeps the authoring entries.
     expect(screen.getByRole('link', { name: 'Library' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Studio' }).getAttribute('href')).toBe(
       `/studio/${ARTIFACT}`,
     )
+  })
+
+  it('gives an administrator the library and the directory, not the authoring surfaces', () => {
+    signInAs('institution_admin')
+    writeSelectedArtifact(ARTIFACT)
+    writeSelectedClass('class-1')
+
+    render(<SiteNav current="library" />)
+
+    expect(screen.getByRole('link', { name: 'Library' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Admin' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeTruthy()
+    // An administrator authors nothing and is not a participant, so the nav does
+    // not offer a page whose every request would answer 403.
+    for (const label of ['Studio', 'Classroom', 'Learn']) {
+      expect(screen.queryByRole('link', { name: label })).toBeNull()
+      expect(screen.queryByText(label)).toBeNull()
+    }
   })
 
   it('offers a student their class instead of the authoring entries', () => {
@@ -212,16 +230,33 @@ describe('SiteNav — identities', () => {
   })
 })
 
-function signInAs(role: 'teacher' | 'student') {
+function signInAs(role: 'teacher' | 'student' | 'institution_admin') {
+  const TEACHER_SCOPES = [
+    'account:read',
+    'class:read',
+    'class:write',
+    'content:read',
+    'content:write',
+    'enrollment:write',
+    'publication:write',
+    'review:write',
+    'scene:read',
+  ]
+  const scopes =
+    role === 'student'
+      ? ['class:read', 'scene:read', 'join']
+      : role === 'institution_admin'
+        ? ['account:read', 'account:write', 'content:read', 'class:read']
+        : TEACHER_SCOPES
   const session = {
     token: 'tok-1',
     principal: {
       authenticated: true,
       institution_id: 'university-001',
       role,
-      scopes: role === 'student' ? ['class:read', 'scene:read', 'join'] : ['class:write'],
+      scopes,
       account_id: 'account-1',
-      email: role === 'student' ? 'student7@school.example' : 'teacher@school.example',
+      email: role === 'student' ? 'student7@school.example' : `${role}@school.example`,
       display_name: role === 'student' ? null : 'Teacher',
       session_id: 'session-1',
     },

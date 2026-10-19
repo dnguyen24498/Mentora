@@ -100,13 +100,13 @@ describe('session store', () => {
     expect(screen.getByTestId('who').textContent).toBe('Development mode')
 
     act(() => writeSession(session()))
-    expect(screen.getByTestId('who').textContent).toBe('Student Seven · student')
+    expect(screen.getByTestId('who').textContent).toBe('Student Seven · Student')
 
     act(() => clearSession())
     expect(screen.getByTestId('who').textContent).toBe('Development mode')
 
     // Each state change re-rendered the subscriber.
-    expect(seen).toContain('Student Seven · student')
+    expect(seen).toContain('Student Seven · Student')
   })
 
   it('clears the persisted value on sign-out', () => {
@@ -161,13 +161,13 @@ describe('descriptions', () => {
   })
 
   it('names the person and their role', () => {
-    expect(describePrincipal(session())).toBe('Student Seven · student')
+    expect(describePrincipal(session())).toBe('Student Seven · Student')
   })
 
   it('falls back to the email when there is no display name', () => {
     const named = session()
     expect(describePrincipal(session({ principal: { ...named.principal, display_name: null } }))).toBe(
-      'student7@school.example · student',
+      'student7@school.example · Student',
     )
   })
 

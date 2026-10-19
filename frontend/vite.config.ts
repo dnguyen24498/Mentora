@@ -71,6 +71,9 @@ export default defineConfig({
       // `/auth/login` would otherwise hit the SPA fallback and the client would
       // parse index.html as JSON.
       '/auth': backendProxy(),
+      // The account directory (V0-022). Same reason as the rest: `/accounts` would
+      // otherwise hit the SPA fallback and the client would parse index.html as JSON.
+      '/accounts': backendProxy(),
       '/health': backendProxy(),
       // Renderer capability/health (V0-005) and the API docs. Without these the
       // dev server answers with the SPA fallback (index.html), so the browser

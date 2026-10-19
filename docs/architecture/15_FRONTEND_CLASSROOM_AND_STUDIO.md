@@ -93,10 +93,47 @@ pinned at start (`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`
 so a correction published mid-lesson cannot change the slide under the student,
 and a tampered file is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown.
 
-Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster: **invite by email**
-creates-or-links the account in the tenant and enrols it in one step, then shows
-the one-time sign-in code to hand over (returned once, never stored in the clear),
-and the class detail offers the student join link to share.
+Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster, and V0-022 changed how
+a student gets onto it: **the picker chooses from the students who exist** (a
+teacher's `account:read` lists students and no other role), and the panel says that
+creating an account is the administrator's job in `Admin → Accounts`. Enrolment
+never creates an account, so there is no address to type and no implicit signup
+behind one; each roster row carries a **Remove** action, and the page says the
+account and its sign-in survive a removal. The class detail still offers the
+student join link to share.
+
+## Implemented administration and role-aware navigation (V0-022)
+
+Three roles sign in through one form (`auth/LoginPage.tsx`), because who you are is
+the account's role rather than a choice on a page; and the same page carries the
+**first-administrator** panel, since a fresh installation has no accounts at all and
+therefore nobody who could sign in to create one. That panel posts to
+`POST /auth/bootstrap-admin`, shows the one-time code once, and **fills it into the
+sign-in form** so the next step is one click; its refusals are named by cause — the
+institution already has an administrator, or a hardened deployment provisions them
+through the identity provider instead (`AccountsAdmin.tsx` says the same thing in
+its Administrator-accounts panel).
+
+`admin/AccountsAdmin.tsx` is the directory: create, rename, switch role, disable,
+enable and delete teacher and student accounts, with the one-time code shown once on
+creation. Two refusals are turned into the remedy they point at, rather than a raw
+code: an address that already belongs to the other role says to change *that*
+account's role instead of splitting one person in two, and a deletion refused with
+`ACCOUNT_IN_USE` says to **Disable** instead, explaining that a removal would orphan
+the roster. It never offers to create an administrator — the API refuses that, so
+the page does not pretend otherwise.
+
+`auth/session.ts` gained the third role, the two new capabilities, `isAdministrator`
+(read from `account:write`, never from the role name) and `describeRole`;
+`hasScope` now answers **false** for `account:write` with no session, because the
+development shortcut resolves a *teacher* server-side — so the developer sees
+exactly the surfaces a teacher has rather than an administrator's that would `403`.
+`components/SiteNav.tsx` therefore chooses its entries by **capability**: an
+administrator gets Library, Admin and Settings (they author nothing and attend
+nothing, so Studio, Classroom and Learn would only fail), a teacher gets all of
+them, and a student keeps their class. `admin/AdminPage.tsx` filters its own
+sections the same way and, for a section the role does not hold, says so with links
+to the ones it does rather than rendering a page whose every request would 403.
 
 ## Implemented responsive layout (phone and large screen)
 
@@ -218,16 +255,23 @@ server-side is exactly the durable workflow/timeline work that is `DEC-TECH-003`
 ## Implemented admin and settings areas
 
 `/admin/{section}` (`frontend/src/admin/`) manages the V0 entities **through the
-existing API only** — overview (what the tenant holds), courses & materials
-(create a course, upload a deck into it, compile it, open its Studio/learning
-page), classes (schedule, start, enrol) and publications (publish, verify). The
-write verbs are the domain's own transitions; there is no generic update or delete,
-and that is a property of the domain rather than a gap: content is immutable, a
-draft is append-only and a publication is never deleted (`DEC-CONTENT-005`), so a
-correction is a new version. The publications view is the place the seal is made
+existing API only** — overview (what the tenant holds), accounts (the directory,
+V0-022), courses & materials (create a course, upload a deck into it, compile it,
+open its Studio/learning page), classes (schedule, start, assign and remove
+students) and publications (publish, verify). The write verbs are the domain's own
+transitions; there is no generic update or delete *of content*, and that is a
+property of the domain rather than a gap: content is immutable, a draft is
+append-only and a publication is never deleted (`DEC-CONTENT-005`), so a correction
+is a new version. An **account** is the exception that proves the rule — a name, a
+role and an enabled state are genuinely mutable — so the directory has a real
+rename, role switch, disable/enable and removal, with removal refused while a class
+references the account. The publications view is the place the seal is made
 visible: `Publish` is idempotent on the content and reports a replay as such, and
 `Verify integrity` re-checks the pinned package against the digest recorded at seal
 time and reports `VERIFIED`/`MISMATCH`/`MISSING` without mutating anything.
+
+The section list itself is filtered by **capability** (V0-022), so the tabs a
+principal sees are exactly the ones the server would allow.
 
 A class can be given a **datetime**, and the classes view shows it and how far off it
 is, ticking on the page's own clock (`time.ts`). With **auto-start** on, a class whose

@@ -1,6 +1,6 @@
-"""The identity service: log in, prove a session, sign out, invite (V0-021).
+"""The identity service: log in, prove a session, sign out, administer accounts.
 
-Three responsibilities, deliberately kept apart:
+Four responsibilities, deliberately kept apart:
 
 * :meth:`IdentityService.login` verifies a credential through the replaceable
   :class:`~app.identity.port.Authenticator`, then mints a **short-lived,
@@ -13,8 +13,19 @@ Three responsibilities, deliberately kept apart:
   deterministic local validation whose failure the transport must turn into a
   specific ``401``, in the same way ``ClassRepository.get_class`` raises rather than
   returning ``None`` (V0-009).
-* :meth:`IdentityService.invite_student` creates-or-links a student account and
-  returns the account plus, for the development mock only, a one-time credential.
+* :meth:`IdentityService.create_account` / :meth:`update_account` /
+  :meth:`delete_account` are the **directory** (V0-022): create-or-link an account,
+  change it, remove it, each returning the account plus — at creation only — the
+  one-time credential a credential-issuing adapter provisions. Disabling an account
+  revokes its live sessions in the same call, so a disable takes effect on the next
+  request rather than at session expiry (``DEC-RUNTIME-007``).
+* :meth:`IdentityService.bootstrap_administrator` is the one-shot seam that gives a
+  fresh installation its **first** administrator, because every other account verb
+  requires an administrator to authorize it.
+
+What this module deliberately does **not** know: whether an account may be removed
+(a roster reference is another domain's fact — the API layer composes that check),
+and how a credential is verified (that is the port's).
 
 The tenant always comes from the **session**, never from the request: a caller
 cannot address another institution's data by naming it, and the token is the only
@@ -36,13 +47,16 @@ from app.identity.errors import (
     ISSUE_SESSION_REQUIRED,
     ISSUE_SESSION_REVOKED,
     ISSUE_SESSION_UNKNOWN,
+    BootstrapClosedError,
     InvitationConflictError,
+    RoleNotManageableError,
     SessionError,
 )
 from app.identity.models import (
+    MANAGEABLE_ROLES,
     Account,
+    AccountMutation,
     AuthSession,
-    InvitedAccount,
     IssuedSession,
     Principal,
     Role,
@@ -288,71 +302,211 @@ class IdentityService:
 
         return self._repository.find_account(institution_id, account_id)
 
-    def list_students(self, institution_id: str) -> list[Account]:
-        """The tenant's student accounts, for a roster picker."""
+    def find_account_by_email(self, institution_id: str, email: str) -> Optional[Account]:
+        """One account of this tenant by address, or ``None`` (the enrolment lookup)."""
 
-        return self._repository.list_accounts(institution_id, role=Role.STUDENT)
+        return self._repository.find_account_by_email(institution_id, email)
 
-    def invite_student(
+    def list_accounts(self, institution_id: str, *, role: Role) -> list[Account]:
+        """The tenant's accounts of one role, for a picker or a directory view."""
+
+        return self._repository.list_accounts(institution_id, role=role)
+
+    def create_account(
         self,
         institution_id: str,
-        email: str,
-        display_name: str = "",
         *,
-        class_id: Optional[str] = None,
-    ) -> InvitedAccount:
-        """Create-or-link a student account for ``email`` in this tenant.
+        email: str,
+        role: Role,
+        display_name: str = "",
+        actor_role: str = "",
+    ) -> AccountMutation:
+        """Create-or-link an account of a manageable role (V0-022).
 
-        **Create-or-link, not create**: inviting the same address twice is one
-        account, so a retried invitation is not an error (``DEC-RUNTIME-003``) and a
-        student who was invited to two classes has one identity, not two.
+        **Create-or-link, not create**: the same address and role is one account, so
+        a retried request is not an error (``DEC-RUNTIME-003``) and a credential is
+        issued exactly once — a replay carries no credential at all, so a retried
+        create cannot re-mint a secret. The same address with a *different* role is
+        refused rather than silently promoted: changing what an account is is an
+        administrative decision, and this route does not make it implicitly.
 
         ``development_credential`` is populated **only** by a credential-issuing
         adapter. Institutional federation does not need it — the identity provider
         owns the credential — so with a federation adapter in place this is ``None``
-        and an invitation grants no local secret at all.
+        and creating an account grants no local secret at all.
         """
 
+        if role not in MANAGEABLE_ROLES:
+            raise RoleNotManageableError(
+                f"{role.value!r} accounts are not created through this surface: an "
+                "administrator is provisioned by the deployment bootstrap (or, with "
+                "federation, by the identity provider)"
+            )
+
         subject = normalize_email(email)
-        if "@" not in subject or any(char.isspace() for char in subject):
+        if "@" not in subject or any(char.isspace() for char in subject) or len(subject) > 320:
             raise ValidationError("a valid email address is required")
 
         existing = self._repository.find_account_by_email(institution_id, subject)
         if existing is not None:
-            if existing.role is not Role.STUDENT:
+            if existing.role is not role:
                 raise InvitationConflictError(
                     f"{subject!r} already exists in this institution as a "
-                    f"{existing.role.value}; an invitation cannot change a role"
+                    f"{existing.role.value}; an account's role is changed deliberately, "
+                    "not as a side effect of creating one"
                 )
-            self._telemetry.record_invitation(
+            self._telemetry.record_account_created(
                 institution_id=institution_id,
-                class_id=class_id or "",
                 subject=subject,
+                role=existing.role.value,
                 created=False,
                 credential_issued=False,
-                role=existing.role.value,
+                actor_role=actor_role,
             )
-            return InvitedAccount(account=existing, created=False)
+            return AccountMutation(account=existing, created=False)
 
         account = self._repository.create_account(
             institution_id=institution_id,
             email=subject,
             display_name=display_name or subject,
-            role=Role.STUDENT,
+            role=role,
         )
         credential = self._authenticator.issue_credential(institution_id, account.account_id)
-        self._telemetry.record_invitation(
+        self._telemetry.record_account_created(
             institution_id=institution_id,
-            class_id=class_id or "",
             subject=subject,
+            role=account.role.value,
             created=True,
             credential_issued=credential is not None,
-            role=account.role.value,
+            actor_role=actor_role,
         )
-        return InvitedAccount(
-            account=account,
-            development_credential=credential,
-            created=True,
+        return AccountMutation(
+            account=account, created=True, development_credential=credential
+        )
+
+    def update_account(
+        self,
+        institution_id: str,
+        account_id: str,
+        *,
+        display_name: Optional[str] = None,
+        role: Optional[Role] = None,
+        disabled: Optional[bool] = None,
+        actor_role: str = "",
+    ) -> AccountMutation:
+        """Change an account's display name, role or enabled state (V0-022).
+
+        The account must exist in this tenant (``404`` from the repository) and the
+        role must be manageable. **Disabling revokes the account's live sessions in
+        the same call** and reports how many, because a disable that left a working
+        token behind would not be a disable (``DEC-RUNTIME-007``); re-enabling
+        restores sign-in. A role change is applied the way any role edit is: a
+        session's capabilities are re-derived from the account's current role, so a
+        change can only remove — a promotion needs a fresh sign-in.
+        """
+
+        if role is not None and role not in MANAGEABLE_ROLES:
+            raise RoleNotManageableError(
+                f"{role.value!r} is not a manageable role; administrator accounts are "
+                "provisioned by the deployment bootstrap, not assigned here"
+            )
+
+        account = self._repository.get_account(institution_id, account_id)
+        changed: list[str] = []
+        if display_name is not None and display_name.strip() != account.display_name:
+            changed.append("display_name")
+        if role is not None and role is not account.role:
+            changed.append("role")
+        if disabled is not None and disabled == account.is_active:
+            changed.append("status")
+
+        updated = self._repository.update_account(
+            institution_id=institution_id,
+            account_id=account_id,
+            display_name=display_name,
+            role=role,
+            disabled=disabled,
+        )
+
+        revoked = 0
+        if disabled:
+            # Same call, so a disable is never "effective at the next sign-in".
+            revoked = self._repository.revoke_sessions_for_account(institution_id, account_id)
+
+        self._telemetry.record_account_updated(
+            institution_id=institution_id,
+            account_id=account_id,
+            changed=tuple(changed),
+            role=updated.role.value,
+            status="DISABLED" if not updated.is_active else "ACTIVE",
+            sessions_revoked=revoked,
+            actor_role=actor_role,
+        )
+        return AccountMutation(
+            account=updated, created=False, sessions_revoked=revoked
+        )
+
+    def delete_account(
+        self, institution_id: str, account_id: str, *, actor_role: str = ""
+    ) -> bool:
+        """Remove an account with its credential material and sessions.
+
+        Whether an account *may* be removed is not decided here: a roster reference
+        is the classroom domain's fact, and the API layer composes that check before
+        calling this (V0-022). This method only refuses an account of another tenant
+        (``403``) or a nonexistent one (``404``).
+        """
+
+        account = self._repository.get_account(institution_id, account_id)
+        removed = self._repository.delete_account(institution_id, account_id)
+        if removed:
+            self._telemetry.record_account_deleted(
+                institution_id=institution_id,
+                account_id=account_id,
+                role=account.role.value,
+                actor_role=actor_role,
+            )
+        return removed
+
+    # -- the first administrator -----------------------------------------------------------------
+    def bootstrap_administrator(
+        self, institution_id: str, *, email: str, display_name: str = ""
+    ) -> AccountMutation:
+        """Create the institution's **first** administrator, once.
+
+        Under institutional federation the identity provider provisions this account,
+        which is why the route that exposes this method exists only on a development
+        deployment. The precondition is the whole security property: the moment this
+        tenant *has* an administrator, every account verb requires that administrator
+        to authorize it, so the bootstrap closes forever
+        (``ISSUE_TENANT_ALREADY_PROVISIONED``). It refuses rather than returning an
+        existing account, because "the bootstrap quietly handed you someone else's
+        account" is not a thing this should be able to do.
+        """
+
+        subject = normalize_email(email)
+        if "@" not in subject or any(char.isspace() for char in subject) or len(subject) > 320:
+            raise ValidationError("a valid email address is required")
+
+        if self._repository.count_accounts(institution_id, role=Role.INSTITUTION_ADMIN) > 0:
+            raise BootstrapClosedError(
+                "this institution already has an administrator; sign in to create accounts"
+            )
+
+        account = self._repository.create_account(
+            institution_id=institution_id,
+            email=subject,
+            display_name=display_name or subject,
+            role=Role.INSTITUTION_ADMIN,
+        )
+        credential = self._authenticator.issue_credential(institution_id, account.account_id)
+        self._telemetry.record_admin_bootstrapped(
+            institution_id=institution_id,
+            subject=subject,
+            credential_issued=credential is not None,
+        )
+        return AccountMutation(
+            account=account, created=True, development_credential=credential
         )
 
     # -- the pre-auth development shortcut ---------------------------------------------

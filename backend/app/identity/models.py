@@ -1,4 +1,4 @@
-"""Accounts, roles, principals and sessions (V0-021).
+"""Accounts, roles, principals and sessions (V0-021, V0-022).
 
 ``docs/security/IDENTITY_AUTHORIZATION_AND_TOKENS.md``: *"Users authenticate through
 institutional federation; services use workload identity. Roles: platform/institution
@@ -19,9 +19,13 @@ first:
   one everywhere it appears (the same shape ``ADR-P007`` gives the TTS mock, where
   ``DEC-TECH-007`` is ``OPEN``).
 
-The canonical role list names seven roles. V0 has a product surface for two of them,
-so :class:`Role` names two — inventing the other five would be creating a decision
-the specification has not made.
+The canonical role list names eight roles (``docs/ARC_OVERVIEW.md`` §27, *Identity,
+SSO, and Roles*). V0 has a product surface for three of them, so :class:`Role` names
+three — the **Institution Administrator** who owns the directory (V0-022), the
+**Teacher** who runs classes and the **Student** who attends them. Inventing the
+other five (platform administrator, IT operator, course administrator, teaching
+assistant, moderator, auditor) would be creating policy the specification has not
+fixed.
 """
 
 from __future__ import annotations
@@ -33,8 +37,13 @@ from typing import Any, Optional
 
 
 class Role(str, Enum):
-    """A principal's role. Only the roles V0 has a surface for are named."""
+    """A principal's role. Only the roles V0 has a product surface for are named.
 
+    The value is the canonical name, not a display label: ``institution_admin`` is
+    the *Institution Administrator* of ``docs/ARC_OVERVIEW.md`` §27.
+    """
+
+    INSTITUTION_ADMIN = "institution_admin"
     TEACHER = "teacher"
     STUDENT = "student"
 
@@ -69,11 +78,31 @@ class Scope(str, Enum):
     #: it (the development shortcut) can never satisfy this, because a join binds to
     #: the authenticated student (``DEC-TURN-001``).
     JOIN = "join"
+    #: List this institution's accounts of a role (V0-022). Held by an administrator,
+    #: and by a teacher for **students only** — a teacher chooses students for a
+    #: roster, which is not the same as reading the staff directory.
+    ACCOUNT_READ = "account:read"
+    #: Create, change and remove accounts (V0-022). This is the capability that
+    #: separates *assigning* a person to a class from *creating* them: a caller
+    #: without it can enrol an existing student and can create nothing.
+    ACCOUNT_WRITE = "account:write"
 
 
 #: Role -> capabilities. One place decides what a role may do, so a role can never
 #: accumulate a capability by an endpoint forgetting to check.
 ROLE_SCOPES: dict[Role, frozenset[Scope]] = {
+    # The institution administrator owns the directory (V0-022) and, per the
+    # canonical permission model's "view institution-wide usage", reads courses and
+    # classes for oversight. It holds no write verb beyond `account:write`: an
+    # administrator is not a teacher, and not a participant.
+    Role.INSTITUTION_ADMIN: frozenset(
+        {
+            Scope.ACCOUNT_READ,
+            Scope.ACCOUNT_WRITE,
+            Scope.CONTENT_READ,
+            Scope.CLASS_READ,
+        }
+    ),
     Role.TEACHER: frozenset(
         {
             Scope.CLASS_WRITE,
@@ -84,12 +113,22 @@ ROLE_SCOPES: dict[Role, frozenset[Scope]] = {
             Scope.PUBLICATION_WRITE,
             Scope.ENROLLMENT_WRITE,
             Scope.SCENE_READ,
+            Scope.ACCOUNT_READ,
         }
     ),
     # The student's set is exactly "attend the class": read the class and its
     # snapshot, read the scene being presented, ask to join. Nothing that writes.
     Role.STUDENT: frozenset({Scope.CLASS_READ, Scope.SCENE_READ, Scope.JOIN}),
 }
+
+#: The roles an administrator may create and change through the accounts surface.
+#: Administrator accounts are provisioned by the deployment bootstrap (or, in a
+#: federated deployment, by the identity provider) — never minted by another
+#: administrator through this API, which would let one administrator multiply itself.
+MANAGEABLE_ROLES: frozenset[Role] = frozenset({Role.TEACHER, Role.STUDENT})
+
+#: The one role a caller without ``account:write`` may list: a teacher's picker.
+TEACHER_LISTABLE_ROLES: frozenset[Role] = frozenset({Role.STUDENT})
 
 
 def scopes_for(role: Role) -> tuple[Scope, ...]:
@@ -143,8 +182,34 @@ class Account:
             "email": self.email,
             "display_name": self.display_name,
             "role": self.role.value,
-            "created_at": self.created_at,
+            "scopes": [scope.value for scope in scopes_for(self.role)],
+            "status": "DISABLED" if not self.is_active else "ACTIVE",
             "disabled": not self.is_active,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(frozen=True)
+class AccountMutation:
+    """The result of creating or changing an account (V0-022).
+
+    ``development_credential`` is populated **only** at creation, by a
+    credential-issuing adapter: it is a mock's affordance and it is returned once.
+    A replay of a create, or any update, carries ``None`` — a retried request can
+    never re-mint a secret.
+    """
+
+    account: Account
+    created: bool = False
+    development_credential: Optional[str] = None
+    sessions_revoked: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "created": self.created,
+            "account": self.account.to_dict(),
+            "development_credential": self.development_credential,
+            "sessions_revoked": self.sessions_revoked,
         }
 
 
@@ -248,18 +313,4 @@ class IssuedSession:
         }
 
 
-@dataclass(frozen=True)
-class InvitedAccount:
-    """A newly created account plus its one-time development credential.
 
-    The credential is returned **once**, at creation, and only its digest is
-    stored. With institutional federation in place there is no such value: the
-    identity provider owns the credential and this field would carry a federation
-    subject instead. It is a mock's affordance, and the API response says so.
-    """
-
-    account: Account
-    enrollment: Any = None
-    development_credential: Optional[str] = None
-    created: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)

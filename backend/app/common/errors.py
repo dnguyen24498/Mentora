@@ -40,6 +40,11 @@ class ErrorCode(str, Enum):
     INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE"
     AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
     AUTHENTICATION_UNAVAILABLE = "AUTHENTICATION_UNAVAILABLE"
+    # V0-022 (accounts): a state conflict that is not a validation error — an
+    # account that is on a roster and cannot be removed, an address that already
+    # exists with another role, a role this deployment does not manage. The finer
+    # branch point travels in `issue_code`, as the class/package conflicts do.
+    CONFLICT = "CONFLICT"
 
 
 class AppError(Exception):
@@ -108,6 +113,19 @@ class NotEnrolledError(AppError):
 
     code = ErrorCode.NOT_ENROLLED
     http_status = 403
+
+
+class ConflictError(AppError):
+    """The request is well-formed but conflicts with the current state.
+
+    Distinct from :class:`ValidationError`: nothing about the request is malformed —
+    what it asks for cannot be done to *this* state (an account that is on a roster
+    cannot be removed; an address already exists with another role). The precise
+    branch point travels in ``issue_code`` (V0-022).
+    """
+
+    code = ErrorCode.CONFLICT
+    http_status = 409
 
 
 class UnauthenticatedError(AppError):

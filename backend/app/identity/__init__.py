@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from app.identity.models import (
     Account,
+    AccountMutation,
     AuthSession,
-    InvitedAccount,
     IssuedSession,
     Principal,
     Role,
@@ -25,10 +25,10 @@ from app.identity.service import IdentityService, LoginResult
 
 __all__ = [
     "Account",
+    "AccountMutation",
     "AuthSession",
     "IdentityRepository",
     "IdentityService",
-    "InvitedAccount",
     "IssuedSession",
     "LoginResult",
     "Principal",

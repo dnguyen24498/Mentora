@@ -118,30 +118,11 @@ def _publish_version(client, course_id: str, data: bytes, filename: str = "lectu
     }
 
 
-def _schedule(client, course_id: str, **params) -> dict:
-    response = client.post(
-        "/classes", params={"course_id": course_id, **params}, headers=HEADERS
-    )
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def _start(client, class_id: str, headers: dict = HEADERS):
-    return client.post(f"/classes/{class_id}/start", headers=headers)
-
-
-def _invite(client, class_id: str, email: str, headers: dict = HEADERS) -> dict:
-    """A teacher invites a student by email: create-or-link the account, then enrol.
-
-    ``HEADERS`` is the development tenant shortcut, which resolves to a teacher
-    principal (no account behind it) — exactly what a teacher-only verb needs.
-    """
-
-    response = client.post(
-        f"/classes/{class_id}/enrollments", params={"email": email}, headers=headers
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+ADMIN_EMAIL = "root@uni.test"
+#: Where a bootstrapped administrator's session is memoised, per app instance. The
+#: bootstrap is one-shot per tenant, so a test can only do it once; caching it on the
+#: app keeps a test that needs an administrator from having to thread one through.
+_ADMIN_CACHE_ATTR = "_mentora_test_admins"
 
 
 def _sign_in(
@@ -155,14 +136,97 @@ def _sign_in(
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
-def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, dict]:
-    """Invite a student, sign in, and return ``(account_id, authorized headers)``."""
+def _admin_headers(client, institution: str = "university-001") -> dict:
+    """A signed-in institution administrator, bootstrapped once per app instance.
 
-    invitation = _invite(client, class_id, email)
-    credential = invitation["development_credential"]
-    assert credential, invitation
-    headers = _sign_in(client, email, credential)
-    return invitation["student"]["account_id"], headers
+    V0-022 separates the directory from the roster: an *administrator* creates
+    accounts and a *teacher* assigns them. So a test that needs a student account
+    does exactly what a fresh installation does — ``POST /auth/bootstrap-admin``
+    (one-shot, hence the memoisation) and sign in. The development tenant shortcut
+    resolves to a *teacher*, which is why it cannot stand in here.
+    """
+
+    cache = getattr(client.app.state, _ADMIN_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(client.app.state, _ADMIN_CACHE_ATTR, cache)
+    if institution not in cache:
+        boot = client.post(
+            "/auth/bootstrap-admin",
+            params={
+                "institution_id": institution,
+                "email": ADMIN_EMAIL,
+                "display_name": "Root",
+            },
+        )
+        assert boot.status_code == 201, boot.text
+        credential = boot.json()["development_credential"]
+        assert credential, boot.text
+        cache[institution] = _sign_in(client, ADMIN_EMAIL, credential, institution)
+    return cache[institution]
+
+
+def _provision(
+    client, email: str, role: str = "student", institution: str = "university-001"
+) -> dict:
+    """Create an account the way an administrator does, and return the mutation."""
+
+    response = client.post(
+        "/accounts",
+        params={"email": email, "role": role},
+        headers=_admin_headers(client, institution),
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _schedule(client, course_id: str, **params) -> dict:
+    response = client.post(
+        "/classes", params={"course_id": course_id, **params}, headers=HEADERS
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _start(client, class_id: str, headers: dict = HEADERS):
+    return client.post(f"/classes/{class_id}/start", headers=headers)
+
+
+def _invite(
+    client, class_id: str, email: str, headers: dict = HEADERS
+) -> dict:
+    """Create the account if this institution has none, then enrol by address.
+
+    Two capabilities on purpose (V0-022): an administrator creates the account
+    (``POST /accounts``) and a teacher assigns it (``POST .../enrollments``). The
+    default ``HEADERS`` is the development tenant shortcut, i.e. a teacher.
+    """
+
+    _provision(client, email)
+    response = client.post(
+        f"/classes/{class_id}/enrollments", params={"email": email}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, dict]:
+    """Provision a student, enrol them in ``class_id``, sign in, return ``(id, headers)``.
+
+    Provisioning is the administrator's step (V0-022); the enrolment is the teacher's.
+    """
+
+    mutation = _provision(client, email)
+    account_id = mutation["account"]["account_id"]
+    credential = mutation["development_credential"]
+    assert credential, mutation
+    enrolled = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"student_id": account_id},
+        headers=HEADERS,
+    )
+    assert enrolled.status_code == 200, enrolled.text
+    return account_id, _sign_in(client, email, credential)
 
 
 def _repository(client) -> ClassRepository:
@@ -692,25 +756,27 @@ def test_join_requires_enrollment(client):
     assert denied.json()["error"]["code"] == "NOT_ENROLLED"
 
 
-def test_an_invitation_creates_the_account_then_links_it(client):
-    """A teacher adds a student by email; the same address is one identity."""
+def test_enrolling_by_address_links_an_existing_account(client):
+    """A teacher adds a student by email; the same address is one identity.
+
+    The account itself is the administrator's to create (``POST /accounts``) — so the
+    teacher's part starts once it exists.
+    """
 
     course_id = _course(client)
     class_id = _schedule(client, course_id)["class_id"]
+    account = _provision(client, "Ana@Uni.test")["account"]
+    assert account["role"] == "student"
+    assert account["email"] == "ana@uni.test"
 
     first = _invite(client, class_id, "Ana@Uni.test")
-    assert first["account_created"] is True
     assert first["created"] is True
-    assert first["student"]["role"] == "student"
-    assert first["development_credential"], "the development mock provisions a sign-in code"
+    assert first["student"]["account_id"] == account["account_id"]
 
     second = _invite(client, class_id, "ana@uni.test")
-    assert second["account_created"] is False, "the account is linked, not duplicated"
-    assert second["created"] is False, "and the enrolment is idempotent"
-    assert second["development_credential"] is None
-    assert second["student"]["account_id"] == first["student"]["account_id"]
+    assert second["created"] is False, "the enrolment is idempotent"
+    assert second["student"]["account_id"] == account["account_id"]
     assert second["enrollment_id"] == first["enrollment_id"]
-
     # One account, one enrolment.
     assert _counts(client)["enrollments"] == 1
 
@@ -725,6 +791,101 @@ def test_an_invitation_creates_the_account_then_links_it(client):
         == 404
     )
 
+
+def test_a_teacher_enrols_an_existing_student_but_creates_none(client):
+    """The separation of duties: teaching *assigns* people, it does not *create* them.
+
+    ``HEADERS`` is the development tenant shortcut, which resolves to a teacher
+    principal — so this is exactly a teacher's request.
+    """
+
+    course_id = _course(client)
+    class_id = _schedule(client, course_id)["class_id"]
+
+    refused = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"email": "mallory@uni.test"},
+        headers=HEADERS,
+    )
+
+    assert refused.status_code == 404, refused.text
+    assert refused.json()["error"]["code"] == "NOT_FOUND"
+    assert refused.json()["error"]["issue_code"] == "ACCOUNT_REQUIRED"
+    # Nothing was written: no account, no roster entry.
+    assert _counts(client)["enrollments"] == 0
+    assert client.app.state.identity_service.find_account_by_email(
+        "university-001", "mallory@uni.test"
+    ) is None
+
+    # An account the administrator created, though, a teacher can enrol — by address
+    # or by id, and either way it is the same one identity.
+    account = _provision(client, "ana@uni.test")["account"]
+    by_email = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"email": "ana@uni.test"},
+        headers=HEADERS,
+    )
+    assert by_email.status_code == 200, by_email.text
+    assert by_email.json()["created"] is True
+    assert "development_credential" not in by_email.json(), "enrolment mints no secret"
+
+    second_class = _schedule(client, course_id)["class_id"]
+    by_id = client.post(
+        f"/classes/{second_class}/enrollments",
+        params={"student_id": account["account_id"]},
+        headers=HEADERS,
+    )
+    assert by_id.status_code == 200, by_id.text
+    assert by_id.json()["student"]["account_id"] == account["account_id"]
+
+
+def test_a_teacher_can_remove_a_student_from_a_class(client):
+    """A roster can be corrected, and removing a seat does not remove an identity."""
+
+    course_id = _course(client)
+    _publish_version(client, course_id, _deck())
+    class_id = _schedule(client, course_id)["class_id"]
+    _start(client, class_id)
+    account = _provision(client, "ana@uni.test")
+    account_id = account["account"]["account_id"]
+    student = _sign_in(client, "ana@uni.test", account["development_credential"])
+    enrolled = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"student_id": account_id},
+        headers=HEADERS,
+    )
+    assert enrolled.status_code == 200, enrolled.text
+    assert client.post(f"/classes/{class_id}/bootstrap-token", headers=student).status_code == 200
+
+    removed = client.delete(
+        f"/classes/{class_id}/enrollments/{account_id}", headers=HEADERS
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json() == {"class_id": class_id, "student_id": account_id, "removed": True}
+
+    # Idempotent: removing an unenrolled student is not an error (DEC-RUNTIME-003).
+    again = client.delete(
+        f"/classes/{class_id}/enrollments/{account_id}", headers=HEADERS
+    )
+    assert again.status_code == 200
+    assert again.json()["removed"] is False
+
+    # The account survives — this was a roster correction, not an account change.
+    assert client.app.state.identity_service.find_account("university-001", account_id)
+
+    # And the join check reads the roster, so the removed student gets no *new*
+    # credential (a credential already issued keeps its own epoch/expiry — DEC-RUNTIME-007).
+    refused = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["error"]["code"] == "NOT_ENROLLED"
+
+    # A student cannot remove anyone (the guard runs before the id is read).
+    assert (
+        client.delete(
+            f"/classes/{class_id}/enrollments/{account_id}", headers=student
+        ).status_code
+        == 403
+    )
 
 def test_a_student_cannot_use_teacher_verbs(client):
     """Roles are enforced server-side, not by hiding UI (V0-021)."""
@@ -750,6 +911,18 @@ def test_a_student_cannot_use_teacher_verbs(client):
         == 403
     )
     assert client.get(f"/classes/{class_id}/enrollments", headers=student).status_code == 403
+    # V0-022: the directory and the roster correction are teacher/admin verbs, not a
+    # student's. The guard runs before any id is read, so nothing leaks either way.
+    assert client.get("/accounts", params={"role": "student"}, headers=student).status_code == 403
+    assert client.post(
+        "/accounts", params={"email": "mallory@uni.test", "role": "student"}, headers=student
+    ).status_code == 403
+    assert (
+        client.delete(
+            f"/classes/{class_id}/enrollments/does-not-matter", headers=student
+        ).status_code
+        == 403
+    )
 
     denied = client.post(f"/classes/{class_id}/start", headers=student).json()
     assert denied["error"]["code"] == "INSUFFICIENT_SCOPE"

@@ -160,6 +160,37 @@ class ClassRepository:
         ).fetchone()
         return row is not None
 
+    def unenroll(self, institution_id: str, class_id: str, student_id: str) -> bool:
+        """Remove a student from a class roster. Idempotent: absent is not an error.
+
+        Only the roster row goes. The account, its sessions and any join credential
+        it already holds are untouched — removing a seat is not revoking an identity
+        (V0-022).
+        """
+
+        with transaction(self._conn):
+            cur = self._conn.execute(
+                "DELETE FROM enrollments "
+                "WHERE institution_id = ? AND class_id = ? AND student_id = ?",
+                (institution_id, class_id, student_id),
+            )
+        return cur.rowcount > 0
+
+    def count_enrollments_for_student(self, institution_id: str, student_id: str) -> int:
+        """How many class rosters this account is on, across the institution.
+
+        The guard for removing an account: an identity that a class referenced is
+        deactivated rather than deleted, so a roster and the audit trail behind it
+        cannot be orphaned (V0-022).
+        """
+
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM enrollments "
+            "WHERE institution_id = ? AND student_id = ?",
+            (institution_id, student_id),
+        ).fetchone()
+        return int(row["n"])
+
     # -- the pinned tuple: reads of publication-owned tables (read-only) --------------
     def find_current_publication_for_course(
         self, institution_id: str, course_id: str

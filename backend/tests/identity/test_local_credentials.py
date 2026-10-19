@@ -133,18 +133,20 @@ def test_an_issued_credential_authenticates_and_is_stored_as_a_digest(conn):
 
 
 def test_invite_then_sign_in_end_to_end(conn):
-    """The path a student actually takes: a teacher invites, the student signs in."""
+    """The path a student actually takes: an administrator creates, the student signs in."""
 
     service = build_identity_service(conn, name=DEFAULT_IDENTITY_PROVIDER)
 
-    invitation = service.invite_student(TENANT, "ana@uni.test", "Ana")
-    assert invitation.created and invitation.development_credential
+    created = service.create_account(
+        TENANT, email="ana@uni.test", role=Role.STUDENT, display_name="Ana"
+    )
+    assert created.created and created.development_credential
 
-    result = service.login(TENANT, "ana@uni.test", invitation.development_credential)
+    result = service.login(TENANT, "ana@uni.test", created.development_credential)
 
     assert result.authenticated
     principal = service.principal_for_token(result.issuance.raw_token)
-    assert principal.account_id == invitation.account.account_id
+    assert principal.account_id == created.account.account_id
     assert principal.role is Role.STUDENT
 
 

@@ -69,14 +69,6 @@ def _publish(client, course_id: str, deck: bytes | None = None) -> dict:
     return {"artifact_id": artifact_id, "package_id": published["package_id"], **published}
 
 
-def _invite(client, class_id: str, email: str) -> dict:
-    response = client.post(
-        f"/classes/{class_id}/enrollments", params={"email": email}, headers=HEADERS
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
 def _login(client, email: str, credential: str, institution: str = "university-001"):
     return client.post(
         "/auth/login",
@@ -84,13 +76,68 @@ def _login(client, email: str, credential: str, institution: str = "university-0
     )
 
 
-def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, dict]:
-    invitation = _invite(client, class_id, email)
-    response = _login(client, email, invitation["development_credential"])
+def _sign_in(client, email: str, credential: str, institution: str = "university-001") -> dict:
+    response = _login(client, email, credential, institution)
     assert response.status_code == 200, response.text
-    return invitation["student"]["account_id"], {
-        "Authorization": f"Bearer {response.json()['token']}"
-    }
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def _admin(client, institution: str = "university-001") -> dict:
+    """A signed-in institution administrator, bootstrapped once per app instance.
+
+    V0-022 makes account creation an administrator capability, so a test that needs
+    a student account does what a fresh installation does: the one-shot bootstrap
+    (memoised, because it really is one-shot) and sign in. The development tenant
+    shortcut is a *teacher*, which is why it cannot stand in for this.
+    """
+
+    cache = getattr(client.app.state, "_mentora_test_admins", None)
+    if cache is None:
+        cache = {}
+        setattr(client.app.state, "_mentora_test_admins", cache)
+    if institution not in cache:
+        boot = client.post(
+            "/auth/bootstrap-admin",
+            params={"institution_id": institution, "email": "root@uni.test"},
+        )
+        assert boot.status_code == 201, boot.text
+        cache[institution] = _sign_in(
+            client, "root@uni.test", boot.json()["development_credential"], institution
+        )
+    return cache[institution]
+
+
+def _provision(client, email: str, role: str = "student") -> dict:
+    """Create an account the way an administrator does, and return the mutation."""
+
+    response = client.post(
+        "/accounts", params={"email": email, "role": role}, headers=_admin(client)
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _invite(client, class_id: str, email: str) -> dict:
+    """Create the account if this institution has none, then enrol by address."""
+
+    _provision(client, email)
+    response = client.post(
+        f"/classes/{class_id}/enrollments", params={"email": email}, headers=HEADERS
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, dict]:
+    mutation = _provision(client, email)
+    account_id = mutation["account"]["account_id"]
+    enrolled = client.post(
+        f"/classes/{class_id}/enrollments",
+        params={"student_id": account_id},
+        headers=HEADERS,
+    )
+    assert enrolled.status_code == 200, enrolled.text
+    return account_id, _sign_in(client, email, mutation["development_credential"])
 
 
 # -- login -------------------------------------------------------------------------
@@ -102,9 +149,10 @@ def test_a_login_response_is_honest_about_the_mechanism(client):
 
     course_id = _course(client)
     class_id = _class(client, course_id)
-    invitation = _invite(client, class_id, "ana@uni.test")
+    account = _provision(client, "ana@uni.test")
+    _invite(client, class_id, "ana@uni.test")
 
-    body = _login(client, "ana@uni.test", invitation["development_credential"]).json()
+    body = _login(client, "ana@uni.test", account["development_credential"]).json()
 
     assert body["authenticated"] is True
     assert body["token_type"] == "Bearer"
@@ -139,12 +187,18 @@ def test_a_session_is_the_only_thing_that_decides_the_tenant(client):
 
     course_id = _course(client)
     class_id = _class(client, course_id)
-    invitation = _invite(client, class_id, "ana@uni.test")
+    account = _provision(client, "ana@uni.test")
+    _invite(client, class_id, "ana@uni.test")
     # Sign in naming the *other* tenant: the account is not there, so nothing is
     # granted — a subject cannot choose which institution it is authenticated in.
-    assert _login(client, "ana@uni.test", invitation["development_credential"], "university-002").status_code == 401
+    assert (
+        _login(
+            client, "ana@uni.test", account["development_credential"], "university-002"
+        ).status_code
+        == 401
+    )
 
-    token = _login(client, "ana@uni.test", invitation["development_credential"]).json()["token"]
+    token = _login(client, "ana@uni.test", account["development_credential"]).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get(f"/classes/{class_id}", headers=headers).status_code == 200
     # The tenant header alongside a session changes nothing.

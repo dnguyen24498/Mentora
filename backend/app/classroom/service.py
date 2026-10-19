@@ -497,6 +497,33 @@ class ClassroomService:
         self._repository.get_class(institution_id, class_id)
         return self._repository.list_enrollments(institution_id, class_id)
 
+    def unenroll(self, institution_id: str, class_id: str, student_id: str) -> bool:
+        """Remove a student from a class roster; idempotent (``DEC-RUNTIME-003``).
+
+        A roster correction, not an account change: the account survives, and a
+        credential the student already holds stays valid until it expires or the
+        actor epoch moves (``DEC-RUNTIME-007``). What ends immediately is the ability
+        to obtain a **new** one, because the join check reads this roster.
+        """
+
+        self._repository.get_class(institution_id, class_id)
+        student = (student_id or "").strip()
+        if not student:
+            raise ValidationError("student_id is required")
+        removed = self._repository.unenroll(institution_id, class_id, student)
+        if removed:
+            self._telemetry.metrics.enrollments_removed += 1
+        return removed
+
+    def enrolled_anywhere(self, institution_id: str, student_id: str) -> bool:
+        """Whether this account is on any class roster in the institution.
+
+        The read the account-removal guard uses: an account that a class referenced
+        is deactivated, not deleted (V0-022).
+        """
+
+        return self._repository.count_enrollments_for_student(institution_id, student_id) > 0
+
     def issue_bootstrap_token(
         self, institution_id: str, class_id: str, student_id: str
     ) -> IssuedBootstrapToken:

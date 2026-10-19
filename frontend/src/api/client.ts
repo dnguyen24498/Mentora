@@ -784,25 +784,16 @@ export interface RosterEntry extends Enrollment {
 }
 
 /**
- * Add a student to the class roster.
+ * Add a student to the class roster, by address.
  *
- * With an `email` this is the teacher's **invitation**: the account is created in
- * this institution if it has none for that address, or linked if it has, and the
- * response carries a one-time sign-in code when the credential capability
- * provisions one (the development mock does; institutional federation would not).
- * Enrollment is the class-scoped authorization a join is checked against, and it
- * is idempotent: inviting the same student twice is one identity and one
- * enrolment.
+ * **Enrolment never creates an account** (V0-022): an institution administrator
+ * creates accounts (`POST /accounts`), a teacher enrols them. An address this
+ * institution has no account for is refused with `ACCOUNT_REQUIRED`, which is a
+ * branch point a caller can act on rather than a generic failure. The enrolment
+ * itself is idempotent: the same student twice is one roster entry.
  */
 export const enrollStudentByEmail = (institutionId: string, classId: string, email: string) =>
-  request<
-    Enrollment & {
-      student: Account
-      account_created: boolean
-      development_credential: string | null
-      created: boolean
-    }
-  >(
+  request<Enrollment & { student: Account; created: boolean }>(
     `/classes/${classId}/enrollments?email=${encodeURIComponent(email)}`,
     institutionId,
     { method: 'POST' },
@@ -816,11 +807,97 @@ export const enrollStudentById = (institutionId: string, classId: string, accoun
     { method: 'POST' },
   )
 
+/** Remove a student from a class roster. Idempotent (V0-022). */
+export const unenrollStudent = (institutionId: string, classId: string, studentId: string) =>
+  request<{ class_id: string; student_id: string; removed: boolean }>(
+    `/classes/${classId}/enrollments/${encodeURIComponent(studentId)}`,
+    institutionId,
+    { method: 'DELETE' },
+  )
+
 /** The roster, with the account each enrolment authorizes. A teacher capability. */
 export const loadRoster = (institutionId: string, classId: string) =>
   request<{ class_id: string; enrollments: RosterEntry[] }>(
     `/classes/${classId}/enrollments`,
     institutionId,
+  )
+
+// -- the account directory (V0-022) -------------------------------------------------
+
+/** A role the accounts surface manages. Administrator accounts are bootstrapped. */
+export type ManagedRole = 'teacher' | 'student'
+
+export interface AccountMutation {
+  created: boolean
+  account: Account
+  development_credential: string | null
+  sessions_revoked: number
+}
+
+/** The institution's accounts of one role. A teacher may list students only. */
+export const listAccounts = (institutionId: string, role: ManagedRole) =>
+  request<{ institution_id: string; role: ManagedRole; accounts: Account[] }>(
+    `/accounts?role=${role}`,
+    institutionId,
+  )
+
+/** Create a teacher or a student. An administrator capability. */
+export const createAccount = (
+  institutionId: string,
+  email: string,
+  role: ManagedRole,
+  displayName?: string,
+) => {
+  const params = new URLSearchParams({ email, role })
+  if (displayName) params.set('display_name', displayName)
+  return request<AccountMutation>(`/accounts?${params.toString()}`, institutionId, {
+    method: 'POST',
+  })
+}
+
+export const loadAccount = (institutionId: string, accountId: string) =>
+  request<Account>(`/accounts/${encodeURIComponent(accountId)}`, institutionId)
+
+/** Change a display name, a role or the enabled state. An administrator capability. */
+export const updateAccount = (
+  institutionId: string,
+  accountId: string,
+  change: { displayName?: string; role?: ManagedRole; status?: 'ACTIVE' | 'DISABLED' },
+) => {
+  const params = new URLSearchParams()
+  if (change.displayName !== undefined) params.set('display_name', change.displayName)
+  if (change.role !== undefined) params.set('role', change.role)
+  if (change.status !== undefined) params.set('status', change.status)
+  return request<AccountMutation>(
+    `/accounts/${encodeURIComponent(accountId)}?${params.toString()}`,
+    institutionId,
+    { method: 'PATCH' },
+  )
+}
+
+/** Remove an account no class references. An enrolled account is deactivated instead. */
+export const deleteAccount = (institutionId: string, accountId: string) =>
+  request<{ account_id: string; deleted: boolean }>(
+    `/accounts/${encodeURIComponent(accountId)}`,
+    institutionId,
+    { method: 'DELETE' },
+  )
+
+/**
+ * Create the institution's **first** administrator (V0-022).
+ *
+ * Unauthenticated by necessity: there is no administrator yet to authorize it. The
+ * route exists only while the deployment's development shortcut is on, and it
+ * refuses once the tenant has an administrator — so a caller treats a refusal as
+ * "sign in instead".
+ */
+export const bootstrapAdministrator = (institutionId: string, email: string) =>
+  request<AccountMutation>(
+    `/auth/bootstrap-admin?institution_id=${encodeURIComponent(
+      institutionId,
+    )}&email=${encodeURIComponent(email)}`,
+    '',
+    { method: 'POST' },
   )
 
 // -- the student's view of a running class (V0-021) -------------------------------

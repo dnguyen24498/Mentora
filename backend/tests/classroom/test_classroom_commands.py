@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from app.api.app import create_app
 from app.classroom.errors import ISSUE_INVALID_TRANSITION, ISSUE_STALE_STATE_VERSION, SnapshotIntegrityError
 from app.classroom.models import CLASSROOM_STATE_ACTIVE, CLASSROOM_STATE_COMPLETED
+from app.identity.models import Role
 from tests.fixtures import build_pptx, text_shape
 
 HEADERS = {"X-Institution-Id": "university-001"}
@@ -259,12 +260,18 @@ def test_a_corrupted_snapshot_is_refused_on_restore(client, settings):
 def test_end_revokes_live_join_credentials(client):
     class_id, _ = _started(client)
     service = _service(client)
+    # An administrator creates the account (V0-022); the class enrols it by id —
+    # enrolment itself never creates an account.
+    account = client.app.state.identity_service.create_account(
+        "university-001", email="ana@uni.test", role=Role.STUDENT
+    ).account
     enrolled = client.post(
         f"/classes/{class_id}/enrollments",
-        params={"email": "ana@uni.test"},
+        params={"student_id": account.account_id},
         headers=HEADERS,
     ).json()
     student_id = enrolled["student"]["account_id"]
+    assert student_id == account.account_id
     token = service.issue_bootstrap_token("university-001", class_id, student_id).token
 
     assert service.verify_bootstrap_token("university-001", class_id, token).student_id == student_id

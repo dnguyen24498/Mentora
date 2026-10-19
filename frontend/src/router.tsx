@@ -38,7 +38,7 @@ export const JOIN_PATH = '/join'
 export const STUDENT_PATH = '/student'
 
 /** The admin (data management) sections, one route each. */
-export const ADMIN_SECTIONS = ['overview', 'courses', 'classes', 'publications'] as const
+export const ADMIN_SECTIONS = ['overview', 'accounts', 'courses', 'classes', 'publications'] as const
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]
 
 /** The settings sections, one route each. */

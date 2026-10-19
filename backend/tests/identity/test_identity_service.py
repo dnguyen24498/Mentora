@@ -1,13 +1,14 @@
-"""Login, sessions, roles and invitations (V0-021).
+"""Login, sessions, roles and the account directory (V0-021, V0-022).
 
 The properties that matter here are the security ones, so they are asserted
 directly rather than inferred from a happy path:
 
 * the tenant comes from the **session**, never from the request;
 * only a token **digest** is stored;
-* an expired or revoked session cannot authorize;
+* an expired, revoked or disabled session cannot authorize;
 * capabilities cannot exceed the account's *current* role;
-* an invitation is create-or-link, and never changes an existing account's role.
+* creating an account is create-or-link and never changes an existing one's role;
+* disabling revokes live sessions, and the one-shot administrator bootstrap closes.
 """
 
 from __future__ import annotations
@@ -21,11 +22,15 @@ from app.common.errors import ValidationError
 from app.identity.errors import (
     ISSUE_ACCOUNT_DISABLED,
     ISSUE_EMAIL_ROLE_CONFLICT,
+    ISSUE_ROLE_NOT_MANAGEABLE,
     ISSUE_SESSION_EXPIRED,
     ISSUE_SESSION_REQUIRED,
     ISSUE_SESSION_REVOKED,
     ISSUE_SESSION_UNKNOWN,
+    ISSUE_TENANT_ALREADY_PROVISIONED,
+    BootstrapClosedError,
     InvitationConflictError,
+    RoleNotManageableError,
     SessionError,
 )
 from app.identity.models import Role, Scope, hash_token
@@ -271,41 +276,70 @@ def test_the_development_shortcut_is_marked_unauthenticated(conn):
     assert principal.has(Scope.PUBLICATION_WRITE)
 
 
-# -- invitations ---------------------------------------------------------------------
-def test_inviting_is_create_or_link(conn):
+# -- accounts ------------------------------------------------------------------------
+def test_creating_an_account_is_create_or_link(conn):
     service, _ = build(conn)
 
-    first = service.invite_student(TENANT, "Ana@Uni.test", "Ana")
-    second = service.invite_student(TENANT, "ana@uni.test")
+    first = service.create_account(
+        TENANT, email="Ana@Uni.test", role=Role.STUDENT, display_name="Ana"
+    )
+    second = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
 
     assert first.created is True
     assert second.created is False
     assert first.account.account_id == second.account.account_id
     assert first.account.email == normalize_email("Ana@Uni.test") == "ana@uni.test"
-    # One account, and the second invitation issues no new credential.
+    assert first.account.role is Role.STUDENT
+    # One account, and the second create issues no new credential.
     assert conn.execute("SELECT COUNT(*) AS total FROM accounts").fetchone()["total"] == 1
     assert second.development_credential is None
 
 
-def test_an_invitation_never_changes_an_existing_role(conn):
+def test_creating_an_account_never_changes_an_existing_role(conn):
     service, repository = build(conn)
     repository.create_account(
         institution_id=TENANT, email="t@uni.test", display_name="T", role=Role.TEACHER
     )
 
     with pytest.raises(InvitationConflictError) as raised:
-        service.invite_student(TENANT, "t@uni.test")
+        service.create_account(TENANT, email="t@uni.test", role=Role.STUDENT)
 
     assert raised.value.issue_code == ISSUE_EMAIL_ROLE_CONFLICT
     assert repository.find_account_by_email(TENANT, "t@uni.test").role is Role.TEACHER
 
 
+def test_a_new_role_is_created_create_or_link(conn):
+    """The same create-or-link contract serves both manageable roles."""
+
+    service, _ = build(conn)
+
+    first = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
+    second = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
+
+    assert first.created is True
+    assert second.created is False
+    assert first.account.role is Role.TEACHER
+    assert first.development_credential and second.development_credential is None
+
+
 @pytest.mark.parametrize("email", ["", "   ", "not-an-email", "ana@uni test"])
-def test_an_invalid_invitation_is_refused(conn, email):
+def test_an_invalid_address_is_refused(conn, email):
     service, _ = build(conn)
 
     with pytest.raises(ValidationError):
-        service.invite_student(TENANT, email)
+        service.create_account(TENANT, email=email, role=Role.STUDENT)
+
+
+def test_an_administrator_cannot_be_created_through_the_directory(conn):
+    """Administrator accounts come from the bootstrap, never from another admin."""
+
+    service, _ = build(conn)
+
+    with pytest.raises(RoleNotManageableError) as raised:
+        service.create_account(TENANT, email="root@uni.test", role=Role.INSTITUTION_ADMIN)
+
+    assert raised.value.issue_code == ISSUE_ROLE_NOT_MANAGEABLE
+    assert conn.execute("SELECT COUNT(*) AS total FROM accounts").fetchone()["total"] == 0
 
 
 def test_the_same_email_in_another_tenant_is_another_account(conn):
@@ -313,10 +347,126 @@ def test_the_same_email_in_another_tenant_is_another_account(conn):
 
     service, _ = build(conn)
 
-    here = service.invite_student(TENANT, "ana@uni.test")
-    there = service.invite_student(OTHER_TENANT, "ana@uni.test")
+    here = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    there = service.create_account(OTHER_TENANT, email="ana@uni.test", role=Role.STUDENT)
 
     assert here.account.account_id != there.account.account_id
+
+
+def test_disabling_an_account_revokes_its_live_sessions(conn):
+    """A disable that left a working token behind would not be a disable."""
+
+    service, _ = build(conn)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    assert session.authenticated
+    token = session.issuance.raw_token
+    assert service.principal_for_token(token).account_id == created.account.account_id
+
+    mutation = service.update_account(
+        TENANT, created.account.account_id, disabled=True, actor_role=Role.INSTITUTION_ADMIN.value
+    )
+
+    assert mutation.sessions_revoked == 1
+    assert mutation.account.is_active is False
+    with pytest.raises(SessionError) as revoked:
+        service.principal_for_token(token)
+    assert revoked.value.issue_code == ISSUE_SESSION_REVOKED
+    # The sign-in refusal for a disabled account is asserted end to end, against the
+    # real adapter, in `tests/test_accounts_api.py`.
+
+
+def test_a_role_change_only_removes_capabilities_from_a_live_session(conn):
+    service, _ = build(conn)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    token = session.issuance.raw_token
+    assert service.principal_for_token(token).has(Scope.JOIN)
+
+    service.update_account(
+        TENANT, created.account.account_id, role=Role.TEACHER, actor_role=Role.INSTITUTION_ADMIN.value
+    )
+
+    principal = service.principal_for_token(token)
+    assert principal.role is Role.TEACHER
+    # The session's stored scopes were the student's, so the intersection can only
+    # narrow: the participant capability is gone until a fresh sign-in.
+    assert not principal.has(Scope.JOIN)
+
+
+def test_removing_an_account_takes_its_credentials_and_sessions(conn):
+    service, _ = build(conn)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    token = session.issuance.raw_token
+
+    assert service.delete_account(TENANT, created.account.account_id) is True
+
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 0
+    assert (
+        conn.execute("SELECT COUNT(*) AS n FROM account_credentials").fetchone()["n"] == 0
+    )
+    assert conn.execute("SELECT COUNT(*) AS n FROM auth_sessions").fetchone()["n"] == 0
+    with pytest.raises(SessionError):
+        service.principal_for_token(token)
+
+
+def test_listing_accounts_is_by_role(conn):
+    service, _ = build(conn)
+    service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
+    service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    service.create_account(TENANT, email="bo@uni.test", role=Role.STUDENT)
+
+    teachers = service.list_accounts(TENANT, role=Role.TEACHER)
+    students = service.list_accounts(TENANT, role=Role.STUDENT)
+
+    assert [account.email for account in teachers] == ["t@uni.test"]
+    assert sorted(account.email for account in students) == ["ana@uni.test", "bo@uni.test"]
+
+
+# -- the first administrator ------------------------------------------------------------
+def test_the_bootstrap_creates_the_first_administrator_once(conn):
+    service, _ = build(conn)
+
+    first = service.bootstrap_administrator(TENANT, email="root@uni.test", display_name="Root")
+
+    assert first.created is True
+    assert first.account.role is Role.INSTITUTION_ADMIN
+    assert first.development_credential
+
+    with pytest.raises(BootstrapClosedError) as raised:
+        service.bootstrap_administrator(TENANT, email="other@uni.test")
+
+    assert raised.value.issue_code == ISSUE_TENANT_ALREADY_PROVISIONED
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 1
+
+
+def test_the_bootstrap_is_per_tenant(conn):
+    """One institution's administrator does not close another's bootstrap."""
+
+    service, _ = build(conn)
+
+    service.bootstrap_administrator(TENANT, email="root@uni.test")
+    other = service.bootstrap_administrator(OTHER_TENANT, email="root@uni.test")
+
+    assert other.created is True
+    assert other.account.role is Role.INSTITUTION_ADMIN
+
+
+def test_a_bootstrapped_administrator_signs_in_like_any_other_account(conn):
+    service, _ = build(conn)
+    bootstrapped = service.bootstrap_administrator(TENANT, email="root@uni.test")
+
+    result = service.login(TENANT, "root@uni.test", bootstrapped.development_credential)
+
+    assert result.authenticated
+    principal = service.principal_for_token(result.issuance.raw_token)
+    assert principal.role is Role.INSTITUTION_ADMIN
+    assert principal.has(Scope.ACCOUNT_WRITE)
+    # An administrator is not a participant and not an author.
+    assert not principal.has(Scope.JOIN)
+    assert not principal.has(Scope.CONTENT_WRITE)
+    assert principal.has(Scope.CONTENT_READ)
 
 
 def test_the_authenticator_identity_is_reported_for_traceability(conn):
