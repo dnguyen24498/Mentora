@@ -33,4 +33,4 @@ V0-018,W4,DONE,Faithful slide rendering fidelity,V0-005;V0-006,tasks/V0-018-fait
 V0-019,W4,DONE,Slide rendering source-layout default with platform fallbacks plus themed re-layout,V0-005;V0-006;V0-018,tasks/V0-019-themed-slide-rendering
 V0-020,W4,DONE,Request-scoped database access concurrency safety,V0-001;V0-004;V0-007,tasks/V0-020-database-concurrency-safety
 V0-021,W8,DONE,Identity accounts roles and the student learning surface,V0-009;V0-011,tasks/V0-021-identity-accounts-and-student-learning
-V0-022,W8,IN_PROGRESS,Administration accounts and role separation,V0-021,tasks/V0-022-administration-accounts-and-role-separation
+V0-022,W8,DONE,Administration accounts and role separation,V0-021,tasks/V0-022-administration-accounts-and-role-separation
