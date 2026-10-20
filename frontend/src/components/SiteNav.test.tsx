@@ -14,8 +14,10 @@ vi.mock('../api/client', async (importOriginal) => {
 
 /**
  * The shared nav is the answer to "get from any page to any other page". The two
- * scoped pages (Studio/Learn need a deck, Classroom needs a class) are only
- * links once there is an id to link to; before that they say why they are not.
+ * scoped pages (Studio/Learn need a deck, Classroom needs a class) are links even
+ * before an id is known: they fall back to the chooser where that id is picked
+ * (the Library for a deck, Admin → Classes for a class), so an entry is never a
+ * dead label.
  *
  * Since V0-023 the entries are chosen by **capability**, and no session is no
  * capabilities, so these tests sign a teacher in: the nav only ever renders inside
@@ -28,15 +30,20 @@ describe('SiteNav', () => {
     signInAs('teacher')
   })
 
-  it('always links the library, and explains the pages that need a deck or class', () => {
+  it('always links the library, and sends a page that needs a deck or class to its chooser', () => {
     render(<SiteNav current="library" />)
 
     expect(screen.getByRole('link', { name: 'Library' }).getAttribute('href')).toBe('/')
 
+    // No remembered deck/class: the entry is still a real link, to where one is
+    // chosen — not a disabled label that looks like a broken page.
+    expect(screen.getByRole('link', { name: 'Studio' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
+      '/admin/classes',
+    )
+    expect(screen.getByRole('link', { name: 'Learn' }).getAttribute('href')).toBe('/')
     for (const label of ['Studio', 'Classroom', 'Learn']) {
-      // Not a link yet: a nav entry that goes nowhere would be a trap.
-      expect(screen.queryByRole('link', { name: label })).toBeNull()
-      expect(screen.getByText(label).getAttribute('aria-disabled')).toBe('true')
+      expect(screen.getByRole('link', { name: label }).getAttribute('aria-disabled')).toBeNull()
     }
   })
 
@@ -162,9 +169,8 @@ describe('SiteNav — identities', () => {
 
     // The list is the student's own roster and needs no remembered class id.
     expect(screen.getByRole('link', { name: 'My classes' }).getAttribute('href')).toBe('/student')
-    // The class-scoped entry does need one, so it is explained rather than a link.
-    expect(screen.queryByRole('link', { name: 'Attend' })).toBeNull()
-    expect(screen.getByText('Attend').getAttribute('aria-disabled')).toBe('true')
+    // The class-scoped entry falls back to that list rather than being dead.
+    expect(screen.getByRole('link', { name: 'Attend' }).getAttribute('href')).toBe('/student')
   })
 
   it('does not link the page you are already on', () => {

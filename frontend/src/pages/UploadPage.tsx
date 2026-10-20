@@ -17,6 +17,7 @@ import {
   type Material,
 } from '../api/client'
 import {
+  readSelectedArtifact,
   readSelectedCourse,
   useInstitution,
   writeSelectedArtifact,
@@ -71,6 +72,11 @@ export default function UploadPage() {
   const [loadingClasses, setLoadingClasses] = useState(false)
   const [classesError, setClassesError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The deck the shared nav links to. It is the one the teacher opened, or — on a
+  // first visit, before anything has been opened — the newest deck in the course,
+  // so Studio and Learn are usable straight away instead of pointing at the
+  // library the teacher is already on.
+  const [navArtifactId, setNavArtifactId] = useState<string>(() => readSelectedArtifact())
   const [ir, setIr] = useState<ContentIR | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -83,8 +89,19 @@ export default function UploadPage() {
   // Remember the deck so the shared nav can reach its Studio and Learn pages
   // from anywhere else.
   useEffect(() => {
-    if (selectedId) writeSelectedArtifact(selectedId)
+    if (!selectedId) return
+    writeSelectedArtifact(selectedId)
+    setNavArtifactId(selectedId)
   }, [selectedId])
+
+  // A first visit has no remembered deck. The newest uploaded deck stands in, so
+  // the nav is not a dead end; opening any deck replaces it.
+  useEffect(() => {
+    if (navArtifactId || materials.length === 0) return
+    const newest = materials[0].artifact_id
+    writeSelectedArtifact(newest)
+    setNavArtifactId(newest)
+  }, [materials, navArtifactId])
 
   const fail = useCallback((cause: unknown) => {
     if (cause instanceof ApiError) setError({ code: cause.code, message: cause.message })
@@ -244,7 +261,7 @@ export default function UploadPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <SiteNav current="library" artifactId={selectedId} />
+            <SiteNav current="library" artifactId={selectedId ?? navArtifactId} />
             <span className="ml-auto text-xs font-semibold uppercase tracking-wide text-slate-400">
               Mentora
             </span>

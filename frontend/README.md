@@ -39,9 +39,11 @@ Teacher Studio, Classroom, Learning, Admin and Settings are each reachable from
 the others. The Studio and Learn links need a deck and the Classroom link needs a
 class: the current page passes the id it holds, otherwise the last one opened is
 remembered in `localStorage` (`src/institution.ts`, like the tenant and the
-selected course). Before there is an id, the entry is a disabled label that says
-why — never a link that goes nowhere. Admin and Settings are plain links, so they
-are always available.
+selected course). Before there is an id, the entry still links to the place that
+id is chosen — the Library for a deck, Admin → Classes for a class — rather than
+being a disabled label. The library also remembers the newest deck of the
+selected course on a first visit, so Studio and Learn are usable without opening
+one first. Admin and Settings are plain links, so they are always available.
 
 With identities (V0-021) the nav also answers "who am I": it shows the signed-in
 principal and **Sign out**, or a **Sign in** link when no session exists. Since
@@ -431,8 +433,8 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   (`/student`, always — it is their own roster) and **Attend** (`/student/{id}`)
   instead of Studio/Classroom/Learn/Admin; an institution administrator sees
   Library/Admin/Settings because the authoring surfaces would only answer `403`;
-  without a remembered class the class-scoped **Attend** entry is a disabled label
-  that says why, while the list still works. This is courtesy, not access control:
+  without a remembered class the class-scoped **Attend** entry falls back to the
+  class list rather than being a dead label. This is courtesy, not access control:
   the server refuses a student's teacher verbs with `403 INSUFFICIENT_SCOPE`
   regardless. With no session the nav offers only **Sign in**, because there is
   nothing a caller without a session may do.
@@ -545,8 +547,8 @@ the visible rendering phase, unloadable packages, the server's refusal, draft
 saves) with a mocked API client; `src/App.test.tsx` covers the routing between
 the pages including a deep link; `src/router.test.tsx` covers route parsing
 and the `Link`/`navigate` behaviour. `src/components/SiteNav.test.tsx` covers the
-shared navigation (every page from every page, the disabled entries before an id
-is known, `aria-current`). `src/presentation/LearnPage.test.tsx` covers the
+shared navigation (every page from every page, the chooser an entry falls back to
+before an id is known, `aria-current`). `src/presentation/LearnPage.test.tsx` covers the
 learning page: stored vs built package, slide navigation by button, selector and
 arrow keys, the teaching script, the canvas toolbar including its no-2D-canvas
 degradation, and the automatic teaching (play/pause/stop, the transcript, the

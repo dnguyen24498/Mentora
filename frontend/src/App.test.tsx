@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import {
@@ -121,6 +121,44 @@ describe('App — routing between the pages', () => {
 
     expect(await screen.findByRole('heading', { name: /Upload Course Material/ })).toBeTruthy()
     expect(screen.queryByTestId('teacher-studio')).toBeNull()
+  })
+
+  it('makes Studio and Learn reachable from the newest deck on a first visit', async () => {
+    vi.mocked(listCourses).mockResolvedValue([{ course_id: 'course-1', title: 'Biology 101' }])
+    vi.mocked(listMaterials).mockResolvedValue([
+      {
+        artifact_id: ARTIFACT,
+        version_id: 'version-1',
+        version: 1,
+        filename: 'deck.pptx',
+        media_type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        sha256: 'a'.repeat(64),
+        byte_size: 1024,
+        created_at: '2026-10-16T09:00:00Z',
+        job_id: 'job-1',
+        job_status: 'EXTRACTED',
+        job_updated_at: '2026-10-16T09:00:00Z',
+      },
+    ])
+    visit('/')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: /Upload Course Material/ })).toBeTruthy()
+    // No deck was opened in this browser. The newest deck stands in, so the
+    // Studio/Learn entries are direct links rather than pointing at the library
+    // the teacher is already on.
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Studio' }).getAttribute('href')).toBe(
+        `/studio/${ARTIFACT}`,
+      ),
+    )
+    expect(screen.getByRole('link', { name: 'Learn' }).getAttribute('href')).toBe(
+      `/learn/${ARTIFACT}`,
+    )
+    // A class is not chosen for the teacher: Classroom opens the class chooser.
+    expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
+      '/admin/classes',
+    )
   })
 
   it('serves the Teacher Studio as its own page at /studio/{artifactId}', async () => {
