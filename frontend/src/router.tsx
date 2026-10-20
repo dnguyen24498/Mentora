@@ -16,7 +16,9 @@ import {
  * `/settings/{section}` (client preferences and read-only server facts), and —
  * V0-021 — the sign-in page at `/login`, a class's student join page at
  * `/join/{classId}` and the student's own fullscreen view of it at
- * `/student/{classId}`. Each is its own page on purpose — the studio is the
+ * `/student/{classId}`. V0-024 adds `/student`, the student's **list** of the
+ * classes they are enrolled in (the classes a teacher assigned them). Each is its
+ * own page on purpose — the studio is the
  * large-screen slide review surface, the classroom is the runtime session view,
  * the learning page is the slide + teaching canvas and the student page is what
  * a phone in a lecture hall opens — so each is opened directly (often in a
@@ -54,6 +56,7 @@ export type Route =
   | { name: 'settings'; section: SettingsSection }
   | { name: 'login' }
   | { name: 'join'; classId: string }
+  | { name: 'student-home' }
   | { name: 'student'; classId: string }
   | { name: 'not-found'; path: string }
 
@@ -126,6 +129,9 @@ export function parseRoute(pathname: string): Route {
     const classId = parseId(trimmed.slice(JOIN_PATH.length + 1))
     if (classId) return { name: 'join', classId }
   }
+
+  // `/student` with no class id is the student's list, not a class.
+  if (trimmed === STUDENT_PATH) return { name: 'student-home' }
 
   if (trimmed.startsWith(`${STUDENT_PATH}/`)) {
     const classId = parseId(trimmed.slice(STUDENT_PATH.length + 1))

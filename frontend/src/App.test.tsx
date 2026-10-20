@@ -251,6 +251,27 @@ describe('App — identities (V0-021, V0-023)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Join a class' })).toBeTruthy()
   })
 
+  it('serves a student their own class list at /student', async () => {
+    signInAsStudent()
+    vi.mocked(listClasses).mockResolvedValue([])
+    visit('/student')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'My classes' })).toBeTruthy()
+    expect(listClasses).toHaveBeenCalled()
+  })
+
+  it('does not hand a teacher the student class list', async () => {
+    signInAsTeacher()
+    visit('/student')
+
+    render(<App />)
+
+    // `/student` is the participant's own surface; a teacher's list is Admin → Classes.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeTruthy()
+  })
+
   it('keeps a student out of the authoring pages, and offers their class instead', async () => {
     signInAsStudent()
     writeSelectedClass('class-1')

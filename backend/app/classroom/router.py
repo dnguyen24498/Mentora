@@ -45,7 +45,7 @@ from app.identity.errors import (
     AccountRequiredError,
     SessionError,
 )
-from app.identity.models import Principal, Scope
+from app.identity.models import Principal, Role, Scope
 
 
 def build_class_router(
@@ -77,9 +77,24 @@ def build_class_router(
     def list_classes(
         principal: Principal = Depends(require(Scope.CLASS_READ)), limit: int = 100
     ) -> list[dict]:
+        """The tenant's classes — for a student, only the ones they are enrolled in.
+
+        The roster is what authorizes a join, so it is also what a student's list
+        may show. A teacher (and an institution administrator, who reads for
+        oversight) sees the tenant's schedule; a student sees their own classes.
+        """
+
+        if principal.role is Role.STUDENT:
+            if principal.account_id is None:
+                return []
+            student_id: Optional[str] = principal.account_id
+        else:
+            student_id = None
         return [
             item.to_dict()
-            for item in service.list_classes(principal.institution_id, limit=limit)
+            for item in service.list_classes(
+                principal.institution_id, limit=limit, student_id=student_id
+            )
         ]
 
     @router.get("/classes/{class_id}")

@@ -640,12 +640,18 @@ paths:
           description: 'Unknown course for this tenant (stable code NOT_FOUND)'
     get:
       operationId: listClasses
-      description: The tenant's classes, newest first.
+      description: >-
+        The tenant's classes, newest first — except for a **student**, who sees only
+        the classes they are enrolled in. The roster is what authorizes a join, so
+        it is also the scope of a participant's list: a student may see the classes
+        a teacher assigned them, not the institution's whole schedule. A teacher
+        (and an institution administrator, who reads for oversight) sees all of
+        them.
       parameters:
         - {in: query, name: limit, required: false, schema: {type: integer, default: 100, maximum: 500}}
       responses:
         '200':
-          description: Classes of the tenant
+          description: Classes of the tenant, scoped to the caller's roster for a student
           content:
             application/json:
               schema: {type: array, items: {$ref: '#/components/schemas/Class'}}

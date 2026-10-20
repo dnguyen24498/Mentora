@@ -20,6 +20,7 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility, security | `src/settings/SettingsPage.tsx` |
 | `/login` | Sign in — institution, address, **password**; the only public route (V0-023) | `src/auth/LoginPage.tsx` |
 | `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
+| `/student` | My classes — only the classes a teacher assigned this student (V0-024) | `src/student/StudentHomePage.tsx` |
 | `/student/{classId}` | The student's own fullscreen view of a running class | `src/student/StudentClassPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
@@ -50,8 +51,8 @@ V0-022 chooses the entries by **capability** rather
 than by role name, so a principal is offered exactly the pages the server would
 allow: an **institution administrator** (who authors nothing and attends nothing)
 sees Library, Admin and Settings; a **teacher** sees all of them; a **student**
-sees **My class** and **Attend** instead — see "Identities and the student pages"
-below.
+sees **My classes** (`/student`) and **Attend** instead — see "Identities and the
+student pages" below.
 
 The library is the hub: selecting a deck offers **Open Teacher Studio** and
 **Open learning page**, and the **Classes** panel (`GET /classes`) links each
@@ -426,11 +427,12 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   and `isAdministrator` (read from `account:write`, never from the role name).
   **V0-023: no session is no capabilities** — `hasScope(null, …)` is `false` for every
   scope, because a sign-in is required and the shortcut is off by default.
-- **The nav is role-aware, chosen by capability.** A student sees **My class**
-  (`/join/{id}`) and **Attend** (`/student/{id}`) instead of Studio/Classroom/Learn/Admin;
-  an institution administrator sees Library/Admin/Settings because the authoring
-  surfaces would only answer `403`; without a remembered class the id-scoped
-  entries are disabled labels that say why. This is courtesy, not access control:
+- **The nav is role-aware, chosen by capability.** A student sees **My classes**
+  (`/student`, always — it is their own roster) and **Attend** (`/student/{id}`)
+  instead of Studio/Classroom/Learn/Admin; an institution administrator sees
+  Library/Admin/Settings because the authoring surfaces would only answer `403`;
+  without a remembered class the class-scoped **Attend** entry is a disabled label
+  that says why, while the list still works. This is courtesy, not access control:
   the server refuses a student's teacher verbs with `403 INSUFFICIENT_SCOPE`
   regardless. With no session the nav offers only **Sign in**, because there is
   nothing a caller without a session may do.
@@ -439,13 +441,27 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   class by the id in their join link, and Sign out — rather than a page whose every
   request would answer 403. (A class id is not a secret; *enrolment* is what
   authorizes a join, and the server checks it on every join.)
+- **`src/student/StudentHomePage.tsx`** (`/student`, V0-024) is a student's class
+  list, and it is **their roster**: `GET /classes` is scoped by role on the
+  server, so a student receives only the classes a teacher enrolled them in,
+  never the institution's schedule. A running class gets a **Join class** link to
+  `/join/{id}`; a scheduled one shows its time and says it is waiting for the
+  teacher, and the page re-reads the list on a 5 s timer while any class is still
+  scheduled, so the row becomes joinable when the teacher starts without a hidden
+  refresh. That is a client-local poll, not a live stream (`DEC-DATA-003` is
+  `OPEN`, V1-002). The empty state names the real route in: the teacher assigns
+  from the roster and shares the join link.
 - **`src/student/JoinClassPage.tsx`** (`/join/{classId}`) establishes *who is
   asking* before anything else. Signed out, the route guard has already sent the
   browser to sign in, so the page's signed-out branch is only a defensive fallback.
   Signed in, it shows the class and asks the server for the caller's **own** join
   credential (`POST /classes/{id}/bootstrap-token`, no body), reporting a refusal
   by its precise cause — `NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`,
-  `NOT_FOUND` — rather than one generic failure.
+  `NOT_FOUND` — rather than one generic failure. The join button is **disabled
+  until the class is `ACTIVE`** and the page says only the teacher can start it;
+  while the class is scheduled it re-reads it on the same 5 s timer, so the button
+  enables the moment the teacher starts. The server refusal is still the rule
+  (a direct call before the start is `409 NOT_STARTED`), not a UI convention.
 - **`src/student/StudentClassPage.tsx`** (`/student/{classId}`) is the
   **fullscreen** view, built for the phone a student actually holds: the slide
   fills the viewport with a real **Fullscreen** button as well (a phone browser
@@ -469,7 +485,12 @@ directory read a teacher holds), each roster row has a **Remove** action
 leaves the account and its sign-in untouched), and the panel says that creating an
 account is the institution administrator's job in **Admin → Accounts**. Enrolment
 never creates an account, so there is no address to type and no implicit signup
-behind one; the class detail still offers the **student join link** to share.
+behind one; the class detail still offers the **student join link** to share, and
+V0-024 selects a class as soon as one exists (falling back to the newest when a
+remembered id is not this tenant's), so the Start / assign / join-link panel is on
+screen instead of an empty "Select a class". Starting is the teacher's verb and
+the only path to a joinable class; the classroom page links a teacher to this
+panel for the class they are viewing.
 
 ## Classroom (V0-011)
 

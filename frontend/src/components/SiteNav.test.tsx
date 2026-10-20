@@ -140,15 +140,13 @@ describe('SiteNav — identities', () => {
     }
   })
 
-  it('offers a student their class instead of the authoring entries', () => {
+  it('offers a student their classes instead of the authoring entries', () => {
     signInAs('student')
     writeSelectedClass('class-1')
 
     render(<SiteNav current="join" />)
 
-    expect(screen.getByRole('link', { name: 'My class' }).getAttribute('href')).toBe(
-      '/join/class-1',
-    )
+    expect(screen.getByRole('link', { name: 'My classes' }).getAttribute('href')).toBe('/student')
     expect(screen.getByRole('link', { name: 'Attend' }).getAttribute('href')).toBe(
       '/student/class-1',
     )
@@ -158,14 +156,15 @@ describe('SiteNav — identities', () => {
     }
   })
 
-  it('explains a student’s entries before they have a class', () => {
+  it('still offers the class list before a student has opened a class', () => {
     signInAs('student')
-    render(<SiteNav current="library" />)
+    render(<SiteNav current="student-home" />)
 
-    for (const label of ['My class', 'Attend']) {
-      expect(screen.queryByRole('link', { name: label })).toBeNull()
-      expect(screen.getByText(label).getAttribute('aria-disabled')).toBe('true')
-    }
+    // The list is the student's own roster and needs no remembered class id.
+    expect(screen.getByRole('link', { name: 'My classes' }).getAttribute('href')).toBe('/student')
+    // The class-scoped entry does need one, so it is explained rather than a link.
+    expect(screen.queryByRole('link', { name: 'Attend' })).toBeNull()
+    expect(screen.getByText('Attend').getAttribute('aria-disabled')).toBe('true')
   })
 
   it('does not link the page you are already on', () => {

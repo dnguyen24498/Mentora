@@ -35,3 +35,4 @@ V0-020,W4,DONE,Request-scoped database access concurrency safety,V0-001;V0-004;V
 V0-021,W8,DONE,Identity accounts roles and the student learning surface,V0-009;V0-011,tasks/V0-021-identity-accounts-and-student-learning
 V0-022,W8,DONE,Administration accounts and role separation,V0-021,tasks/V0-022-administration-accounts-and-role-separation
 V0-023,W8,DONE,Required sign-in and password credentials,V0-022,tasks/V0-023-required-sign-in-and-password-credentials
+V0-024,W8,DONE,Teacher assigns students and a started class is joinable,V0-009;V0-021;V0-022;V0-023,tasks/V0-024-teacher-assigns-and-student-joins

@@ -1,0 +1,13 @@
+id: V0-024
+title: "Teacher assigns students and a started class is joinable"
+week: W8
+status: DONE
+depends_on: ["V0-009", "V0-021", "V0-022", "V0-023"]
+started_at: "2026-10-20"
+completed_at: "2026-10-20"
+blockers:
+  - "Live presentation sync and a durable scheduler are open decisions (DEC-DATA-003, DEC-TECH-003); the class list and join page poll client-locally and say so."
+notes:
+  - "GET /classes is scoped to the caller's roster for a student; teachers and institution administrators keep the tenant view."
+  - "Only a teacher (class:write) starts a class; only a teacher (enrollment:write) alters the roster. A student's direct call is 403 before the class is read."
+  - "A join before start is 409 CLASS_NOT_READY/NOT_STARTED; after start it is 200, subscribe-only, bound to the caller's own account."

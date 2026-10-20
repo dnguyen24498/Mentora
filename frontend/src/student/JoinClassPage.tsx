@@ -85,6 +85,17 @@ export default function JoinClassPage({ classId }: { classId: string }) {
     void load()
   }, [load])
 
+  // A student who opened the link before the lesson began should not have to
+  // guess when to press Refresh: while the class is still scheduled, re-read it,
+  // and the join button becomes available the moment the teacher starts it. A
+  // client-local poll, not a live event stream (DEC-DATA-003 is OPEN, V1-002).
+  const classState = classView?.class.state
+  useEffect(() => {
+    if (classState !== 'SCHEDULED') return
+    const timer = window.setInterval(() => void load(), 5000)
+    return () => window.clearInterval(timer)
+  }, [classState, load])
+
   async function join(): Promise<void> {
     setBusy(true)
     setJoinError(null)
@@ -104,6 +115,7 @@ export default function JoinClassPage({ classId }: { classId: string }) {
   const canJoin = signedIn && hasScope(session, 'join')
   const klass = classView?.class ?? null
   const running = klass?.state === 'ACTIVE'
+  const finished = klass?.state === 'COMPLETED'
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <PageHeader
@@ -170,16 +182,27 @@ export default function JoinClassPage({ classId }: { classId: string }) {
                 <button
                   type="button"
                   onClick={() => void join()}
-                  disabled={busy}
+                  disabled={busy || !running}
                   className={`${BUTTON_PRIMARY} mt-3 w-full sm:w-auto`}
                 >
-                  {busy ? 'Joining…' : 'Join class'}
+                  {busy ? 'Joining…' : running ? 'Join class' : finished ? 'Class finished' : 'Waiting for your teacher'}
                 </button>
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Joining asks the server for a short-lived credential scoped to this class. It is
-                  subscribe-only: it cannot publish audio, and it carries none of your account's other
-                  capabilities.
-                </p>
+                {running ? (
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Joining asks the server for a short-lived credential scoped to this class. It is
+                    subscribe-only: it cannot publish audio, and it carries none of your account's other
+                    capabilities.
+                  </p>
+                ) : finished ? (
+                  <p role="status" className="mt-2 text-[11px] text-slate-500">
+                    This class has finished. Its slides stay available from the class list.
+                  </p>
+                ) : (
+                  <p role="status" className="mt-2 text-[11px] text-slate-500">
+                    Only your teacher can start the class, and a join credential is issued once it is
+                    running. This page checks again automatically, so there is nothing to do but wait.
+                  </p>
+                )}
               </>
             ) : (
               <Banner tone="warn">

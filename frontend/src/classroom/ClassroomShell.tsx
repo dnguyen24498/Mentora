@@ -106,7 +106,12 @@ export default function ClassroomShell({
           <h3 id="classroom-scene-heading" className="text-sm font-semibold text-slate-700">
             Scene
           </h3>
-          <p data-testid="classroom-scene-id" className="mt-2 font-mono text-lg text-slate-900">
+          {/* A scene id is a package path (`ppt/slides/slide1.xml#step-0`): one long
+              unbreakable token, so it may break anywhere rather than widen a phone. */}
+          <p
+            data-testid="classroom-scene-id"
+            className="mt-2 break-words font-mono text-lg text-slate-900"
+          >
             {scene.sceneId ?? 'No scene yet'}
           </p>
           <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600">
@@ -116,7 +121,7 @@ export default function ClassroomShell({
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-slate-400">Step</dt>
-              <dd>{scene.stepId ?? 'scene start'}</dd>
+              <dd className="break-words">{scene.stepId ?? 'scene start'}</dd>
             </div>
           </dl>
           <p className="mt-3 text-xs text-slate-500">

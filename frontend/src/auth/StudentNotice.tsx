@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describePrincipal, useSession } from './session'
-import { joinPath, loginPath, Link, navigate } from '../router'
+import { joinPath, loginPath, Link, navigate, STUDENT_PATH } from '../router'
 import {
   Banner,
   BUTTON_PRIMARY,
@@ -62,6 +62,12 @@ export default function StudentNotice() {
           You are signed in as a student. The authoring pages (library, studio, admin) belong to
           teachers, so they are not shown here — open the class you are attending instead.
         </p>
+
+        <div>
+          <Link to={STUDENT_PATH} className={BUTTON_PRIMARY}>
+            See all your classes
+          </Link>
+        </div>
 
         {remembered ? (
           <Panel title="The class you were last in">

@@ -162,6 +162,16 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
     void refreshDetail(selected)
   }, [selected, refreshDetail])
 
+  // A class is selected the moment one exists, so the Start / assign-students /
+  // join-link panel is on screen instead of an empty "Select a class". A
+  // remembered id that is no longer this tenant's (a stale `localStorage` value)
+  // falls back to the newest class rather than 404ing the detail panel.
+  useEffect(() => {
+    if (classes.length === 0) return
+    if (selected && classes.some((item) => item.class_id === selected)) return
+    setSelected(classes[0].class_id)
+  }, [classes, selected])
+
   // The version ids a teacher may pin a class to are the course's materials.
   useEffect(() => {
     let cancelled = false

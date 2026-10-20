@@ -1,4 +1,4 @@
-import { Link, adminPath, classroomPath, joinPath, learnPath, settingsPath, studioPath, loginPath } from '../router'
+import { Link, adminPath, classroomPath, learnPath, settingsPath, studioPath, loginPath, STUDENT_PATH } from '../router'
 import { readSelectedArtifact, readSelectedClass } from '../institution'
 import { TOUCH_TARGET } from './ui'
 import {
@@ -58,6 +58,8 @@ export type SiteNavPage =
   | 'settings'
   /** The student's join page (`/join/{classId}`). */
   | 'join'
+  /** The student's list of classes (`/student`). */
+  | 'student-home'
   /** The student's own view of a class (`/student/{classId}`). */
   | 'student'
   /** The sign-in page (`/login`). */
@@ -121,16 +123,16 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
       {student ? (
         <>
           <NavEntry
-            to={klass ? joinPath(klass) : null}
-            label="My class"
-            current={current === 'join'}
-            hint="Open the join link your teacher gave you"
+            to={STUDENT_PATH}
+            label="My classes"
+            current={current === 'student-home'}
+            hint="The classes your teacher assigned you"
           />
           <NavEntry
             to={klass ? `/student/${encodeURIComponent(klass)}` : null}
             label="Attend"
             current={current === 'student'}
-            hint="Join a class first to reach your view of it"
+            hint="Open one of your classes first to reach your view of it"
           />
         </>
       ) : (

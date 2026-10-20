@@ -249,7 +249,20 @@ class ClassroomService:
     def get_class(self, institution_id: str, class_id: str) -> Class:
         return self._repository.get_class(institution_id, class_id)
 
-    def list_classes(self, institution_id: str, *, limit: int = 100) -> list[Class]:
+    def list_classes(
+        self, institution_id: str, *, limit: int = 100, student_id: Optional[str] = None
+    ) -> list[Class]:
+        """The tenant's classes, or — for a student — the classes they attend.
+
+        The roster is the authorization for a join, so it is also the right scope
+        for a student's list: a student may see the classes they were assigned to,
+        not the institution's whole schedule.
+        """
+
+        if student_id:
+            return self._repository.list_classes_for_student(
+                institution_id, student_id, limit=limit
+            )
         return self._repository.list_classes(institution_id, limit=limit)
 
     def class_view(self, institution_id: str, class_id: str) -> dict[str, Any]:

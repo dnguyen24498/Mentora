@@ -122,6 +122,26 @@ class ClassRepository:
         ).fetchall()
         return [Class.from_row(row) for row in rows]
 
+    def list_classes_for_student(
+        self, institution_id: str, student_id: str, *, limit: int = 100
+    ) -> list[Class]:
+        """The classes one student is enrolled in, newest first.
+
+        A student's class list is the roster and nothing else: the tenant's other
+        classes are not theirs to see, and the join check is the roster anyway.
+        This is the same authorization the join applies, read as a list.
+        """
+
+        rows = self._conn.execute(
+            "SELECT c.* FROM classes c "
+            "JOIN enrollments e "
+            "  ON e.class_id = c.class_id AND e.institution_id = c.institution_id "
+            "WHERE c.institution_id = ? AND e.student_id = ? "
+            "ORDER BY c.created_at DESC, c.class_id DESC LIMIT ?",
+            (institution_id, student_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+        return [Class.from_row(row) for row in rows]
+
     # -- enrollments -----------------------------------------------------------------
     def enroll(
         self, *, institution_id: str, class_id: str, student_id: str

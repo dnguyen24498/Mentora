@@ -172,6 +172,21 @@ describe('JoinClassPage', () => {
     expect(screen.queryByRole('button', { name: 'Join class' })).toBeNull()
   })
 
+  it('waits for the teacher instead of offering a join the server would refuse', async () => {
+    signInAsStudent()
+    vi.mocked(loadClass).mockResolvedValue({
+      ...CLASS_VIEW,
+      class: { ...CLASS_VIEW.class, state: 'SCHEDULED', started_at: null },
+    })
+    render(<JoinClassPage classId="class-1" />)
+
+    const waiting = await screen.findByRole('button', { name: 'Waiting for your teacher' })
+    expect(waiting.getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByText(/only your teacher can start/i)).toBeTruthy()
+    // Nothing was asked of the server: the class is not running.
+    expect(issueBootstrapToken).not.toHaveBeenCalled()
+  })
+
   it('reports a class that cannot be read at all', async () => {
     vi.mocked(loadClass).mockRejectedValue(new ApiError('NOT_FOUND', 'unknown class'))
     render(<JoinClassPage classId="class-1" />)

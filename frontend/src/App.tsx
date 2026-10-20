@@ -8,6 +8,7 @@ import UploadPage from './pages/UploadPage'
 import LoginPage from './auth/LoginPage'
 import JoinClassPage from './student/JoinClassPage'
 import StudentClassPage from './student/StudentClassPage'
+import StudentHomePage from './student/StudentHomePage'
 import StudentNotice from './auth/StudentNotice'
 import { isStudent, useSession } from './auth/session'
 import { LIBRARY_PATH, LOGIN_PATH, Link, loginPath, useRoute } from './router'
@@ -35,6 +36,8 @@ import { LIBRARY_PATH, LOGIN_PATH, Link, loginPath, useRoute } from './router'
  * * `/join/{classId}` — a student enters a class (`student/JoinClassPage.tsx`):
  *   the class, and one button that asks the server for the caller's own join
  *   credential;
+ * * `/student` — a student's classes (`student/StudentHomePage.tsx`): only the
+ *   classes a teacher assigned them, each joinable once the teacher starts it;
  * * `/student/{classId}` — the student's own fullscreen view of a class
  *   (`student/StudentClassPage.tsx`), built for a phone in a lecture hall.
  *
@@ -69,6 +72,9 @@ export default function App() {
 
   if (route.name === 'login') return <LoginPage />
   if (route.name === 'join') return <JoinClassPage classId={route.classId} />
+  if (route.name === 'student-home') {
+    return student ? <StudentHomePage /> : <NotFound path="/student" />
+  }
   if (route.name === 'student') return <StudentClassPage classId={route.classId} />
 
   // A student may still open Settings (client preferences) — it holds nothing
@@ -83,12 +89,17 @@ export default function App() {
   if (route.name === 'settings') return <SettingsPage section={route.section} />
   if (route.name === 'library') return <UploadPage />
 
+  return <NotFound path={route.name === 'not-found' ? route.path : window.location.pathname} />
+}
+
+/** The app's own not-found view: a real page, so a bad deep link is not blank. */
+function NotFound({ path }: { path: string }) {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <main className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-xl font-semibold">Page not found</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Nothing is served at <code className="rounded bg-slate-200 px-1 font-mono">{route.path}</code>.
+          Nothing is served at <code className="rounded bg-slate-200 px-1 font-mono">{path}</code>.
         </p>
         <Link
           to={LIBRARY_PATH}

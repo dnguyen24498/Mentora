@@ -159,7 +159,8 @@ describe('identity routes (V0-021)', () => {
     // No class id is not the page: a join with nothing to join would be a trap.
     expect(parseRoute('/join')).toEqual({ name: 'not-found', path: '/join' })
     expect(parseRoute('/join/')).toEqual({ name: 'not-found', path: '/join' })
-    expect(parseRoute('/student')).toEqual({ name: 'not-found', path: '/student' })
+    expect(parseRoute('/student')).toEqual({ name: 'student-home' })
+    expect(parseRoute('/student/')).toEqual({ name: 'student-home' })
     expect(parseRoute('/student/a/b')).toEqual({ name: 'not-found', path: '/student/a/b' })
   })
 })

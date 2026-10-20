@@ -67,6 +67,10 @@ graph TD
   V0_021 --> V0_022
   V0_023["V0-023 Required sign-in and password credentials"]
   V0_022 --> V0_023
+  V0_024["V0-024 Teacher assigns students and a started class is joinable"]
+  V0_009 --> V0_024
+  V0_022 --> V0_024
+  V0_023 --> V0_024
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

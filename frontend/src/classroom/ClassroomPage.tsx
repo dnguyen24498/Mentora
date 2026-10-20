@@ -4,6 +4,8 @@ import PageHeader from '../components/PageHeader'
 import { PAGE_PADDING } from '../components/ui'
 import { useInstitution, writeSelectedClass } from '../institution'
 import { useClassroomSession } from './useClassroomSession'
+import { hasScope, useSession } from '../auth/session'
+import { Link, adminPath, joinPath } from '../router'
 import type { ClassroomTransport } from './state/transport'
 import type { ClassroomTelemetry } from './state/telemetry'
 import type { ClassroomSessionOptions } from './state/session'
@@ -33,6 +35,7 @@ export default function ClassroomPage({
   sessionOptions,
 }: ClassroomPageProps) {
   const [institution, setInstitution] = useInstitution()
+  const session = useSession()
   const { state, capabilities, send, resync, toggleFocusScene, updatePreferences } =
     useClassroomSession({ institutionId: institution, classId, createTransport, telemetry, sessionOptions })
 
@@ -56,6 +59,19 @@ export default function ClassroomPage({
         onInstitutionChange={setInstitution}
       />
       <main className={PAGE_PADDING}>
+        {hasScope(session, 'class:write') && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            <span className="min-w-0 flex-1">
+              Assign students, start this class, or share its join link from class management.
+            </span>
+            <Link to={adminPath('classes')} className="font-medium text-indigo-700 hover:underline">
+              Class management
+            </Link>
+            <Link to={joinPath(classId)} className="font-medium text-indigo-700 hover:underline">
+              Student join link
+            </Link>
+          </div>
+        )}
         <ClassroomShell
           state={state}
           capabilities={capabilities}
