@@ -26,6 +26,20 @@ from tests.fixtures import build_pptx, text_shape
 
 HEADERS = {"X-Institution-Id": "university-001"}
 
+#: The password every account in this suite is created with (V0-023). Long enough
+#: for the development minimum-length guard, and never a real credential.
+PASSWORD = "correct-horse-battery-staple"
+
+
+@pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
+
 
 @pytest.fixture
 def client(settings):
@@ -69,15 +83,15 @@ def _publish(client, course_id: str, deck: bytes | None = None) -> dict:
     return {"artifact_id": artifact_id, "package_id": published["package_id"], **published}
 
 
-def _login(client, email: str, credential: str, institution: str = "university-001"):
+def _login(client, email: str, password: str, institution: str = "university-001"):
     return client.post(
         "/auth/login",
-        json={"institution_id": institution, "email": email, "credential": credential},
+        json={"institution_id": institution, "email": email, "password": password},
     )
 
 
-def _sign_in(client, email: str, credential: str, institution: str = "university-001") -> dict:
-    response = _login(client, email, credential, institution)
+def _sign_in(client, email: str, password: str, institution: str = "university-001") -> dict:
+    response = _login(client, email, password, institution)
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
@@ -98,12 +112,14 @@ def _admin(client, institution: str = "university-001") -> dict:
     if institution not in cache:
         boot = client.post(
             "/auth/bootstrap-admin",
-            params={"institution_id": institution, "email": "root@uni.test"},
+            json={
+                "institution_id": institution,
+                "email": "root@uni.test",
+                "password": PASSWORD,
+            },
         )
         assert boot.status_code == 201, boot.text
-        cache[institution] = _sign_in(
-            client, "root@uni.test", boot.json()["development_credential"], institution
-        )
+        cache[institution] = _sign_in(client, "root@uni.test", PASSWORD, institution)
     return cache[institution]
 
 
@@ -111,7 +127,9 @@ def _provision(client, email: str, role: str = "student") -> dict:
     """Create an account the way an administrator does, and return the mutation."""
 
     response = client.post(
-        "/accounts", params={"email": email, "role": role}, headers=_admin(client)
+        "/accounts",
+        json={"email": email, "role": role, "password": PASSWORD},
+        headers=_admin(client),
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -137,7 +155,7 @@ def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, d
         headers=HEADERS,
     )
     assert enrolled.status_code == 200, enrolled.text
-    return account_id, _sign_in(client, email, mutation["development_credential"])
+    return account_id, _sign_in(client, email, PASSWORD)
 
 
 # -- login -------------------------------------------------------------------------
@@ -149,10 +167,10 @@ def test_a_login_response_is_honest_about_the_mechanism(client):
 
     course_id = _course(client)
     class_id = _class(client, course_id)
-    account = _provision(client, "ana@uni.test")
+    _provision(client, "ana@uni.test")
     _invite(client, class_id, "ana@uni.test")
 
-    body = _login(client, "ana@uni.test", account["development_credential"]).json()
+    body = _login(client, "ana@uni.test", PASSWORD).json()
 
     assert body["authenticated"] is True
     assert body["token_type"] == "Bearer"
@@ -164,14 +182,14 @@ def test_a_login_response_is_honest_about_the_mechanism(client):
 
 
 def test_login_is_not_an_enumeration_oracle(client):
-    """An unknown account and a wrong credential answer identically."""
+    """An unknown account and a wrong password answer identically."""
 
     course_id = _course(client)
     class_id = _class(client, course_id)
     _invite(client, class_id, "ana@uni.test")
 
-    wrong = _login(client, "ana@uni.test", "not-the-code")
-    unknown = _login(client, "nobody@uni.test", "not-the-code")
+    wrong = _login(client, "ana@uni.test", "not-the-password")
+    unknown = _login(client, "nobody@uni.test", "not-the-password")
 
     assert wrong.status_code == unknown.status_code == 401
     assert (
@@ -187,18 +205,13 @@ def test_a_session_is_the_only_thing_that_decides_the_tenant(client):
 
     course_id = _course(client)
     class_id = _class(client, course_id)
-    account = _provision(client, "ana@uni.test")
+    _provision(client, "ana@uni.test")
     _invite(client, class_id, "ana@uni.test")
     # Sign in naming the *other* tenant: the account is not there, so nothing is
     # granted — a subject cannot choose which institution it is authenticated in.
-    assert (
-        _login(
-            client, "ana@uni.test", account["development_credential"], "university-002"
-        ).status_code
-        == 401
-    )
+    assert _login(client, "ana@uni.test", PASSWORD, "university-002").status_code == 401
 
-    token = _login(client, "ana@uni.test", account["development_credential"]).json()["token"]
+    token = _login(client, "ana@uni.test", PASSWORD).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get(f"/classes/{class_id}", headers=headers).status_code == 200
     # The tenant header alongside a session changes nothing.

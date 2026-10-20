@@ -118,31 +118,34 @@ def test_the_adapter_declares_itself_a_development_mock(conn):
     assert identity.id == "local-credentials@1.0.0"
 
 
-def test_an_issued_credential_authenticates_and_is_stored_as_a_digest(conn):
+def test_a_provisioned_password_authenticates_and_is_stored_as_a_digest(conn):
     account = seed(conn)
     authenticator = LocalCredentialAuthenticator(LocalCredentialStore(conn))
+    password = "correct-horse-battery-staple"
 
-    issued = authenticator.issue_credential(TENANT, account.account_id)
+    provisioned = authenticator.provision_credential(TENANT, account.account_id, password)
 
-    assert issued
-    assert authenticator.authenticate(_request(issued), IdentityRepository(conn).resolve_subject).authenticated
+    assert provisioned is True
+    assert authenticator.authenticate(_request(password), IdentityRepository(conn).resolve_subject).authenticated
     stored = conn.execute(
         "SELECT digest FROM account_credentials WHERE account_id = ?", (account.account_id,)
     ).fetchone()["digest"]
-    assert issued != stored
+    assert password != stored
 
 
-def test_invite_then_sign_in_end_to_end(conn):
-    """The path a student actually takes: an administrator creates, the student signs in."""
+def test_an_account_is_created_with_a_password_and_signs_in_end_to_end(conn):
+    """The path an account holder actually takes: an administrator sets a password,
+    the holder signs in with it (V0-023)."""
 
     service = build_identity_service(conn, name=DEFAULT_IDENTITY_PROVIDER)
+    password = "correct-horse-battery-staple"
 
     created = service.create_account(
-        TENANT, email="ana@uni.test", role=Role.STUDENT, display_name="Ana"
+        TENANT, email="ana@uni.test", role=Role.STUDENT, secret=password, display_name="Ana"
     )
-    assert created.created and created.development_credential
+    assert created.created and created.credential_set
 
-    result = service.login(TENANT, "ana@uni.test", created.development_credential)
+    result = service.login(TENANT, "ana@uni.test", password)
 
     assert result.authenticated
     principal = service.principal_for_token(result.issuance.raw_token)

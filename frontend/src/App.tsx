@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import AdminPage from './admin/AdminPage'
 import ClassroomPage from './classroom/ClassroomPage'
 import LearnPage from './presentation/LearnPage'
@@ -9,10 +10,11 @@ import JoinClassPage from './student/JoinClassPage'
 import StudentClassPage from './student/StudentClassPage'
 import StudentNotice from './auth/StudentNotice'
 import { isStudent, useSession } from './auth/session'
-import { LIBRARY_PATH, Link, useRoute } from './router'
+import { LIBRARY_PATH, LOGIN_PATH, Link, loginPath, useRoute } from './router'
 
 /**
- * The app shell: it routes between the real pages.
+ * The app shell: it routes between the real pages, and it is **behind a sign-in**
+ * (V0-023).
  *
  * * `/` — the material library (`pages/UploadPage.tsx`): create a course,
  *   upload a `.pptx`, inspect the extracted Content IR, and open any class;
@@ -27,9 +29,9 @@ import { LIBRARY_PATH, Link, useRoute } from './router'
  *   classes and publications through the existing API;
  * * `/settings/{section}` — Settings (`settings/SettingsPage.tsx`): client
  *   preferences plus read-only server facts;
- * * `/login` — sign in (`auth/LoginPage.tsx`, V0-021): a labelled development
- *   credential mock behind a provider-neutral interface, because no credential
- *   mechanism is a decided technology;
+ * * `/login` — sign in (`auth/LoginPage.tsx`): the **only** public route, a
+ *   labelled development credential mock behind a provider-neutral interface,
+ *   because no credential mechanism is a decided technology;
  * * `/join/{classId}` — a student enters a class (`student/JoinClassPage.tsx`):
  *   the class, and one button that asks the server for the caller's own join
  *   credential;
@@ -42,14 +44,27 @@ import { LIBRARY_PATH, Link, useRoute } from './router'
  * not justify one, and the project adds no production dependency without an
  * accepted decision.
  *
+ * **The guard.** Until V0-023 the app could be read anonymously through the
+ * development tenant shortcut; now a session is required on every route, so any
+ * other route with no session is redirected to `/login` with the page it wanted
+ * remembered (`?next=`), and a successful sign-in returns there. The redirect is
+ * `replace`, so the guarded path does not linger in the history. The backend
+ * enforces the same rule — this is the honest client-side projection of it, and a
+ * stale client can only ever *show* less than it is allowed, never more.
+ *
  * The authoring pages are the *teacher's*, and a student who opens one is told so
- * rather than shown a page whose every request would answer `403`. That is a
+ * rather than shown a page whose every request would answer `403`. That too is a
  * courtesy, not the control: the server enforces the role on every request
  * (V0-021), so the client can only ever offer fewer things than it is allowed.
  */
 export default function App() {
   const route = useRoute()
   const session = useSession()
+
+  // `/login` is the only public route. Everything else — a deep link included —
+  // is remembered and returned to after signing in.
+  if (route.name !== 'login' && !session) return <RequireSignIn />
+
   const student = isStudent(session)
 
   if (route.name === 'login') return <LoginPage />
@@ -84,4 +99,25 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+/**
+ * The sign-in form, shown in place of a protected page when there is no session
+ * (V0-023).
+ *
+ * It renders `LoginPage` **immediately** rather than redirecting and waiting for a
+ * re-render: the route hook subscribes to `popstate` in an effect, and effects run
+ * child-first, so an event dispatched from this child's effect would arrive before
+ * the hook was listening and leave a blank page. The URL is rewritten (a `replace`,
+ * so the guarded path does not linger in the history) to the truthful
+ * `/login?next=…`, which is also what `LoginPage` reads to return the person to the
+ * page they wanted. `/login` itself is never put in `?next`.
+ */
+function RequireSignIn() {
+  useEffect(() => {
+    const here = `${window.location.pathname}${window.location.search}`
+    if (here.startsWith(LOGIN_PATH)) return
+    window.history.replaceState({}, '', loginPath(here))
+  }, [])
+  return <LoginPage />
 }

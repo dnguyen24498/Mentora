@@ -42,7 +42,7 @@ export const ADMIN_SECTIONS = ['overview', 'accounts', 'courses', 'classes', 'pu
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]
 
 /** The settings sections, one route each. */
-export const SETTINGS_SECTIONS = ['general', 'rendering', 'teaching', 'accessibility'] as const
+export const SETTINGS_SECTIONS = ['general', 'rendering', 'teaching', 'accessibility', 'security'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export type Route =

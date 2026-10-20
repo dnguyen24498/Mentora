@@ -40,6 +40,7 @@ from app.identity.testing import ScriptedAuthenticator, ScriptedOutcome
 
 TENANT = "uni-1"
 OTHER_TENANT = "uni-2"
+PASSWORD = "correct-horse-battery-staple"
 
 #: The student capability set, in the stable order a session stores it (by scope
 #: value), so the assertions below cannot drift from the implementation silently.
@@ -281,9 +282,9 @@ def test_creating_an_account_is_create_or_link(conn):
     service, _ = build(conn)
 
     first = service.create_account(
-        TENANT, email="Ana@Uni.test", role=Role.STUDENT, display_name="Ana"
+        TENANT, email="Ana@Uni.test", role=Role.STUDENT, secret=PASSWORD, display_name="Ana"
     )
-    second = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
+    second = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
 
     assert first.created is True
     assert second.created is False
@@ -292,7 +293,7 @@ def test_creating_an_account_is_create_or_link(conn):
     assert first.account.role is Role.STUDENT
     # One account, and the second create issues no new credential.
     assert conn.execute("SELECT COUNT(*) AS total FROM accounts").fetchone()["total"] == 1
-    assert second.development_credential is None
+    assert second.credential_set is False
 
 
 def test_creating_an_account_never_changes_an_existing_role(conn):
@@ -302,7 +303,7 @@ def test_creating_an_account_never_changes_an_existing_role(conn):
     )
 
     with pytest.raises(InvitationConflictError) as raised:
-        service.create_account(TENANT, email="t@uni.test", role=Role.STUDENT)
+        service.create_account(TENANT, email="t@uni.test", role=Role.STUDENT, secret=PASSWORD)
 
     assert raised.value.issue_code == ISSUE_EMAIL_ROLE_CONFLICT
     assert repository.find_account_by_email(TENANT, "t@uni.test").role is Role.TEACHER
@@ -313,13 +314,13 @@ def test_a_new_role_is_created_create_or_link(conn):
 
     service, _ = build(conn)
 
-    first = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
-    second = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
+    first = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER, secret=PASSWORD)
+    second = service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER, secret=PASSWORD)
 
     assert first.created is True
     assert second.created is False
     assert first.account.role is Role.TEACHER
-    assert first.development_credential and second.development_credential is None
+    assert first.credential_set is True and second.credential_set is False
 
 
 @pytest.mark.parametrize("email", ["", "   ", "not-an-email", "ana@uni test"])
@@ -327,7 +328,7 @@ def test_an_invalid_address_is_refused(conn, email):
     service, _ = build(conn)
 
     with pytest.raises(ValidationError):
-        service.create_account(TENANT, email=email, role=Role.STUDENT)
+        service.create_account(TENANT, email=email, role=Role.STUDENT, secret=PASSWORD)
 
 
 def test_an_administrator_cannot_be_created_through_the_directory(conn):
@@ -336,7 +337,7 @@ def test_an_administrator_cannot_be_created_through_the_directory(conn):
     service, _ = build(conn)
 
     with pytest.raises(RoleNotManageableError) as raised:
-        service.create_account(TENANT, email="root@uni.test", role=Role.INSTITUTION_ADMIN)
+        service.create_account(TENANT, email="root@uni.test", role=Role.INSTITUTION_ADMIN, secret=PASSWORD)
 
     assert raised.value.issue_code == ISSUE_ROLE_NOT_MANAGEABLE
     assert conn.execute("SELECT COUNT(*) AS total FROM accounts").fetchone()["total"] == 0
@@ -347,8 +348,8 @@ def test_the_same_email_in_another_tenant_is_another_account(conn):
 
     service, _ = build(conn)
 
-    here = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
-    there = service.create_account(OTHER_TENANT, email="ana@uni.test", role=Role.STUDENT)
+    here = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
+    there = service.create_account(OTHER_TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
 
     assert here.account.account_id != there.account.account_id
 
@@ -357,8 +358,8 @@ def test_disabling_an_account_revokes_its_live_sessions(conn):
     """A disable that left a working token behind would not be a disable."""
 
     service, _ = build(conn)
-    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
-    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
+    session = service.login(TENANT, "ana@uni.test", PASSWORD)
     assert session.authenticated
     token = session.issuance.raw_token
     assert service.principal_for_token(token).account_id == created.account.account_id
@@ -378,8 +379,8 @@ def test_disabling_an_account_revokes_its_live_sessions(conn):
 
 def test_a_role_change_only_removes_capabilities_from_a_live_session(conn):
     service, _ = build(conn)
-    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
-    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
+    session = service.login(TENANT, "ana@uni.test", PASSWORD)
     token = session.issuance.raw_token
     assert service.principal_for_token(token).has(Scope.JOIN)
 
@@ -396,8 +397,8 @@ def test_a_role_change_only_removes_capabilities_from_a_live_session(conn):
 
 def test_removing_an_account_takes_its_credentials_and_sessions(conn):
     service, _ = build(conn)
-    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
-    session = service.login(TENANT, "ana@uni.test", created.development_credential)
+    created = service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
+    session = service.login(TENANT, "ana@uni.test", PASSWORD)
     token = session.issuance.raw_token
 
     assert service.delete_account(TENANT, created.account.account_id) is True
@@ -413,9 +414,9 @@ def test_removing_an_account_takes_its_credentials_and_sessions(conn):
 
 def test_listing_accounts_is_by_role(conn):
     service, _ = build(conn)
-    service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER)
-    service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT)
-    service.create_account(TENANT, email="bo@uni.test", role=Role.STUDENT)
+    service.create_account(TENANT, email="t@uni.test", role=Role.TEACHER, secret=PASSWORD)
+    service.create_account(TENANT, email="ana@uni.test", role=Role.STUDENT, secret=PASSWORD)
+    service.create_account(TENANT, email="bo@uni.test", role=Role.STUDENT, secret=PASSWORD)
 
     teachers = service.list_accounts(TENANT, role=Role.TEACHER)
     students = service.list_accounts(TENANT, role=Role.STUDENT)
@@ -428,14 +429,16 @@ def test_listing_accounts_is_by_role(conn):
 def test_the_bootstrap_creates_the_first_administrator_once(conn):
     service, _ = build(conn)
 
-    first = service.bootstrap_administrator(TENANT, email="root@uni.test", display_name="Root")
+    first = service.bootstrap_administrator(
+        TENANT, email="root@uni.test", secret=PASSWORD, display_name="Root"
+    )
 
     assert first.created is True
     assert first.account.role is Role.INSTITUTION_ADMIN
-    assert first.development_credential
+    assert first.credential_set is True
 
     with pytest.raises(BootstrapClosedError) as raised:
-        service.bootstrap_administrator(TENANT, email="other@uni.test")
+        service.bootstrap_administrator(TENANT, email="other@uni.test", secret=PASSWORD)
 
     assert raised.value.issue_code == ISSUE_TENANT_ALREADY_PROVISIONED
     assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 1
@@ -446,8 +449,8 @@ def test_the_bootstrap_is_per_tenant(conn):
 
     service, _ = build(conn)
 
-    service.bootstrap_administrator(TENANT, email="root@uni.test")
-    other = service.bootstrap_administrator(OTHER_TENANT, email="root@uni.test")
+    service.bootstrap_administrator(TENANT, email="root@uni.test", secret=PASSWORD)
+    other = service.bootstrap_administrator(OTHER_TENANT, email="root@uni.test", secret=PASSWORD)
 
     assert other.created is True
     assert other.account.role is Role.INSTITUTION_ADMIN
@@ -455,9 +458,9 @@ def test_the_bootstrap_is_per_tenant(conn):
 
 def test_a_bootstrapped_administrator_signs_in_like_any_other_account(conn):
     service, _ = build(conn)
-    bootstrapped = service.bootstrap_administrator(TENANT, email="root@uni.test")
+    bootstrapped = service.bootstrap_administrator(TENANT, email="root@uni.test", secret=PASSWORD)
 
-    result = service.login(TENANT, "root@uni.test", bootstrapped.development_credential)
+    result = service.login(TENANT, "root@uni.test", PASSWORD)
 
     assert result.authenticated
     principal = service.principal_for_token(result.issuance.raw_token)

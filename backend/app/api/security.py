@@ -14,12 +14,14 @@ tenant/course/class/resource."* This module is where that happens for the transp
   credential carries ``subscribe`` only (``DEC-TURN-001``).
 
 One thing here is deliberately a shortcut and is named as one: when
-``Settings.dev_tenant_header`` is on, a request with **no** session is accepted for
-whatever ``X-Institution-Id`` it names, and gets a principal marked
-``authenticated=False``. That keeps the V0 flows working before an
-institutional-federation deployment; it is not authentication, it cannot request a
-class join (there is no account behind it), and switching the setting off makes
-every route require a real session.
+``Settings.dev_tenant_header`` is on — which **V0-023 makes off by default** — a
+request with **no** session is accepted for whatever ``X-Institution-Id`` it names,
+and gets a principal marked ``authenticated=False``. It exists so the V0 flows (and
+their tests) keep working before an institutional-federation deployment; it is not
+authentication, it cannot request a class join (there is no account behind it), and
+with the default now off every route requires a real session. The one-shot
+first-administrator bootstrap is gated by its own switch (``admin_bootstrap``)
+rather than by this one, so a locked deployment can still create its first account.
 """
 
 from __future__ import annotations
@@ -75,14 +77,17 @@ class ApiSecurity:
     principal: Callable[..., Principal]
     tenant: Callable[..., str]
     require: Callable[[Scope], Callable[..., Principal]]
-    #: True when the pre-auth development header is accepted.
-    development_shortcut: bool = True
+    #: True when the pre-auth development header is accepted (off by default, V0-023).
+    development_shortcut: bool = False
+    #: True when the one-shot first-administrator bootstrap is exposed (V0-023).
+    admin_bootstrap: bool = True
 
 
 def build_api_security(
     identity: IdentityService,
     *,
-    allow_dev_header: bool = True,
+    allow_dev_header: bool = False,
+    allow_admin_bootstrap: bool = True,
     telemetry: Optional[IdentityTelemetry] = None,
 ) -> ApiSecurity:
     """Wire principal resolution and the capability guards for one app."""
@@ -106,7 +111,7 @@ def build_api_security(
         if allow_dev_header and institution_id:
             return identity.development_principal(institution_id)
         raise SessionError(
-            "sign in, or present an institution header in development",
+            "sign in to continue; a session is required on every route",
             issue_code=ISSUE_SESSION_REQUIRED,
         )
 
@@ -145,6 +150,7 @@ def build_api_security(
         tenant=tenant,
         require=require,
         development_shortcut=allow_dev_header,
+        admin_bootstrap=allow_admin_bootstrap,
     )
 
 

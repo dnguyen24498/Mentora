@@ -153,6 +153,9 @@ beforeEach(() => {
   localStorage.clear()
   clearSession()
   vi.clearAllMocks()
+  // The admin area is behind a sign-in (V0-023): a teacher is the default caller,
+  // and the "by capability" describe signs in as whoever it is exercising.
+  signIn('teacher', TEACHER_SCOPES)
   vi.mocked(listCourses).mockResolvedValue([COURSE])
   vi.mocked(listClasses).mockResolvedValue([])
   vi.mocked(listMaterials).mockResolvedValue([])
@@ -163,6 +166,18 @@ beforeEach(() => {
     accounts: [],
   })
 })
+
+const TEACHER_SCOPES: Scope[] = [
+  'account:read',
+  'class:read',
+  'class:write',
+  'content:read',
+  'content:write',
+  'enrollment:write',
+  'publication:write',
+  'review:write',
+  'scene:read',
+]
 
 /** A signed-in principal for a role, so a section's capability filter is exercised. */
 function signIn(role: 'institution_admin' | 'teacher', scopes: Scope[]) {
@@ -476,19 +491,20 @@ describe('AdminPage — the directory, by capability', () => {
     expect(screen.queryByLabelText('Email address')).toBeNull()
   })
 
-  it('creates a teacher and hands over the one-time code exactly once', async () => {
+  it('creates a teacher with a password the administrator chooses', async () => {
     const user = userEvent.setup()
     signIn('institution_admin', ADMIN_SCOPES)
     vi.mocked(createAccount).mockResolvedValue({
       created: true,
       account: { ...STUDENT, role: 'teacher', status: 'ACTIVE' },
-      development_credential: 'dev-code-9',
+      credential_set: true,
       sessions_revoked: 0,
     })
     render(<AdminPage section="accounts" />)
 
     await user.type(await screen.findByLabelText('Email address'), 'new@school.example')
     await user.selectOptions(screen.getByLabelText('Role'), 'teacher')
+    await user.type(screen.getByLabelText('Initial password'), 'new-pass-1')
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() =>
@@ -496,12 +512,43 @@ describe('AdminPage — the directory, by capability', () => {
         INSTITUTION,
         'new@school.example',
         'teacher',
+        'new-pass-1',
         '',
       ),
     )
-    expect(screen.getByTestId('issued-credential').textContent).toContain('dev-code-9')
-    // The code is a labelled development mock, and the page says so.
-    expect(screen.getByTestId('issued-credential').textContent).toMatch(/development mock/)
+    // The password is never echoed back; the page says what the account signs in with.
+    expect(await screen.findByText(/sign in with the password you set/)).toBeTruthy()
+    expect(screen.queryByTestId('issued-credential')).toBeNull()
+  })
+
+  it('resets a password and reports the sessions the reset revoked', async () => {
+    const user = userEvent.setup()
+    signIn('institution_admin', ADMIN_SCOPES)
+    vi.mocked(listAccounts).mockResolvedValue({
+      institution_id: INSTITUTION,
+      role: 'student',
+      accounts: [STUDENT],
+    })
+    vi.mocked(updateAccount).mockResolvedValue({
+      created: false,
+      account: STUDENT,
+      credential_set: true,
+      sessions_revoked: 3,
+    })
+    render(<AdminPage section="accounts" />)
+
+    await user.click(await screen.findByRole('button', { name: 'Reset password' }))
+    await user.type(await screen.findByLabelText('New password'), 'reset-pass-1')
+    await user.click(screen.getByRole('button', { name: 'Save password' }))
+
+    await waitFor(() =>
+      expect(updateAccount).toHaveBeenCalledWith(INSTITUTION, STUDENT.account_id, {
+        password: 'reset-pass-1',
+      }),
+    )
+    // A reset that left other sessions working would not really have changed who
+    // can get in, so the page reports the revocation.
+    expect(await screen.findByText(/revoked 3 live session/)).toBeTruthy()
   })
 
   it('explains a refused removal with the remedy the guard points at', async () => {
@@ -535,7 +582,7 @@ describe('AdminPage — the directory, by capability', () => {
     vi.mocked(updateAccount).mockResolvedValue({
       created: false,
       account: { ...STUDENT, status: 'DISABLED' },
-      development_credential: null,
+      credential_set: false,
       sessions_revoked: 2,
     })
     render(<AdminPage section="accounts" />)

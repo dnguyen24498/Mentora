@@ -118,6 +118,7 @@ describe('settings routes', () => {
       name: 'settings',
       section: 'accessibility',
     })
+    expect(parseRoute('/settings/security')).toEqual({ name: 'settings', section: 'security' })
   })
 
   it('treats an unknown section as not found', () => {

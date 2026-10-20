@@ -15,7 +15,6 @@ import {
   useSession,
   writeSession,
 } from './session'
-import { resetDevelopmentMode } from './mode'
 import {
   Banner,
   BUTTON_PRIMARY,
@@ -27,48 +26,44 @@ import {
 } from '../components/ui'
 import { LIBRARY_PATH, Link, navigate } from '../router'
 
+/** The shortest password the backend will store, mirrored for a helpful hint. */
+const MIN_PASSWORD_LENGTH = 8
+
 /**
- * Sign in — `/login` (V0-021), and the institution's first administrator (V0-022).
+ * Sign in — `/login` (V0-021, V0-023). The **only** page reachable without a
+ * session: every other route renders this form until there is one.
  *
  * The form is the whole credential exchange: an institution (the tenant the
- * account lives in), an address and an opaque *sign-in code*. The code is
- * deliberately not called a password: no password mechanism is a decided
- * technology. The canonical architecture names **institutional federation**
- * (OIDC/OAuth), and no ADR accepts an implementation, so the adapter behind this
- * form is a labelled development mock — and the page says so rather than
- * presenting it as the platform's authentication.
- *
- * A student is given a code when an administrator creates their account
- * (`Admin → Accounts`), so this page is also where a student starts: sign in, then
- * open the class's join page.
+ * account lives in), an address and a **password**. Administrators and teachers set
+ * a password when they create an account, and the account holder can change it
+ * afterwards (`Settings → Security`). The password is deliberately not presented as
+ * a decided mechanism: the canonical architecture names **institutional federation**
+ * (OIDC/OAuth), no ADR accepts an implementation, so the adapter behind this form is
+ * a labelled development mock — and the page says so rather than presenting it as
+ * the platform's authentication.
  *
  * Three roles sign in through this one form — an institution administrator, a
  * teacher and a student — because who you are is the account's role, not a choice on
  * this page. The **first** administrator is the one thing that cannot be signed into
- * into existence: a fresh installation has no accounts at all, so the deployment
- * bootstrap creates that account here, once, while the development shortcut is on.
- * After that the tenant refuses it, and `Admin → Accounts` creates everyone else.
- *
- * What this page must never do is imply that signing in is required for the rest
- * of the app. The backend accepts an `X-Institution-Id` header as a *development*
- * shortcut (while `MENTORA_DEV_TENANT_HEADER` is on), which resolves a teacher
- * with no account. That is what the "Continue without signing in" button is, and
- * the page names it as development mode, not as a user.
+ * existence: a fresh installation has no accounts at all, so the deployment
+ * bootstrap creates that account here, once, and closes the moment the tenant has an
+ * administrator. After that `Admin → Accounts` creates everyone else.
  */
 export default function LoginPage() {
   const session = useSession()
   const [institution, setInstitution] = useInstitution()
   const [email, setEmail] = useState('')
-  const [credential, setCredential] = useState('')
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The first-administrator bootstrap. Kept beside the sign-in form rather than on
   // its own page, because creating that account is a *precondition* for signing in
   // as anyone who can administer anything.
   const [adminEmail, setAdminEmail] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
   const [adminBusy, setAdminBusy] = useState(false)
   const [adminError, setAdminError] = useState<string | null>(null)
-  const [adminCode, setAdminCode] = useState<{ email: string; credential: string } | null>(null)
+  const [adminCreated, setAdminCreated] = useState<string | null>(null)
 
   function nextPath(): string {
     // `/login?next=/join/abc` returns the teacher (or the student) to what they
@@ -89,12 +84,9 @@ export default function LoginPage() {
       const issuance = await login({
         institutionId: institution.trim() || DEFAULT_INSTITUTION,
         email: email.trim(),
-        credential,
+        password,
       })
       writeSession(sessionFrom(issuance))
-      // A session is not the development shortcut, so the cached answer to
-      // "which mode is this browser in" is now stale.
-      resetDevelopmentMode()
       // Keep the tenant and the session in step: a signed-in page derives it from
       // the session, but the sign-in form and the studio's tenant field read this.
       writeInstitution(issuance.principal.institution_id)
@@ -112,23 +104,17 @@ export default function LoginPage() {
     if (!address) return
     setAdminBusy(true)
     setAdminError(null)
+    setAdminCreated(null)
     try {
-      const mutation = await bootstrapAdministrator(tenant, address)
-      const code = mutation.development_credential
-      if (code) {
-        // Prefill the sign-in form: the next step is always to sign in as the
-        // administrator that was just created, and re-typing the code is pointless.
-        setEmail(mutation.account.email)
-        setCredential(code)
-        setAdminCode({ email: mutation.account.email, credential: code })
-        setAdminEmail('')
-      } else {
-        setAdminError(
-          `${mutation.account.email} already exists in ${tenant}, so nothing new was created. Sign in with its existing code.`,
-        )
-      }
+      const mutation = await bootstrapAdministrator(tenant, address, adminPassword)
+      // Prefill the sign-in form: the next step is always to sign in as the
+      // administrator that was just created, and re-typing the password is pointless.
+      setEmail(mutation.account.email)
+      setPassword(adminPassword)
+      setAdminCreated(mutation.account.email)
+      setAdminEmail('')
+      setAdminPassword('')
     } catch (cause) {
-      setAdminCode(null)
       setAdminError(describeBootstrapError(cause, tenant))
     } finally {
       setAdminBusy(false)
@@ -145,7 +131,6 @@ export default function LoginPage() {
       /* the session is cleared below regardless */
     } finally {
       clearSession()
-      resetDevelopmentMode()
       setBusy(false)
     }
   }
@@ -156,12 +141,14 @@ export default function LoginPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 sm:px-4 lg:py-3">
           <h1 className="text-base font-semibold text-slate-800">Sign in</h1>
           <span className="text-sm text-slate-500">Mentora</span>
-          <Link
-            to={LIBRARY_PATH}
-            className="text-sm font-medium text-indigo-700 hover:underline lg:ml-auto"
-          >
-            Back to the library
-          </Link>
+          {session && (
+            <Link
+              to={LIBRARY_PATH}
+              className="text-sm font-medium text-indigo-700 hover:underline lg:ml-auto"
+            >
+              Back to the library
+            </Link>
+          )}
         </div>
       </header>
 
@@ -217,15 +204,15 @@ export default function LoginPage() {
               </Field>
 
               <Field
-                label="Sign-in code"
-                htmlFor="login-credential"
-                hint="An administrator gives you one when they create your account."
+                label="Password"
+                htmlFor="login-password"
+                hint="An administrator sets your password when they create your account. You can change it under Settings → Security."
               >
                 <input
-                  id="login-credential"
+                  id="login-password"
                   type="password"
-                  value={credential}
-                  onChange={(event) => setCredential(event.target.value)}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
                   className={INPUT_CLASS}
                 />
@@ -233,7 +220,7 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={busy || !email.trim() || !credential}
+                disabled={busy || !email.trim() || !password}
                 className={`${BUTTON_PRIMARY} w-full`}
               >
                 Sign in
@@ -248,31 +235,24 @@ export default function LoginPage() {
             <p className="text-sm text-slate-700">
               The credential mechanism is <strong>not a decided technology</strong>. The architecture
               names institutional federation (OIDC/OAuth) and no decision accepts an implementation, so
-              the platform runs a clearly labelled development mock behind a provider-neutral interface.
-              Nothing here should be read as the finished mechanism.
+              the platform runs a clearly labelled development mock behind a provider-neutral interface:
+              a password an administrator sets, stored only as a digest. Nothing here should be read as
+              the finished mechanism.
             </p>
             <p className="text-[11px] text-slate-400">
               A session is short-lived; only its SHA-256 digest is stored, and a sign-out revokes it.
             </p>
           </Panel>
 
-          <Panel title="Without signing in">
+          <Panel title="Every page needs a sign-in">
             <p className="text-sm text-slate-700">
-              The API also accepts an <span className="font-mono text-xs">X-Institution-Id</span> header
-              as a development shortcut, which resolves a <em>teacher</em> with no account behind it. It
-              keeps the authoring flows usable before federation exists.
+              The studio, the classroom, the learning page and the student pages all require a session,
+              so opening one of them without signing in brings you back here. After signing in you land
+              on the page you asked for.
             </p>
-            <p className="mt-2 text-sm text-slate-700">
-              It is <strong>not</strong> a sign-in. It is a teacher, and joining a class is the
-              student's own action — so it cannot join one, and students always sign in.
-            </p>
-            <div className="mt-3">
-              <Link to={LIBRARY_PATH} className={BUTTON_SECONDARY}>
-                Continue in development mode
-              </Link>
-            </div>
             <p className="mt-2 text-[11px] text-slate-400">
-              A student opens the join link their teacher gave them, or signs in above and then opens it.
+              A student opens the join link their teacher gave them — signing in first if they have not
+              already.
             </p>
           </Panel>
 
@@ -284,15 +264,10 @@ export default function LoginPage() {
                 deployment — after that this institution refuses it, and{' '}
                 <span className="font-medium">Admin → Accounts</span> creates teachers and students.
               </p>
-              {adminCode ? (
-                <div className="mt-3 space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  <p className="font-medium">
-                    The administrator {adminCode.email} exists. Its sign-in code is filled in above.
-                  </p>
-                  <p className="font-mono text-sm break-all">{adminCode.credential}</p>
-                  <p className="text-[11px]">
-                    Shown once and stored only as a digest. Press <strong>Sign in</strong>.
-                  </p>
+              {adminCreated ? (
+                <div className="mt-3 space-y-1 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  <p className="font-medium">{adminCreated} is now this institution's administrator.</p>
+                  <p>Its email and password are filled in above. Press <strong>Sign in</strong>.</p>
                 </div>
               ) : (
                 <div className="mt-3 space-y-3">
@@ -306,14 +281,32 @@ export default function LoginPage() {
                       type="email"
                       value={adminEmail}
                       onChange={(event) => setAdminEmail(event.target.value)}
+                      className={INPUT_CLASS}
+                    />
+                  </Field>
+                  <Field
+                    label="Administrator password"
+                    htmlFor="bootstrap-password"
+                    hint={`At least ${MIN_PASSWORD_LENGTH} characters. This account's password is stored only as a digest.`}
+                  >
+                    <input
+                      id="bootstrap-password"
+                      type="password"
+                      value={adminPassword}
+                      onChange={(event) => setAdminPassword(event.target.value)}
                       onKeyDown={(event) => event.key === 'Enter' && void bootstrap()}
+                      autoComplete="new-password"
                       className={INPUT_CLASS}
                     />
                   </Field>
                   <button
                     type="button"
                     onClick={() => void bootstrap()}
-                    disabled={adminBusy || !adminEmail.trim()}
+                    disabled={
+                      adminBusy ||
+                      !adminEmail.trim() ||
+                      adminPassword.length < MIN_PASSWORD_LENGTH
+                    }
                     className={`${BUTTON_SECONDARY} w-full`}
                   >
                     Create the first administrator
@@ -337,6 +330,9 @@ function describeBootstrapError(cause: unknown, institution: string): string {
     }
     if (cause.issueCode === 'BOOTSTRAP_DISABLED') {
       return 'This deployment does not expose the first-administrator bootstrap: with institutional federation the identity provider provisions that account. Ask your operator.'
+    }
+    if (cause.issueCode === 'CREDENTIAL_TOO_WEAK') {
+      return `Choose a password of at least ${MIN_PASSWORD_LENGTH} characters.`
     }
   }
   return describeApiError(cause)

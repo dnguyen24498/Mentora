@@ -17,8 +17,8 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
 | `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, accounts, courses, classes, publications | `src/admin/AdminPage.tsx` |
-| `/settings/{section}` | Settings — general, rendering, teaching, accessibility | `src/settings/SettingsPage.tsx` |
-| `/login` | Sign in — institution, address, one-time code (V0-021) | `src/auth/LoginPage.tsx` |
+| `/settings/{section}` | Settings — general, rendering, teaching, accessibility, security | `src/settings/SettingsPage.tsx` |
+| `/login` | Sign in — institution, address, **password**; the only public route (V0-023) | `src/auth/LoginPage.tsx` |
 | `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
 | `/student/{classId}` | The student's own fullscreen view of a running class | `src/student/StudentClassPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
@@ -43,9 +43,10 @@ why — never a link that goes nowhere. Admin and Settings are plain links, so t
 are always available.
 
 With identities (V0-021) the nav also answers "who am I": it shows the signed-in
-principal and **Sign out**, an amber **Development mode** chip when the browser is
-on the tenant-header shortcut (a teacher with no account behind it), or a
-**Sign in** link otherwise. V0-022 chooses the entries by **capability** rather
+principal and **Sign out**, or a **Sign in** link when no session exists. Since
+V0-023 there is no "development mode" chip: the tenant shortcut is off by default and
+every page is behind the sign-in, so a session is the only state the nav knows.
+V0-022 chooses the entries by **capability** rather
 than by role name, so a principal is offered exactly the pages the server would
 allow: an **institution administrator** (who authors nothing and attends nothing)
 sees Library, Admin and Settings; a **teacher** sees all of them; a **student**
@@ -301,11 +302,13 @@ would `403`.
 
 - **Overview** — what the tenant holds (courses, classes, running classes) and
   links to the section that can act on it. It never mutates anything itself.
-- **Accounts** (V0-022) — the institution's teacher and student directory: create
-  an account, rename it, switch its role, disable/enable it and delete it, with the
-  one-time sign-in code shown **once** on creation. Two refusals are turned into
-  the remedy they point at: an address that already belongs to the other role says
-  to change *that* account's role rather than split one person in two, and a
+- **Accounts** (V0-022, V0-023) — the institution's teacher and student directory:
+  create an account, rename it, switch its role, disable/enable it and delete it.
+  **The administrator chooses the password** on creation and can **reset** it later;
+  the password is sent in the request **body** (never a URL) and is never echoed
+  back, and a reset reports the live sessions it revoked. Two refusals are turned
+  into the remedy they point at: an address that already belongs to the other role
+  says to change *that* account's role rather than split one person in two, and a
   deletion refused with `ACCOUNT_IN_USE` says to **Disable** instead (a removal
   would orphan the roster). It never offers to create an administrator — the API
   refuses that (`ROLE_NOT_MANAGEABLE`), and the page explains that the first
@@ -375,6 +378,11 @@ publishes.
   own** persisted preferences, edited through the classroom store
   (`readClassroomPreferences`/`updateClassroomPreferences`) rather than kept a
   second time, so the two can never drift.
+- **Security** (V0-023) — change **your own password**: the current one is verified
+  exactly as a sign-in is (a wrong one is refused and does not sign you out), and a
+  successful change revokes the account's **other** live sessions while keeping this
+  one. It says plainly that the credential mechanism is not a decided technology.
+  Resetting *someone else's* password is `Admin → Accounts`.
 
 ## Identities, the directory and the student pages (V0-021, V0-022)
 
@@ -386,15 +394,24 @@ says so and the adapter behind it is a labelled development stand-in —
 `GET /auth/me` reports `authenticator.kind: "DEVELOPMENT_MOCK"` and the page
 renders that word rather than implying federation.
 
-**Three account types sign in through the one form** (V0-022) — an institution
+**Three account types sign in through the one form** (V0-021/V0-022) — an institution
 administrator, a teacher and a student — because who you are is the account's role,
 not a choice on the page. The same page carries the **first-administrator** panel,
 since a fresh installation has no accounts and therefore nobody who could sign in to
-create one: it posts to `POST /auth/bootstrap-admin`, shows the one-time code once
-and **fills it into the sign-in form** so the next step is one click; a refusal is
+create one: it posts to `POST /auth/bootstrap-admin` with the password the operator
+chooses and **fills the address and password into the sign-in form** so the next step
+is one click (no secret is returned to display); a refusal is
 named by cause — the institution already has an administrator (`TENANT_ALREADY_PROVISIONED`,
 "sign in instead"), or a hardened deployment provisions them through the identity
 provider (`BOOTSTRAP_DISABLED`).
+
+**The whole app is behind the sign-in (V0-023).** `App.tsx` treats `/login` as the
+only public route: any other route with no session renders a redirect to
+`/login?next=<requested path>` (a `replace`, so the guarded path does not linger in
+the history), and a successful sign-in returns there. A `401` that means the server
+no longer accepts the session (expired, revoked, unknown, disabled) clears it in
+`api/client.ts`, so the guard re-applies with a truthful state. There is no
+"development mode" affordance: the tenant shortcut is off by default.
 
 - **`src/auth/session.ts`** holds the session — the raw token for the API client,
   the principal (tenant, role, scopes), the capability that issued it and its
@@ -407,32 +424,24 @@ provider (`BOOTSTRAP_DISABLED`).
   request, so a stale client can only ever show a button that fails). V0-022 adds
   the third role, the two directory capabilities (`account:read`, `account:write`)
   and `isAdministrator` (read from `account:write`, never from the role name).
-- **`src/auth/mode.ts`** answers "which mode is this browser in?" by asking
-  `GET /auth/me`. It cannot be read from local state, because the **development
-  tenant shortcut has no session at all** — that endpoint reports
-  `authenticated: false` for the shortcut and `401 SESSION_REQUIRED` when a
-  deployment has switched it off. The nav shows a signed-in principal, an amber
-  **Development mode** chip, or a **Sign in** link accordingly: never the shortcut
-  presented as a user, and never "signed out" while the app is in fact acting as a
-  teacher.
+  **V0-023: no session is no capabilities** — `hasScope(null, …)` is `false` for every
+  scope, because a sign-in is required and the shortcut is off by default.
 - **The nav is role-aware, chosen by capability.** A student sees **My class**
   (`/join/{id}`) and **Attend** (`/student/{id}`) instead of Studio/Classroom/Learn/Admin;
   an institution administrator sees Library/Admin/Settings because the authoring
   surfaces would only answer `403`; without a remembered class the id-scoped
   entries are disabled labels that say why. This is courtesy, not access control:
   the server refuses a student's teacher verbs with `403 INSUFFICIENT_SCOPE`
-  regardless. In development mode (no session) `hasScope` answers `false` for
-  `account:write`, because the shortcut resolves a *teacher* server-side — so the
-  developer sees a teacher's surfaces, not an administrator's that would `403`.
+  regardless. With no session the nav offers only **Sign in**, because there is
+  nothing a caller without a session may do.
 - **`src/auth/StudentNotice.tsx`** is where a student lands if they open a
   teacher's page: a real landing — the class they were last in, a field to open a
   class by the id in their join link, and Sign out — rather than a page whose every
   request would answer 403. (A class id is not a secret; *enrolment* is what
   authorizes a join, and the server checks it on every join.)
 - **`src/student/JoinClassPage.tsx`** (`/join/{classId}`) establishes *who is
-  asking* before anything else. Signed out, it asks for a sign-in and says the
-  development shortcut cannot join (it is a teacher, not a student, and `join` is
-  the student's own capability).
+  asking* before anything else. Signed out, the route guard has already sent the
+  browser to sign in, so the page's signed-out branch is only a defensive fallback.
   Signed in, it shows the class and asks the server for the caller's **own** join
   credential (`POST /classes/{id}/bootstrap-token`, no body), reporting a refusal
   by its precise cause — `NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`,
@@ -548,8 +557,10 @@ enrolling, publishing and verifying, and the scheduled start: a due class starte
 while the page is open, a due class left alone with auto-start off, and a refusal
 reported per class rather than retried), and `src/settings/SettingsPage.test.tsx`
 covers each settings section (the server facts it can only report, restoring
-defaults, persisting the mode, the pacing and the auto-start, and editing the
-classroom's own accessibility preferences). Test deps
+defaults, persisting the mode, the pacing and the auto-start, editing the
+classroom's own accessibility preferences, and the **Security** change-password
+form: success with the revoked-session count, a local mismatch refusal, and a wrong
+current password that leaves the session standing). Test deps
 are **dev-only**; the production build and its dependencies are unchanged.
 
 `src/classroom/state/reducer.test.ts` is the pure-reducer acceptance suite
@@ -571,16 +582,18 @@ covers the join page's refusals and its signed-out prompt, and
 `src/student/StudentClassPage.test.tsx` covers the student view (slide loading,
 the ends of the deck disabled rather than wrapping, the text-only narration, a
 degraded scene). `src/components/SiteNav.test.tsx` and `src/App.test.tsx` add the
-identity cases: the role-aware nav, the "Development mode" chip appearing only
-when `GET /auth/me` reports the shortcut, the student landing, and the student
-route guard.
+identity cases: the role-aware nav, the student landing, and the student
+route guard. V0-023 adds the guard to `App.test.tsx` (an unauthenticated browser is
+sent to `/login` with the requested page remembered, `/login` is public, and nothing
+opens without a session), and no suite expects a "Development mode" state any more.
 
 For V0-022, those suites grew a third role: `LoginPage.test.tsx` covers the
-first-administrator bootstrap (creating it fills the code into the sign-in form,
-"already provisioned" reads as "sign in instead", a hardened deployment says the
+first-administrator bootstrap (creating it with a password fills it into the sign-in
+form, "already provisioned" reads as "sign in instead", a hardened deployment says the
 provider owns the account, and the panel disappears once a session exists);
-`AdminPage.test.tsx` covers the **Accounts** directory (creating a teacher and
-handing over the one-time code once, a refused removal explained with the
+`AdminPage.test.tsx` covers the **Accounts** directory (creating a teacher with the
+password the administrator chooses, resetting one and reporting the revoked sessions,
+a refused removal explained with the
 `ACCOUNT_IN_USE` remedy, disabling with the revoked-session count, and no
 administrator-creation option) **and the capability filter** (an administrator sees
 Accounts and not the authoring sections, a teacher the reverse, and a section the

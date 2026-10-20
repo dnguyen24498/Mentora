@@ -1,4 +1,10 @@
-import { currentToken, type AuthSession, type CapabilityIdentity, type Principal } from '../auth/session'
+import {
+  clearSession,
+  currentToken,
+  type AuthSession,
+  type CapabilityIdentity,
+  type Principal,
+} from '../auth/session'
 
 export class ApiError extends Error {
   code: string
@@ -146,6 +152,11 @@ async function send(path: string, institutionId: string, init?: RequestInit): Pr
       ? (body as { error?: { code?: string; message?: string; issue_code?: string } }).error
       : undefined
   if (error?.code) {
+    // A session the server no longer accepts must not keep the app looking signed
+    // in (V0-023): an expired, revoked, unknown or disabled session is a `401`
+    // `UNAUTHENTICATED`, and dropping it here lets the route guard send the user
+    // back to sign in with a truthful state rather than a page that only 401s.
+    if (response.status === 401 && token) clearSession()
     throw new ApiError(error.code, error.message ?? response.statusText, error.issue_code ?? null)
   }
   if (response.status >= 500 && !text.trim()) {
@@ -705,7 +716,7 @@ export const loadHealth = () => request<{ status: string }>('/health', '')
 export interface LoginInput {
   institutionId: string
   email: string
-  credential: string
+  password: string
 }
 
 export interface SessionIssuance {
@@ -719,27 +730,43 @@ export interface SessionIssuance {
 }
 
 /**
- * Sign in. A refusal is a stable code: `AUTHENTICATION_FAILED` with
- * `issue_code INVALID_CREDENTIALS` for a wrong credential *or* an unknown
- * account (deliberately indistinguishable), `AUTHENTICATION_UNAVAILABLE` when
- * the capability could not be reached — an availability failure is not a
- * denial, so the two are never conflated.
+ * Sign in with a **password**. A refusal is a stable code: `AUTHENTICATION_FAILED`
+ * with `issue_code INVALID_CREDENTIALS` for a wrong password *or* an unknown
+ * account (deliberately indistinguishable), `AUTHENTICATION_UNAVAILABLE` when the
+ * capability could not be reached — an availability failure is not a denial, so the
+ * two are never conflated.
  */
 export const login = (input: LoginInput) =>
   request<SessionIssuance>('/auth/login', '', JSON_POST({
     institution_id: input.institutionId,
     email: input.email,
-    credential: input.credential,
+    password: input.password,
   }))
 
 /** Revoke the presented session. Idempotent, and never fails on an expired one. */
 export const logout = () => request<{ revoked: boolean }>('/auth/logout', '', { method: 'POST' })
+
+/**
+ * Change the signed-in account's own password (V0-023).
+ *
+ * The current password is verified server-side exactly as a sign-in is, so this is
+ * not a weaker second path to the account; a wrong one is `401`
+ * `INVALID_CREDENTIALS` and the caller's session stays valid. On success every
+ * **other** live session of the account is revoked, and the caller's own is kept.
+ */
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  request<{ changed: boolean; sessions_revoked: number }>(
+    '/auth/password',
+    '',
+    JSON_POST({ current_password: currentPassword, new_password: newPassword }),
+  )
 
 export interface PrincipalEnvelope {
   principal: Principal
   authenticator: CapabilityIdentity
   notice: string
   development_shortcut: boolean
+  admin_bootstrap: boolean
 }
 
 /**
@@ -830,7 +857,8 @@ export type ManagedRole = 'teacher' | 'student'
 export interface AccountMutation {
   created: boolean
   account: Account
-  development_credential: string | null
+  /** Whether this call stored a password the account can sign in with. */
+  credential_set: boolean
   sessions_revoked: number
 }
 
@@ -841,38 +869,54 @@ export const listAccounts = (institutionId: string, role: ManagedRole) =>
     institutionId,
   )
 
-/** Create a teacher or a student. An administrator capability. */
+/**
+ * Create a teacher or a student, with the password it will sign in with. An
+ * administrator capability.
+ *
+ * The password is sent in the **body**, never a query string: a password in a URL
+ * would be recorded in access logs and browser history. Create-or-link: the same
+ * address and role returns the existing account with `created: false` and does not
+ * touch its credential, so a retry cannot overwrite the password the holder has.
+ */
 export const createAccount = (
   institutionId: string,
   email: string,
   role: ManagedRole,
+  password: string,
   displayName?: string,
-) => {
-  const params = new URLSearchParams({ email, role })
-  if (displayName) params.set('display_name', displayName)
-  return request<AccountMutation>(`/accounts?${params.toString()}`, institutionId, {
-    method: 'POST',
+) =>
+  request<AccountMutation>('/accounts', institutionId, {
+    ...JSON_POST({ email, role, password, display_name: displayName ?? null }),
   })
-}
 
 export const loadAccount = (institutionId: string, accountId: string) =>
   request<Account>(`/accounts/${encodeURIComponent(accountId)}`, institutionId)
 
-/** Change a display name, a role or the enabled state. An administrator capability. */
+/**
+ * Change a display name, a role, the enabled state, or reset the password. An
+ * administrator capability, and a **partial body**: an omitted field is unchanged.
+ * Disabling and a password reset both revoke the account's live sessions.
+ */
 export const updateAccount = (
   institutionId: string,
   accountId: string,
-  change: { displayName?: string; role?: ManagedRole; status?: 'ACTIVE' | 'DISABLED' },
+  change: {
+    displayName?: string
+    role?: ManagedRole
+    status?: 'ACTIVE' | 'DISABLED'
+    password?: string
+  },
 ) => {
-  const params = new URLSearchParams()
-  if (change.displayName !== undefined) params.set('display_name', change.displayName)
-  if (change.role !== undefined) params.set('role', change.role)
-  if (change.status !== undefined) params.set('status', change.status)
-  return request<AccountMutation>(
-    `/accounts/${encodeURIComponent(accountId)}?${params.toString()}`,
-    institutionId,
-    { method: 'PATCH' },
-  )
+  const body: Record<string, unknown> = {}
+  if (change.displayName !== undefined) body.display_name = change.displayName
+  if (change.role !== undefined) body.role = change.role
+  if (change.status !== undefined) body.status = change.status
+  if (change.password !== undefined) body.password = change.password
+  return request<AccountMutation>(`/accounts/${encodeURIComponent(accountId)}`, institutionId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 /** Remove an account no class references. An enrolled account is deactivated instead. */
@@ -884,20 +928,29 @@ export const deleteAccount = (institutionId: string, accountId: string) =>
   )
 
 /**
- * Create the institution's **first** administrator (V0-022).
+ * Create the institution's **first** administrator, with its password (V0-022, V0-023).
  *
  * Unauthenticated by necessity: there is no administrator yet to authorize it. The
- * route exists only while the deployment's development shortcut is on, and it
- * refuses once the tenant has an administrator — so a caller treats a refusal as
- * "sign in instead".
+ * route is exposed while the deployment's `MENTORA_ADMIN_BOOTSTRAP` is on (its own
+ * switch, default on, so a locked deployment can still create its first account),
+ * and it refuses once the tenant has an administrator — so a caller treats a refusal
+ * as "sign in instead". The password is sent in the body, never a query string.
  */
-export const bootstrapAdministrator = (institutionId: string, email: string) =>
+export const bootstrapAdministrator = (
+  institutionId: string,
+  email: string,
+  password: string,
+  displayName?: string,
+) =>
   request<AccountMutation>(
-    `/auth/bootstrap-admin?institution_id=${encodeURIComponent(
-      institutionId,
-    )}&email=${encodeURIComponent(email)}`,
+    '/auth/bootstrap-admin',
     '',
-    { method: 'POST' },
+    JSON_POST({
+      institution_id: institutionId,
+      email,
+      password,
+      display_name: displayName ?? null,
+    }),
   )
 
 // -- the student's view of a running class (V0-021) -------------------------------

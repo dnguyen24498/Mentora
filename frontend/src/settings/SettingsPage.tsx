@@ -7,12 +7,14 @@ import GeneralSettings from './GeneralSettings'
 import RenderingSettings from './RenderingSettings'
 import TeachingSettings from './TeachingSettings'
 import AccessibilitySettings from './AccessibilitySettings'
+import SecuritySettings from './SecuritySettings'
 
 const TABS: { section: SettingsSection; label: string }[] = [
   { section: 'general', label: 'General' },
   { section: 'rendering', label: 'Rendering' },
   { section: 'teaching', label: 'Teaching' },
   { section: 'accessibility', label: 'Accessibility' },
+  { section: 'security', label: 'Security' },
 ]
 
 export interface SettingsPageProps {
@@ -76,6 +78,7 @@ export default function SettingsPage({ section }: SettingsPageProps) {
         {section === 'rendering' && <RenderingSettings institutionId={institution} />}
         {section === 'teaching' && <TeachingSettings />}
         {section === 'accessibility' && <AccessibilitySettings />}
+        {section === 'security' && <SecuritySettings />}
       </main>
     </div>
   )

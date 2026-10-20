@@ -67,7 +67,8 @@ class ScriptedAuthenticator(Authenticator):
         self.calls: list[AuthenticationRequest] = []
         #: Credentials it accepts, when the script is empty (subject -> secret).
         self.secrets: dict[str, str] = dict(secrets or {})
-        self.issued: list[tuple[str, str]] = []
+        #: Credentials this double was asked to provision (institution, account, secret).
+        self.provisioned: list[tuple[str, str, str]] = []
 
     @property
     def identity(self) -> AuthenticatorIdentity:
@@ -98,9 +99,17 @@ class ScriptedAuthenticator(Authenticator):
             return False
         return self.secrets.get(account_id) == request.credential
 
-    def issue_credential(self, institution_id: str, account_id: str) -> Optional[str]:
-        self.issued.append((institution_id, account_id))
-        return f"scripted-credential-{account_id}"
+    def provision_credential(self, institution_id: str, account_id: str, secret: str) -> bool:
+        """Record a caller-supplied credential and accept it thereafter.
+
+        Behaving like a credential *store* rather than a random issuer keeps a test
+        simple: it can create an account with a password and sign in with the same
+        value, without reading a secret back out of a mutation.
+        """
+
+        self.provisioned.append((institution_id, account_id, secret))
+        self.secrets[account_id] = secret
+        return True
 
 
 __all__ = [

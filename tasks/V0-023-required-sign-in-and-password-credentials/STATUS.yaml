@@ -1,0 +1,10 @@
+id: V0-023
+title: "Required sign-in and password credentials"
+week: W8
+status: DONE
+depends_on: ["V0-022"]
+started_at: "2026-10-19"
+completed_at: "2026-10-19"
+blockers:
+  - "No accepted ADR for the identity mechanism (FND-002 is TODO). Which pages require a session, and which credential a subject presents, are product decisions that do not depend on it; the credential adapter stays a labelled development mock."
+notes: []

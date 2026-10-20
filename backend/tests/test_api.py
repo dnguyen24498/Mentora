@@ -9,6 +9,16 @@ HEADERS = {"X-Institution-Id": "inst-1"}
 
 
 @pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
+
+
+@pytest.fixture
 def client(settings):
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -70,11 +80,21 @@ def test_a_request_without_a_principal_is_unauthenticated(client):
 
 
 def test_the_development_shortcut_can_be_switched_off(settings):
-    """With the shortcut off, the tenant header authorizes nothing at all."""
+    """With the shortcut off, the tenant header authorizes nothing at all.
+
+    The shortcut is a development opt-in: this suite opts in (``dev_settings``,
+    overridden above), and the shipped default is off (V0-023).
+    """
 
     from app.config import Settings
 
-    assert settings.dev_tenant_header is True  # the default this suite runs with
+    assert settings.dev_tenant_header is True  # this suite opts in explicitly
+    # The shipped default requires a session on every route.
+    assert (
+        Settings(database_path=settings.database_path, object_root=settings.object_root)
+        .dev_tenant_header
+        is False
+    )
     strict = Settings(
         database_path=settings.database_path,
         object_root=settings.object_root,

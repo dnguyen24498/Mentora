@@ -38,18 +38,21 @@ Endpoints (see ``contracts/openapi/openapi.yaml``):
 * ``GET  /renderer`` — renderer capability and health
 * ``POST /auth/login`` — sign in; a short-lived session token, returned once (V0-021)
 * ``POST /auth/logout`` — revoke the presented session (idempotent)
+* ``POST /auth/password`` — change the presented account's own password (V0-023)
 * ``GET  /auth/me`` — the principal the presented session authorizes
 * ``GET  /health``
 
-Authentication (V0-021): every request resolves a **principal** and the tenant is
-derived from it, so the tenant can no longer be named by the caller
-(``app/api/security.py``). The credential *mechanism* is not decided — the canonical
-architecture names institutional federation and no ADR accepts an implementation —
-so what is wired is a labelled development mock behind
-``app.identity.port.Authenticator``. When ``Settings.dev_tenant_header`` is on, a
-request with no session is still accepted for the ``X-Institution-Id`` it names and
-gets a principal marked ``authenticated: false``; that shortcut is development-only
-and off in a real deployment.
+Authentication (V0-021). V0-023 makes **every route require a real session**: a
+request resolves a principal and the tenant is derived from it, so the tenant can no
+longer be named by the caller (``app/api/security.py``), and the pre-auth
+``X-Institution-Id`` development shortcut is off by default (an explicit
+``MENTORA_DEV_TENANT_HEADER=1`` opts a development deployment in). The credential
+*mechanism* is not decided — the canonical architecture names institutional
+federation and no ADR accepts an implementation — so what is wired is a labelled
+development mock behind ``app.identity.port.Authenticator``; V0-023 makes the
+credential it manages a password an administrator sets. The one-shot
+first-administrator bootstrap is gated by its own switch (``Settings.admin_bootstrap``)
+so a locked deployment can still create its first account.
 """
 
 from __future__ import annotations
@@ -196,6 +199,7 @@ def create_app(
     security = build_api_security(
         identity_service,
         allow_dev_header=settings.dev_tenant_header,
+        allow_admin_bootstrap=settings.admin_bootstrap,
         telemetry=identity_service.telemetry,
     )
     app.state.identity_service = identity_service

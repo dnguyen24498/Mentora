@@ -21,16 +21,20 @@ import {
   Row,
 } from '../components/ui'
 
+/** The shortest password the backend will store, mirrored for a helpful hint. */
+const MIN_PASSWORD_LENGTH = 8
+
 const ROLES: { role: ManagedRole; label: string }[] = [
   { role: 'student', label: 'Students' },
   { role: 'teacher', label: 'Teachers' },
 ]
 
 /**
- * The account directory — `Admin → Accounts` (V0-022).
+ * The account directory — `Admin → Accounts` (V0-022, V0-023).
  *
  * An institution administrator's surface: create, read, change and remove the
- * institution's **teacher and student** accounts. Three things are deliberate:
+ * institution's **teacher and student** accounts, and set or reset their
+ * passwords. Four things are deliberate:
  *
  * * **Administrator accounts are not created here.** The first one comes from the
  *   deployment bootstrap (`/login`), and under institutional federation the identity
@@ -40,10 +44,18 @@ const ROLES: { role: ManagedRole; label: string }[] = [
  *   (`ACCOUNT_IN_USE`) and must be **deactivated** instead, so a roster and the audit
  *   trail behind it are never orphaned. This page offers the refusal's remedy
  *   directly rather than leaving the operator to discover it.
- * * **A credential is shown once.** Creating an account returns a one-time sign-in
- *   code from the labelled development mock; it is displayed here and never stored in
- *   the clear. No credential mechanism is a decided technology yet, so the page says
- *   that instead of implying the mock is the platform's authentication.
+ * * **The administrator sets the password.** Creating an account means choosing the
+ *   password it signs in with; the holder can change it later under
+ *   `Settings → Security`. No credential value is ever returned by the API, and no
+ *   password rides in a URL — it is sent in the request body.
+ * * **A reset revokes the account's sessions.** Resetting a forgotten password
+ *   (`Reset password`) revokes that account's live sessions, because a reset that
+ *   left other sessions working would not really have changed who can get in. The
+ *   page reports how many were revoked.
+ *
+ * The password mechanism is the **labelled development stand-in** — no credential
+ * mechanism is a decided technology yet — so the page says that instead of implying
+ * the mock is the platform's authentication.
  *
  * Every verb here is advisory only in the sense that the *server* decides: the page
  * is reachable because this principal holds `account:write`, and each request
@@ -54,15 +66,15 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
   const [accounts, setAccounts] = useState<Account[]>([])
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
   const [newRole, setNewRole] = useState<ManagedRole>('student')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // The one-time credential a create just issued. Held until the operator creates
-  // another or leaves, because the API returns it exactly once.
-  const [issued, setIssued] = useState<{ email: string; credential: string } | null>(null)
   // The account whose name is being edited, and the value in its field.
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
+  // The account whose password is being reset, and the value in its field.
+  const [resetting, setResetting] = useState<{ id: string; password: string } | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -74,36 +86,39 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
     }
   }, [institutionId, role])
 
+  // Only the fetch lives here. Outcome banners are cleared by the handlers that
+  // start an action, never by this effect: creating an account can switch the
+  // visible list (and so re-run this fetch) in the same turn it sets its notice,
+  // and a reset here would wipe that notice before it was ever seen.
   useEffect(() => {
-    setError(null)
-    setNotice(null)
     void refresh()
   }, [refresh])
 
   async function create() {
-    if (!email.trim()) return
+    if (!email.trim() || password.length < MIN_PASSWORD_LENGTH) return
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      const mutation = await createAccount(institutionId, email.trim(), newRole, displayName.trim())
+      const mutation = await createAccount(
+        institutionId,
+        email.trim(),
+        newRole,
+        password,
+        displayName.trim(),
+      )
       setEmail('')
       setDisplayName('')
+      setPassword('')
       // Show the new role's list, so the account that was just created is visible.
       if (newRole !== role) setRole(newRole)
       else await refresh()
-      setIssued(
-        mutation.development_credential
-          ? { email: mutation.account.email, credential: mutation.development_credential }
-          : null,
-      )
       setNotice(
         mutation.created
-          ? `Created ${mutation.account.email} as a ${mutation.account.role}.`
-          : `${mutation.account.email} already had an account here as a ${mutation.account.role}; it was linked, and no new sign-in code was issued.`,
+          ? `Created ${mutation.account.email} as a ${mutation.account.role}. They sign in with the password you set — hand it to them out of band, and they can change it under Settings → Security.`
+          : `${mutation.account.email} already had an account here as a ${mutation.account.role}; it was linked, and its existing password was left untouched.`,
       )
     } catch (cause) {
-      setIssued(null)
       setError(describeCreateError(cause, email.trim()))
     } finally {
       setBusy(false)
@@ -124,6 +139,28 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
       setNotice(`Renamed ${mutation.account.email}.`)
     } catch (cause) {
       setError(describeApiError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function savePassword(account: Account) {
+    if (!resetting || resetting.password.length < MIN_PASSWORD_LENGTH) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const mutation = await updateAccount(institutionId, account.account_id, {
+        password: resetting.password,
+      })
+      setResetting(null)
+      await refresh()
+      setNotice(
+        `Reset the password for ${mutation.account.email} and revoked ${mutation.sessions_revoked} ` +
+          'live session(s). Their old password no longer works; hand them the new one out of band.',
+      )
+    } catch (cause) {
+      setError(describeCreateError(cause, account.email))
     } finally {
       setBusy(false)
     }
@@ -231,19 +268,39 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
               </select>
             </div>
 
+            <div>
+              <label htmlFor="account-password" className="block text-sm font-medium text-slate-700">
+                Initial password
+              </label>
+              <input
+                id="account-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && void create()}
+                autoComplete="new-password"
+                placeholder={`at least ${MIN_PASSWORD_LENGTH} characters`}
+                className={`${INPUT_CLASS} mt-1`}
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                The account signs in with this. It is stored only as a digest, is sent in the request
+                body (never a URL), and the holder changes it under Settings → Security.
+              </p>
+            </div>
+
             <button
               type="button"
               onClick={() => void create()}
-              disabled={busy || !email.trim()}
+              disabled={busy || !email.trim() || password.length < MIN_PASSWORD_LENGTH}
               className={`${BUTTON_PRIMARY} w-full`}
             >
               Create account
             </button>
 
             <p className="text-[11px] text-slate-400">
-              Creating the same address twice links the account that exists and issues no new
-              credential — a retry can never re-mint a secret. An address that already belongs to the
-              other role is refused rather than silently changed.
+              Creating the same address twice links the account that exists and <strong>does not touch
+              its password</strong> — a retry can never re-mint a secret. An address that already
+              belongs to the other role is refused rather than silently changed.
             </p>
           </div>
         </Panel>
@@ -264,25 +321,6 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
       <div className="space-y-6">
         {error && <Banner tone="bad">{error}</Banner>}
         {notice && <Banner tone="good">{notice}</Banner>}
-
-        {issued && (
-          <div
-            data-testid="issued-credential"
-            className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-          >
-            <p className="font-medium">Hand this code to {issued.email}</p>
-            <p className="font-mono text-sm break-all">{issued.credential}</p>
-            <p className="text-[11px]">
-              It is shown once and is not stored in the clear. They sign in at{' '}
-              <a href="/login" className="underline">
-                /login
-              </a>
-              . The credential mechanism is a labelled development mock — no credential mechanism is
-              a decided technology yet — so a real deployment would federate with the institution
-              instead of issuing codes.
-            </p>
-          </div>
-        )}
 
         <Panel
           title={`${ROLES.find((item) => item.role === role)?.label ?? 'Accounts'} (${accounts.length})`}
@@ -361,6 +399,41 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
                   </dl>
                 )}
 
+                {resetting?.id === account.account_id && (
+                  <div className="flex flex-wrap gap-2">
+                    <label htmlFor={`account-password-${account.account_id}`} className="sr-only">
+                      New password
+                    </label>
+                    <input
+                      id={`account-password-${account.account_id}`}
+                      type="password"
+                      value={resetting.password}
+                      onChange={(event) =>
+                        setResetting({ id: account.account_id, password: event.target.value })
+                      }
+                      onKeyDown={(event) => event.key === 'Enter' && void savePassword(account)}
+                      autoComplete="new-password"
+                      placeholder={`at least ${MIN_PASSWORD_LENGTH} characters`}
+                      className={`${INPUT_CLASS} min-w-0 flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void savePassword(account)}
+                      disabled={busy || resetting.password.length < MIN_PASSWORD_LENGTH}
+                      className={`${BUTTON_SMALL} shrink-0`}
+                    >
+                      Save password
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResetting(null)}
+                      className={`${BUTTON_SMALL} shrink-0`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
                   {editing?.id !== account.account_id && (
                     <button
@@ -371,6 +444,16 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
                       Rename
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setResetting({ id: account.account_id, password: '' })
+                    }
+                    disabled={busy}
+                    className={BUTTON_SMALL}
+                  >
+                    Reset password
+                  </button>
                   <button
                     type="button"
                     onClick={() => void switchRole(account)}
@@ -419,9 +502,12 @@ export default function AccountsAdmin({ institutionId }: { institutionId: string
   )
 }
 
-/** A create refusal, named by its precise cause (`issue_code`). */
+/** A create or reset refusal, named by its precise cause (`issue_code`). */
 function describeCreateError(cause: unknown, email: string): string {
   if (cause instanceof ApiError) {
+    if (cause.issueCode === 'CREDENTIAL_TOO_WEAK') {
+      return `Choose a password of at least ${MIN_PASSWORD_LENGTH} characters.`
+    }
     if (cause.issueCode === 'EMAIL_ROLE_CONFLICT') {
       return `${email} already has an account here with a different role. Change that account's role instead — creating a second account for one address would split one person in two.`
     }

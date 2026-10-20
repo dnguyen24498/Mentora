@@ -191,24 +191,26 @@ class Account:
 
 @dataclass(frozen=True)
 class AccountMutation:
-    """The result of creating or changing an account (V0-022).
+    """The result of creating or changing an account (V0-022, V0-023).
 
-    ``development_credential`` is populated **only** at creation, by a
-    credential-issuing adapter: it is a mock's affordance and it is returned once.
-    A replay of a create, or any update, carries ``None`` — a retried request can
-    never re-mint a secret.
+    ``credential_set`` reports whether this call stored a credential the account can
+    sign in with. It is ``True`` when an administrator supplied an initial or new
+    password through a credential-managing adapter, and ``False`` for a create-or-link
+    replay (a retry never re-mints a secret) or when the wired adapter does not manage
+    local credentials at all (a federation deployment, where the identity provider
+    owns the credential).
     """
 
     account: Account
     created: bool = False
-    development_credential: Optional[str] = None
+    credential_set: bool = False
     sessions_revoked: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "created": self.created,
             "account": self.account.to_dict(),
-            "development_credential": self.development_credential,
+            "credential_set": self.credential_set,
             "sessions_revoked": self.sessions_revoked,
         }
 

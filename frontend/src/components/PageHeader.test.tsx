@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PageHeader from './PageHeader'
 import { ARTIFACT } from '../test/fixtures'
+import { clearSession, writeSession } from '../auth/session'
 
 /**
  * The shared app bar.
@@ -11,8 +12,47 @@ import { ARTIFACT } from '../test/fixtures'
  * one `h1` per page, the shared nav marked current, the tenant field bound to the
  * page's own state (never a private copy), and the page's own action and section
  * tabs slotting into the bar.
+ *
+ * The bar embeds the shared nav, whose entries are chosen by capability, so these
+ * tests sign a teacher in (V0-023): no session is no capabilities.
  */
 describe('PageHeader', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    clearSession()
+    writeSession({
+      token: 'tok-1',
+      principal: {
+        authenticated: true,
+        institution_id: 'university-001',
+        role: 'teacher',
+        scopes: [
+          'account:read',
+          'class:read',
+          'class:write',
+          'content:read',
+          'content:write',
+          'enrollment:write',
+          'publication:write',
+          'review:write',
+          'scene:read',
+        ],
+        account_id: 'account-teacher',
+        email: 'teacher@school.example',
+        display_name: 'Tess Teacher',
+        session_id: 'session-1',
+      },
+      authenticator: {
+        id: 'local-credentials@1.0.0',
+        name: 'local-credentials',
+        version: '1.0.0',
+        kind: 'DEVELOPMENT_MOCK',
+      },
+      notice: 'mock',
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    })
+  })
+
   it('renders the page name, its qualifier and a current nav entry', () => {
     render(
       <PageHeader

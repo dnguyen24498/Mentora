@@ -722,16 +722,17 @@ for `useSyncExternalStore`. Two things are deliberate:
   allowed. The server re-derives scopes from the account's current role on every
   request, so a stale client can only ever show a button that fails.
 
-`mode.ts` answers "which mode is this browser in?". It cannot be read from local
-state, because the **development tenant shortcut has no session at all**, so it
-asks `GET /auth/me` — the endpoint reports `authenticated: false` for the
-shortcut and `401 SESSION_REQUIRED` when the deployment has switched it off. The
-answer is cached for the page and shown as "Development mode"; the app never
-presents the shortcut as a sign-in, nor as signed out while it is in fact acting
-as a teacher. `LoginPage.tsx` is the credential exchange — institution, address,
-opaque **sign-in code** — and says in the page that no credential mechanism is a
-decided technology and that the adapter behind the form is a labelled development
-mock. `fetchObjectUrl` and every other request carry the session token through
+`LoginPage.tsx` is the credential exchange — institution, address, **password** — and
+says in the page that no credential mechanism is a decided technology and that the
+adapter behind the form is a labelled development mock. It is the **only public
+route** (V0-023): `App.tsx` renders the sign-in form for every other page until a
+session exists, remembering the requested path in `?next=` and returning there after
+a successful sign-in (the redirect is `replace`, and `/login` is never put in
+`?next`). There is no longer a `mode.ts`: the development tenant shortcut is off by
+default, so a session is the only state the client has, and `hasScope(null, …)` is
+`false` for every scope. A `401` that means the server no longer accepts the session
+drops it (`api/client.ts`), so the guard re-applies with a truthful state.
+`fetchObjectUrl` and every other request carry the session token through
 `api/client.ts::send`.
 
 A student who opens a teacher's page is *not* shown a page whose every request
@@ -741,9 +742,9 @@ the control — the server enforces the role on every request.
 
 `frontend/src/student/` is the student's surface, built for the device a student
 actually holds. `JoinClassPage.tsx` (`/join/{classId}`) establishes *who is
-asking* before anything else: signed out it asks for a sign-in and says the
-development shortcut cannot join (it is a teacher, and joining is the student's
-own capability); signed in it shows the class and asks the
+asking* before anything else: signed out the guard has already sent the browser to
+sign in, so the page's signed-out branch is only a defensive fallback; signed in it
+shows the class and asks the
 server for the caller's own join credential, reporting a refusal by its precise
 cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
 `StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
@@ -769,32 +770,42 @@ behind one; each roster row carries a **Remove** action, and the page says the
 account and its sign-in survive a removal. The class detail still offers the
 student join link to share.
 
-## Implemented administration and role-aware navigation (V0-022)
+## Implemented administration and role-aware navigation (V0-022, V0-023)
 
 Three roles sign in through one form (`auth/LoginPage.tsx`), because who you are is
 the account's role rather than a choice on a page; and the same page carries the
 **first-administrator** panel, since a fresh installation has no accounts at all and
 therefore nobody who could sign in to create one. That panel posts to
-`POST /auth/bootstrap-admin`, shows the one-time code once, and **fills it into the
-sign-in form** so the next step is one click; its refusals are named by cause — the
-institution already has an administrator, or a hardened deployment provisions them
-through the identity provider instead (`AccountsAdmin.tsx` says the same thing in
-its Administrator-accounts panel).
+`POST /auth/bootstrap-admin` with the password the operator chooses, and **fills the
+address and password into the sign-in form** so the next step is one click (no secret
+is ever returned to display); its refusals are named by cause — the institution
+already has an administrator, or a hardened deployment provisions them through the
+identity provider instead (`AccountsAdmin.tsx` says the same thing in its
+Administrator-accounts panel). The route is gated on `MENTORA_ADMIN_BOOTSTRAP`
+(default on), a switch of its own, so a locked installation can still create its
+first account.
 
 `admin/AccountsAdmin.tsx` is the directory: create, rename, switch role, disable,
-enable and delete teacher and student accounts, with the one-time code shown once on
-creation. Two refusals are turned into the remedy they point at, rather than a raw
-code: an address that already belongs to the other role says to change *that*
-account's role instead of splitting one person in two, and a deletion refused with
-`ACCOUNT_IN_USE` says to **Disable** instead, explaining that a removal would orphan
-the roster. It never offers to create an administrator — the API refuses that, so
-the page does not pretend otherwise.
+enable and delete teacher and student accounts. **The administrator sets the initial
+password on creation and can reset it** (`Reset password`); the password is sent in
+the request body, never a query string, and is never echoed back. A reset reports the
+live sessions it revoked, because a reset that left them working would not really
+have changed who can get in. Two refusals are turned into the remedy they point at,
+rather than a raw code: an address that already belongs to the other role says to
+change *that* account's role instead of splitting one person in two, and a deletion
+refused with `ACCOUNT_IN_USE` says to **Disable** instead, explaining that a removal
+would orphan the roster. It never offers to create an administrator — the API refuses
+that, so the page does not pretend otherwise.
+
+`Settings → Security` (`settings/SecuritySettings.tsx`) is the holder's own
+**change-password** surface: it verifies the current password exactly as a sign-in
+does (a wrong one is refused and does not sign you out), sets the new one, and
+reports that the account's other live sessions were revoked while this one was kept.
 
 `auth/session.ts` gained the third role, the two new capabilities, `isAdministrator`
 (read from `account:write`, never from the role name) and `describeRole`;
-`hasScope` now answers **false** for `account:write` with no session, because the
-development shortcut resolves a *teacher* server-side — so the developer sees
-exactly the surfaces a teacher has rather than an administrator's that would `403`.
+`hasScope` answers **false** for every scope with no session (V0-023), because no
+session is no capabilities and the development shortcut is off by default.
 `components/SiteNav.tsx` therefore chooses its entries by **capability**: an
 administrator gets Library, Admin and Settings (they author nothing and attend
 nothing, so Studio, Classroom and Learn would only fail), a teacher gets all of
@@ -1044,8 +1055,18 @@ that belongs to the trust boundary:
 
 - **The tenant is derived, never supplied.** A request's tenant comes from the
   session the API resolves; `X-Institution-Id` is the *development* shortcut
-  (`MENTORA_DEV_TENANT_HEADER`, default on) and is ignored whenever a session is
-  present. A caller can therefore never widen its own institution by naming one.
+  (`MENTORA_DEV_TENANT_HEADER`, default **off** as of V0-023, so a request with no
+  session is `401 SESSION_REQUIRED`) and is ignored whenever a session is present. A
+  caller can therefore never widen its own institution by naming one.
+- **Sign-in is required, and the credential is a password (V0-023).** Every route
+  except `/health`, `/auth/login` and the one-shot bootstrap answers only to a
+  session; the frontend renders the sign-in form for every other page until a
+  session exists, and returns to the page that was requested. The password is set by
+  the administrator at creation and reset, or changed by the holder through
+  `POST /auth/password`; it travels in a request **body**, never a URL. Setting or
+  resetting it revokes the account's live sessions (`DEC-RUNTIME-007`), while a
+  self-service change keeps only the caller's. The minimum length is a development
+  guard, not a decided policy.
 - **Authorization is a capability, checked at the route.** Every verb on every
   router carries `require(scope)`; `ROLE_SCOPES` is the single place a role's
   capabilities are decided. No route is protected only by its client.
@@ -1071,10 +1092,10 @@ that belongs to the trust boundary:
   same call** (`DEC-RUNTIME-007`), reporting how many.
 - **The account directory is `OPEN`-free and self-limiting.** An administrator
   cannot create or change another administrator (`ROLE_NOT_MANAGEABLE`); the first
-  one comes from a one-shot deployment bootstrap that is absent unless the
-  development shortcut is on, and refuses once the tenant is provisioned. Nothing
-  here is presented as the decided account-provisioning mechanism — with
-  institutional federation the identity provider owns it.
+  one comes from a one-shot deployment bootstrap gated on its own switch
+  (`MENTORA_ADMIN_BOOTSTRAP`, default on), and refuses once the tenant is
+  provisioned. Nothing here is presented as the decided account-provisioning
+  mechanism — with institutional federation the identity provider owns it.
 - **Credentials and tokens are stored as digests.** A session stores
   `sha256(token)`; a credential stores scrypt digest + per-account salt. Neither
   raw value is retrievable after the response that issued it.

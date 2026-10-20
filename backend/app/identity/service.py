@@ -14,11 +14,13 @@ Four responsibilities, deliberately kept apart:
   specific ``401``, in the same way ``ClassRepository.get_class`` raises rather than
   returning ``None`` (V0-009).
 * :meth:`IdentityService.create_account` / :meth:`update_account` /
-  :meth:`delete_account` are the **directory** (V0-022): create-or-link an account,
-  change it, remove it, each returning the account plus — at creation only — the
-  one-time credential a credential-issuing adapter provisions. Disabling an account
-  revokes its live sessions in the same call, so a disable takes effect on the next
-  request rather than at session expiry (``DEC-RUNTIME-007``).
+  :meth:`delete_account` / :meth:`change_password` are the **directory** (V0-022,
+  V0-023): create-or-link an account, change it, remove it, and set the password a
+  subject signs in with. An administrator supplies an account's initial password and
+  can reset it; an account holder changes their own. Disabling an account — and
+  setting a password — revokes its live sessions in the same call, so the change
+  takes effect on the next request rather than at session expiry
+  (``DEC-RUNTIME-007``).
 * :meth:`IdentityService.bootstrap_administrator` is the one-shot seam that gives a
   fresh installation its **first** administrator, because every other account verb
   requires an administrator to authorize it.
@@ -43,11 +45,14 @@ from app.common.errors import ValidationError
 from app.config import DEFAULT_SESSION_TTL_SECONDS
 from app.identity.errors import (
     ISSUE_ACCOUNT_DISABLED,
+    ISSUE_INVALID_CREDENTIALS,
     ISSUE_SESSION_EXPIRED,
     ISSUE_SESSION_REQUIRED,
     ISSUE_SESSION_REVOKED,
     ISSUE_SESSION_UNKNOWN,
     BootstrapClosedError,
+    CredentialDeniedError,
+    CredentialPolicyError,
     InvitationConflictError,
     RoleNotManageableError,
     SessionError,
@@ -71,6 +76,28 @@ from app.identity.port import (
 )
 from app.identity.repository import IdentityRepository, normalize_email
 from app.identity.telemetry import IdentityTelemetry
+
+#: The shortest password this surface will store (V0-023). A **development guard, not
+#: a decided password policy**: ``FND-002`` is ``TODO`` and V0-022 left password
+#: policy out of scope, so this exists only so an administrator cannot set a
+#: trivially guessable initial credential. A federation deployment replaces the whole
+#: mechanism, and the policy with it.
+MIN_CREDENTIAL_LENGTH = 8
+
+
+def _require_secret(secret: str) -> str:
+    """Validate a password this surface is about to store.
+
+    Refused as a malformed request (``400 CREDENTIAL_TOO_WEAK``) rather than a
+    denial, because the caller can fix it by supplying a longer one.
+    """
+
+    value = secret or ""
+    if len(value) < MIN_CREDENTIAL_LENGTH:
+        raise CredentialPolicyError(
+            f"a password of at least {MIN_CREDENTIAL_LENGTH} characters is required"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -131,18 +158,28 @@ class IdentityService:
         return self._authenticator.health().to_dict()
 
     # -- login -------------------------------------------------------------------------
-    def login(self, institution_id: str, subject: str, credential: str) -> LoginResult:
-        """Verify a credential and, on success, mint a session. Never raises."""
+    def _verify(
+        self, institution_id: str, subject: str, credential: str
+    ) -> AuthenticationOutcome:
+        """One credential verification through the replaceable authenticator.
+
+        Shared by sign-in and by the current-password check of a password change, so
+        both go through the same admission control, deadline and refusal shape.
+        """
 
         request = AuthenticationRequest(
             institution_id=institution_id, subject=subject, credential=credential
         )
         if self._monotonic is None:
-            outcome = self._authenticator.authenticate(request, self._repository.resolve_subject)
-        else:
-            outcome = self._authenticator.authenticate(
-                request, self._repository.resolve_subject, clock=self._monotonic
-            )
+            return self._authenticator.authenticate(request, self._repository.resolve_subject)
+        return self._authenticator.authenticate(
+            request, self._repository.resolve_subject, clock=self._monotonic
+        )
+
+    def login(self, institution_id: str, subject: str, credential: str) -> LoginResult:
+        """Verify a credential and, on success, mint a session. Never raises."""
+
+        outcome = self._verify(institution_id, subject, credential)
 
         if not outcome.authenticated:
             self._telemetry.record_login(
@@ -318,22 +355,23 @@ class IdentityService:
         *,
         email: str,
         role: Role,
+        secret: str,
         display_name: str = "",
         actor_role: str = "",
     ) -> AccountMutation:
-        """Create-or-link an account of a manageable role (V0-022).
+        """Create-or-link an account of a manageable role (V0-022, V0-023).
 
         **Create-or-link, not create**: the same address and role is one account, so
-        a retried request is not an error (``DEC-RUNTIME-003``) and a credential is
-        issued exactly once — a replay carries no credential at all, so a retried
-        create cannot re-mint a secret. The same address with a *different* role is
-        refused rather than silently promoted: changing what an account is is an
-        administrative decision, and this route does not make it implicitly.
+        a retried request is not an error (``DEC-RUNTIME-003``) and a replay sets no
+        credential — it can never overwrite the password the holder may already have.
+        The same address with a *different* role is refused rather than silently
+        promoted: changing what an account is is an administrative decision, and this
+        route does not make it implicitly.
 
-        ``development_credential`` is populated **only** by a credential-issuing
-        adapter. Institutional federation does not need it — the identity provider
-        owns the credential — so with a federation adapter in place this is ``None``
-        and creating an account grants no local secret at all.
+        ``secret`` is the initial password the administrator hands over.
+        ``credential_set`` reports whether it was stored: a credential-managing
+        adapter stores it, and a federation adapter reports ``False`` because the
+        identity provider owns the credential.
         """
 
         if role not in MANAGEABLE_ROLES:
@@ -346,6 +384,7 @@ class IdentityService:
         subject = normalize_email(email)
         if "@" not in subject or any(char.isspace() for char in subject) or len(subject) > 320:
             raise ValidationError("a valid email address is required")
+        _require_secret(secret)
 
         existing = self._repository.find_account_by_email(institution_id, subject)
         if existing is not None:
@@ -360,7 +399,7 @@ class IdentityService:
                 subject=subject,
                 role=existing.role.value,
                 created=False,
-                credential_issued=False,
+                credential_set=False,
                 actor_role=actor_role,
             )
             return AccountMutation(account=existing, created=False)
@@ -371,17 +410,19 @@ class IdentityService:
             display_name=display_name or subject,
             role=role,
         )
-        credential = self._authenticator.issue_credential(institution_id, account.account_id)
+        credential_set = self._authenticator.provision_credential(
+            institution_id, account.account_id, secret
+        )
         self._telemetry.record_account_created(
             institution_id=institution_id,
             subject=subject,
             role=account.role.value,
             created=True,
-            credential_issued=credential is not None,
+            credential_set=credential_set,
             actor_role=actor_role,
         )
         return AccountMutation(
-            account=account, created=True, development_credential=credential
+            account=account, created=True, credential_set=credential_set
         )
 
     def update_account(
@@ -392,17 +433,20 @@ class IdentityService:
         display_name: Optional[str] = None,
         role: Optional[Role] = None,
         disabled: Optional[bool] = None,
+        secret: Optional[str] = None,
         actor_role: str = "",
     ) -> AccountMutation:
-        """Change an account's display name, role or enabled state (V0-022).
+        """Change an account's display name, role, enabled state or password (V0-022, V0-023).
 
         The account must exist in this tenant (``404`` from the repository) and the
         role must be manageable. **Disabling revokes the account's live sessions in
-        the same call** and reports how many, because a disable that left a working
+        the same call**, and reporting how many, because a disable that left a working
         token behind would not be a disable (``DEC-RUNTIME-007``); re-enabling
-        restores sign-in. A role change is applied the way any role edit is: a
-        session's capabilities are re-derived from the account's current role, so a
-        change can only remove — a promotion needs a fresh sign-in.
+        restores sign-in. **Resetting a password revokes them too**, for the same
+        reason: a credential change that left other live sessions working would not
+        really have changed who can get in. A role change is applied the way any role
+        edit is: a session's capabilities are re-derived from the account's current
+        role, so a change can only remove — a promotion needs a fresh sign-in.
         """
 
         if role is not None and role not in MANAGEABLE_ROLES:
@@ -410,6 +454,8 @@ class IdentityService:
                 f"{role.value!r} is not a manageable role; administrator accounts are "
                 "provisioned by the deployment bootstrap, not assigned here"
             )
+        if secret is not None:
+            _require_secret(secret)
 
         account = self._repository.get_account(institution_id, account_id)
         changed: list[str] = []
@@ -419,6 +465,8 @@ class IdentityService:
             changed.append("role")
         if disabled is not None and disabled == account.is_active:
             changed.append("status")
+        if secret is not None:
+            changed.append("credential")
 
         updated = self._repository.update_account(
             institution_id=institution_id,
@@ -428,9 +476,16 @@ class IdentityService:
             disabled=disabled,
         )
 
+        credential_set = False
+        if secret is not None:
+            credential_set = self._authenticator.provision_credential(
+                institution_id, account_id, secret
+            )
+
         revoked = 0
-        if disabled:
-            # Same call, so a disable is never "effective at the next sign-in".
+        if disabled or secret is not None:
+            # Same call, so a disable — or a reset — is never "effective at the next
+            # sign-in".
             revoked = self._repository.revoke_sessions_for_account(institution_id, account_id)
 
         self._telemetry.record_account_updated(
@@ -442,9 +497,76 @@ class IdentityService:
             sessions_revoked=revoked,
             actor_role=actor_role,
         )
+        if secret is not None:
+            self._telemetry.record_password_changed(
+                institution_id=institution_id,
+                account_id=account_id,
+                changed_by="admin",
+                sessions_revoked=revoked,
+            )
         return AccountMutation(
-            account=updated, created=False, sessions_revoked=revoked
+            account=updated,
+            created=False,
+            credential_set=credential_set,
+            sessions_revoked=revoked,
         )
+
+    def change_password(
+        self,
+        institution_id: str,
+        account_id: str,
+        *,
+        current_secret: str,
+        new_secret: str,
+        keep_session_id: Optional[str] = None,
+    ) -> int:
+        """Change an account holder's own password, verifying the current one first.
+
+        The current password is checked through the *same* authenticator a sign-in
+        uses, so this cannot become a weaker second path to an account. A wrong one is
+        a refusal (``401 INVALID_CREDENTIALS``) and is deliberately indistinguishable
+        from a sign-in refusal of the same subject.
+
+        On success the new password is stored and every **other** live session of the
+        account is revoked, because a credential change must invalidate what the old
+        credential could reach (``DEC-RUNTIME-007``); ``keep_session_id`` preserves the
+        caller's own session so the change does not sign them out of the page they are
+        on. Returns how many sessions were revoked.
+        """
+
+        account = self._repository.get_account(institution_id, account_id)
+        _require_secret(new_secret)
+
+        outcome = self._verify(institution_id, account.email, current_secret)
+        if not outcome.authenticated:
+            self._telemetry.record_login(
+                institution_id=institution_id,
+                subject=account.email,
+                authenticated=False,
+                error_code=outcome.error_code,
+                attempts=outcome.attempts,
+                duration_ms=outcome.duration_ms,
+                authenticator=self._authenticator.identity.id,
+                role=account.role.value,
+            )
+            # The same generic words a refused sign-in uses: "the password you typed
+            # is not this account's password" is the whole truth and all of it.
+            raise CredentialDeniedError(
+                "the current password was not accepted",
+                issue_code=outcome.error_code or ISSUE_INVALID_CREDENTIALS,
+            )
+
+        self._authenticator.provision_credential(institution_id, account_id, new_secret)
+        revoked = self._repository.revoke_sessions_for_account(
+            institution_id, account_id, keep_session_id=keep_session_id
+        )
+        self._telemetry.record_password_changed(
+            institution_id=institution_id,
+            account_id=account_id,
+            changed_by="self",
+            sessions_revoked=revoked,
+        )
+        return revoked
 
     def delete_account(
         self, institution_id: str, account_id: str, *, actor_role: str = ""
@@ -470,23 +592,27 @@ class IdentityService:
 
     # -- the first administrator -----------------------------------------------------------------
     def bootstrap_administrator(
-        self, institution_id: str, *, email: str, display_name: str = ""
+        self, institution_id: str, *, email: str, secret: str, display_name: str = ""
     ) -> AccountMutation:
         """Create the institution's **first** administrator, once.
 
         Under institutional federation the identity provider provisions this account,
-        which is why the route that exposes this method exists only on a development
-        deployment. The precondition is the whole security property: the moment this
-        tenant *has* an administrator, every account verb requires that administrator
-        to authorize it, so the bootstrap closes forever
+        which is why the route that exposes this method exists only on a deployment
+        that leaves the bootstrap on. The precondition is the whole security property:
+        the moment this tenant *has* an administrator, every account verb requires that
+        administrator to authorize it, so the bootstrap closes forever
         (``ISSUE_TENANT_ALREADY_PROVISIONED``). It refuses rather than returning an
         existing account, because "the bootstrap quietly handed you someone else's
         account" is not a thing this should be able to do.
+
+        ``secret`` is the password the deployment's operator chooses for this account
+        — the first thing they will sign in with.
         """
 
         subject = normalize_email(email)
         if "@" not in subject or any(char.isspace() for char in subject) or len(subject) > 320:
             raise ValidationError("a valid email address is required")
+        _require_secret(secret)
 
         if self._repository.count_accounts(institution_id, role=Role.INSTITUTION_ADMIN) > 0:
             raise BootstrapClosedError(
@@ -499,14 +625,16 @@ class IdentityService:
             display_name=display_name or subject,
             role=Role.INSTITUTION_ADMIN,
         )
-        credential = self._authenticator.issue_credential(institution_id, account.account_id)
+        credential_set = self._authenticator.provision_credential(
+            institution_id, account.account_id, secret
+        )
         self._telemetry.record_admin_bootstrapped(
             institution_id=institution_id,
             subject=subject,
-            credential_issued=credential is not None,
+            credential_set=credential_set,
         )
         return AccountMutation(
-            account=account, created=True, development_credential=credential
+            account=account, created=True, credential_set=credential_set
         )
 
     # -- the pre-auth development shortcut ---------------------------------------------
@@ -516,9 +644,11 @@ class IdentityService:
         This is not authentication. It exists so the V0 flows (and their tests) keep
         working before an institutional-federation deployment replaces the
         ``X-Institution-Id`` header, and it is only ever produced when
-        ``Settings.dev_tenant_header`` allows it. ``authenticated=False`` travels in
-        ``GET /auth/me`` so no client can mistake it for a signed-in user, and there
-        is no account behind it — which is why it cannot request a class join.
+        ``Settings.dev_tenant_header`` allows it — which **V0-023 makes off by
+        default**, so a deployment requires a real session unless it is explicitly
+        left open. ``authenticated=False`` travels in ``GET /auth/me`` so no client can
+        mistake it for a signed-in user, and there is no account behind it — which is
+        why it cannot request a class join.
         """
 
         return Principal(

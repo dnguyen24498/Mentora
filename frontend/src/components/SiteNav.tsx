@@ -1,8 +1,14 @@
 import { Link, adminPath, classroomPath, joinPath, learnPath, settingsPath, studioPath, loginPath } from '../router'
 import { readSelectedArtifact, readSelectedClass } from '../institution'
 import { TOUCH_TARGET } from './ui'
-import { clearSession, describePrincipal, hasScope, isStudent, useSession } from '../auth/session'
-import { resetDevelopmentMode, useMode } from '../auth/mode'
+import {
+  clearSession,
+  describePrincipal,
+  hasScope,
+  isSignedIn,
+  isStudent,
+  useSession,
+} from '../auth/session'
 import { logout } from '../api/client'
 
 /**
@@ -24,14 +30,18 @@ import { logout } from '../api/client'
  *   invited to, and their own view of it — because the authoring entries would
  *   only answer `403`. Roles are still enforced server-side; this is the honest
  *   version of the same fact;
- * * the right-hand end says who you are, or that you are in **development mode**
- *   (the `X-Institution-Id` shortcut, which is not a sign-in).
+ * * the right-hand end says who you are, and offers a sign-out.
  *
  * V0-022 widens that first point from two roles to three: the entries are chosen by
  * **capability**, not by role name, so an institution administrator (who authors
  * nothing) sees the library, the Admin area and Settings — while a teacher sees the
  * authoring surfaces and a student sees their class. The rule is the same one the
  * server applies; the nav is simply its honest client-side projection.
+ *
+ * V0-023 removes the "development mode" chip: the tenant shortcut is off by default
+ * and every page requires a sign-in, so a session is the only state this nav knows.
+ * The nav is only ever rendered *inside* a signed-in page (the route guard sees to
+ * that), so the right-hand end always names the signed-in account.
  *
  * It is built to be a phone's primary navigation as well as a laptop's: each
  * entry is a chip with the 44px minimum tap area below `lg`
@@ -101,7 +111,7 @@ function NavEntry({ to, label, current, hint }: NavEntryProps) {
 
 export default function SiteNav({ current, artifactId, classId }: SiteNavProps) {
   const session = useSession()
-  const mode = useMode()
+  const signedIn = isSignedIn(session)
   const artifact = artifactId || readSelectedArtifact()
   const klass = classId || readSelectedClass()
   const student = isStudent(session)
@@ -174,7 +184,7 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
       )}
 
       <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-slate-200" />
-      {mode.signedIn ? (
+      {signedIn ? (
         <span className="flex flex-wrap items-center gap-1.5">
           <span
             data-testid="session-principal"
@@ -188,7 +198,6 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
             onClick={() => {
               void logout().catch(() => undefined)
               clearSession()
-              resetDevelopmentMode()
             }}
             className={`${ITEM_BASE} border border-slate-300 text-slate-700 hover:bg-slate-50`}
           >
@@ -197,15 +206,6 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
         </span>
       ) : (
         <span className="flex flex-wrap items-center gap-1.5">
-          {mode.development && (
-            <span
-              data-testid="session-development"
-              title="The X-Institution-Id development shortcut: this browser is authorized as a teacher with no account behind it"
-              className={`${ITEM_BASE} cursor-default border border-amber-200 bg-amber-50 text-amber-800`}
-            >
-              Development mode
-            </span>
-          )}
           <NavEntry
             to={current === 'login' ? null : loginPath()}
             label="Sign in"

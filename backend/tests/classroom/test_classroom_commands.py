@@ -24,6 +24,16 @@ HEADERS = {"X-Institution-Id": "university-001"}
 
 
 @pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
+
+
+@pytest.fixture
 def client(settings):
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -263,7 +273,10 @@ def test_end_revokes_live_join_credentials(client):
     # An administrator creates the account (V0-022); the class enrols it by id —
     # enrolment itself never creates an account.
     account = client.app.state.identity_service.create_account(
-        "university-001", email="ana@uni.test", role=Role.STUDENT
+        "university-001",
+        email="ana@uni.test",
+        role=Role.STUDENT,
+        secret="correct-horse-battery-staple",
     ).account
     enrolled = client.post(
         f"/classes/{class_id}/enrollments",

@@ -11,7 +11,7 @@ import {
   listCourses,
   listMaterials,
 } from './api/client'
-import { writeSession } from './auth/session'
+import { writeSession, clearSession } from './auth/session'
 import { writeSelectedClass } from './institution'
 import { ARTIFACT, INSTITUTION, makeArtifact, makePackage, makeState } from './test/fixtures'
 import { TEST_CLASS, makeSnapshot } from './classroom/state/testing'
@@ -36,6 +36,43 @@ vi.mock('./api/client', async (importOriginal) => {
     uploadMaterial: vi.fn(),
   }
 })
+
+const TEACHER_SCOPES = [
+  'account:read',
+  'class:read',
+  'class:write',
+  'content:read',
+  'content:write',
+  'enrollment:write',
+  'publication:write',
+  'review:write',
+  'scene:read',
+]
+
+/** Sign this browser in as a teacher, the way the login page would (V0-023). */
+function signInAsTeacher() {
+  writeSession({
+    token: 'tok-2',
+    principal: {
+      authenticated: true,
+      institution_id: INSTITUTION,
+      role: 'teacher',
+      scopes: TEACHER_SCOPES,
+      account_id: 'account-teacher',
+      email: 'teacher@school.example',
+      display_name: 'Tess Teacher',
+      session_id: 'session-2',
+    },
+    authenticator: {
+      id: 'local-credentials@1.0.0',
+      name: 'local-credentials',
+      version: '1.0.0',
+      kind: 'DEVELOPMENT_MOCK',
+    },
+    notice: 'mock',
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  })
+}
 
 /** Sign this browser in as a student, the way the login page would. */
 function signInAsStudent() {
@@ -70,6 +107,9 @@ function visit(path: string) {
 describe('App — routing between the pages', () => {
   beforeEach(() => {
     localStorage.clear()
+    clearSession()
+    // These are the signed-in teacher's pages (V0-023): the guard needs a session.
+    signInAsTeacher()
     vi.mocked(listCourses).mockResolvedValue([])
     vi.mocked(listClasses).mockResolvedValue([])
     vi.mocked(listMaterials).mockResolvedValue([])
@@ -150,22 +190,45 @@ describe('App — routing between the pages', () => {
   })
 })
 
-describe('App — identities (V0-021)', () => {
+describe('App — identities (V0-021, V0-023)', () => {
   beforeEach(() => {
     localStorage.clear()
+    clearSession()
     vi.mocked(listCourses).mockResolvedValue([])
     vi.mocked(listClasses).mockResolvedValue([])
     vi.mocked(listMaterials).mockResolvedValue([])
   })
 
-  it('serves the sign-in page at /login', async () => {
+  it('serves the sign-in page at /login, the one public route', async () => {
     visit('/login')
     render(<App />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Sign in' })).toBeTruthy()
   })
 
-  it('serves a class join page at /join/{classId}', async () => {
+  it('sends an unauthenticated browser to sign in, remembering where it was going', async () => {
+    visit('/admin/publications')
+    render(<App />)
+
+    // The guard replaced the location, so the URL says where to come back to and the
+    // deep link cannot linger in the history.
+    expect(window.location.pathname).toBe('/login')
+    expect(window.location.search).toBe('?next=%2Fadmin%2Fpublications')
+    // …and the form is actually on screen: a redirect that only rewrote the URL
+    // would leave a blank page.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in' })).toBeTruthy()
+  })
+
+  it('guards the library too: nothing opens without a session', async () => {
+    visit('/')
+    render(<App />)
+
+    expect(window.location.pathname).toBe('/login')
+    expect(screen.queryByRole('heading', { name: /Upload Course Material/ })).toBeNull()
+  })
+
+  it('serves a class join page to a signed-in participant', async () => {
+    signInAsStudent()
     visit('/join/class-1')
     vi.mocked(loadClass).mockResolvedValue({
       class: {

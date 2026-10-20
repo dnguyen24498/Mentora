@@ -1,35 +1,31 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SiteNav from './SiteNav'
-import { ApiError, loadPrincipal } from '../api/client'
-import { writeSession, clearSession } from '../auth/session'
-import { resetDevelopmentMode } from '../auth/mode'
+import { logout } from '../api/client'
+import { writeSession, clearSession, readSession } from '../auth/session'
 import { writeSelectedArtifact, writeSelectedClass } from '../institution'
-import { INSTITUTION, ARTIFACT } from '../test/fixtures'
+import { ARTIFACT } from '../test/fixtures'
 
-// The nav asks the API which mode it is in (`GET /auth/me`), because the
-// development shortcut has no session to inspect.
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, loadPrincipal: vi.fn(), logout: vi.fn() }
-})
-
-beforeEach(() => {
-  vi.mocked(loadPrincipal).mockRejectedValue(new ApiError('UNAUTHENTICATED', 'no session'))
+  return { ...actual, logout: vi.fn() }
 })
 
 /**
  * The shared nav is the answer to "get from any page to any other page". The two
  * scoped pages (Studio/Learn need a deck, Classroom needs a class) are only
  * links once there is an id to link to; before that they say why they are not.
+ *
+ * Since V0-023 the entries are chosen by **capability**, and no session is no
+ * capabilities, so these tests sign a teacher in: the nav only ever renders inside
+ * a page the route guard let through.
  */
 describe('SiteNav', () => {
   beforeEach(() => {
     localStorage.clear()
-    // The session and the mode probe are both memoised in their modules, so
-    // clearing storage is not enough.
     clearSession()
-    resetDevelopmentMode()
+    signInAs('teacher')
   })
 
   it('always links the library, and explains the pages that need a deck or class', () => {
@@ -95,72 +91,21 @@ describe('SiteNav', () => {
 describe('SiteNav — identities', () => {
   beforeEach(() => {
     localStorage.clear()
-    // The session and the mode probe are both memoised in their modules, so
-    // clearing storage is not enough.
     clearSession()
-    resetDevelopmentMode()
   })
 
-  it('offers sign-in, and never claims a user, with no session', () => {
+  it('offers sign-in, and claims nothing at all, with no session (V0-023)', () => {
     render(<SiteNav current="library" />)
 
     expect(screen.getByRole('link', { name: 'Sign in' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
     expect(screen.queryByTestId('session-principal')).toBeNull()
-  })
-
-  it('names the development shortcut rather than a signed-in user', () => {
-    // The dev shortcut has no session at all, so the nav has nothing to name
-    // beyond "you are not signed in".
-    render(<SiteNav current="library" />)
-
-    expect(screen.queryByTestId('session-principal')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login')
-  })
-
-  it('names the development shortcut when the API reports it', async () => {
-    // With no session the client cannot see which mode it is in, so it asks:
-    // `/auth/me` answers `authenticated: false` for the tenant header shortcut.
-    vi.mocked(loadPrincipal).mockResolvedValue({
-      principal: {
-        authenticated: false,
-        institution_id: INSTITUTION,
-        role: 'teacher',
-        scopes: [],
-        account_id: null,
-        email: null,
-        display_name: null,
-        session_id: null,
-      },
-      authenticator: {
-        id: 'local-credentials@1.0.0',
-        name: 'local-credentials',
-        version: '1.0.0',
-        kind: 'DEVELOPMENT_MOCK',
-      },
-      notice: 'development shortcut',
-      development_shortcut: true,
-    })
-    resetDevelopmentMode()
-
-    render(<SiteNav current="library" />)
-
-    // It says "development mode", never a signed-in user.
-    expect(await screen.findByTestId('session-development')).toBeTruthy()
-    expect(screen.queryByTestId('session-principal')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Sign in' })).toBeTruthy()
-  })
-
-  it('does not claim a mode when the shortcut is switched off', async () => {
-    // `401 SESSION_REQUIRED`: the header is not accepted by this deployment, so
-    // "development mode" would be a lie.
-    vi.mocked(loadPrincipal).mockRejectedValue(new ApiError('UNAUTHENTICATED', 'no session'))
-    resetDevelopmentMode()
-
-    render(<SiteNav current="library" />)
-
+    // No session is no capabilities: the authoring entries are gone, not disabled.
+    for (const label of ['Library', 'Studio', 'Classroom', 'Learn']) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
+    // The old "development mode" chip was removed; the shortcut is off by default.
     expect(screen.queryByTestId('session-development')).toBeNull()
-    await waitFor(() => expect(loadPrincipal).toHaveBeenCalled())
   })
 
   it('shows the signed-in principal and a way out', () => {
@@ -227,6 +172,19 @@ describe('SiteNav — identities', () => {
     render(<SiteNav current="login" />)
     expect(screen.queryByRole('link', { name: 'Sign in' })).toBeNull()
     expect(screen.getByText('Sign in').getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('signs out from the nav, clearing the session whatever the server says', async () => {
+    const user = userEvent.setup()
+    signInAs('teacher')
+    vi.mocked(logout).mockResolvedValue({ revoked: true })
+    render(<SiteNav current="library" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    await waitFor(() => expect(logout).toHaveBeenCalled())
+    expect(readSession()).toBeNull()
+    expect(screen.getByRole('link', { name: 'Sign in' })).toBeTruthy()
   })
 })
 

@@ -49,6 +49,16 @@ def _chart_deck() -> bytes:
 
 
 @pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
+
+
+@pytest.fixture
 def client(settings):
     with TestClient(create_app(settings)) as test_client:
         yield test_client

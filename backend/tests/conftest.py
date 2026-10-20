@@ -24,6 +24,31 @@ def settings(tmp_path) -> Settings:
 
 
 @pytest.fixture
+def dev_settings(tmp_path) -> Settings:
+    """Settings that opt into the pre-auth ``X-Institution-Id`` shortcut (V0-023).
+
+    Since V0-023 the **default** configuration requires a real session on every
+    route, and that is what the ``settings`` fixture exercises. The API suites that
+    predate identities drive the API as a teacher with a tenant header, so each one
+    overrides ``settings`` with a local fixture returning this, declaring its
+    configuration explicitly instead of relying on a permissive default. The
+    shipped, locked configuration is covered by ``tests/test_required_sign_in.py``.
+
+    Deliberately independent of the ``settings`` fixture (not
+    ``dataclasses.replace(settings, ...)``) so a file can override ``settings`` with
+    ``return dev_settings`` without a fixture cycle.
+    """
+
+    s = Settings(
+        database_path=tmp_path / "mentora.db",
+        object_root=tmp_path / "objects",
+        dev_tenant_header=True,
+    )
+    init_db(s.database_path)
+    return s
+
+
+@pytest.fixture
 def conn(settings):
     connection = connect(settings.database_path)
     yield connection

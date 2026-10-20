@@ -66,15 +66,16 @@ break the browser). For normal development the frontend runs on its own server a
 
 Every route below requires a principal and a capability (V0-021/V0-022), so `401 UNAUTHENTICATED` (`issue_code SESSION_REQUIRED`) and `403 INSUFFICIENT_SCOPE` (`issue_code SCOPE_REQUIRED`) apply to all of them. A request may present either a **session token** (`Authorization: Bearer <token>`) or, while the development tenant shortcut is on, the `X-Institution-Id` header alone. `POST /auth/login` is the exception (it takes its institution in the body, since that is what the credential proves), and so is `POST /auth/bootstrap-admin`, which is unauthenticated by necessity.
 
-- `POST /auth/bootstrap-admin` — **V0-022**: create the institution's **first** administrator, once. Unauthenticated because there is no administrator yet to authorize it; gated on `Settings.dev_tenant_header`, so a hardened deployment does not expose it (`404 NOT_FOUND`, `issue_code BOOTSTRAP_DISABLED`); `409 CONFLICT` with `issue_code TENANT_ALREADY_PROVISIONED` the moment the tenant has an administrator, and writes nothing on either refusal. With institutional federation the identity provider provisions that account, so this is a development seam, not the platform's provisioning mechanism. Query params `institution_id`, `email`, optional `display_name`.
+- `POST /auth/bootstrap-admin` — **V0-022/V0-023**: create the institution's **first** administrator, once, with the **password** it will sign in with. Unauthenticated because there is no administrator yet to authorize it; gated on its **own** setting `Settings.admin_bootstrap` (`MENTORA_ADMIN_BOOTSTRAP`, default on), so a locked installation can still create its first account and a hardened deployment does not expose it (`404 NOT_FOUND`, `issue_code BOOTSTRAP_DISABLED`); `409 CONFLICT` with `issue_code TENANT_ALREADY_PROVISIONED` the moment the tenant has an administrator, and writes nothing on either refusal. With institutional federation the identity provider provisions that account, so this is a development seam, not the platform's provisioning mechanism. JSON body `institution_id`, `email`, `password`, optional `display_name` — a password never travels in a URL.
 
-- `POST /auth/login` — **V0-021**: exchange a sign-in credential (`institution_id`, `email`, one-time `credential`) for a session. **Never raises on a bad credential**: it returns `ok: false` with `AUTHENTICATION_FAILED` — and the same code and timing for an unknown address as for a wrong credential, so the endpoint is not an account oracle. Success returns the raw `token` (only `token_sha256` is stored), the `principal`, the `authenticator` capability (labelled `DEVELOPMENT_MOCK`) and `expires_at`.
-- `GET /auth/me` — the principal the presented credential authorizes. With no session but a valid tenant header it reports the **development shortcut**: `authenticated: false`, no account, `development_shortcut: true`. This is how a client learns which mode it is in.
+- `POST /auth/login` — **V0-021/V0-023**: exchange a **password** (`institution_id`, `email`, `password`) for a session. **Never raises on a bad credential**: it returns `ok: false` with `AUTHENTICATION_FAILED` — and the same code and timing for an unknown address as for a wrong password, so the endpoint is not an account oracle. Success returns the raw `token` (only `token_sha256` is stored), the `principal`, the `authenticator` capability (labelled `DEVELOPMENT_MOCK`) and `expires_at`.
+- `POST /auth/password` — **V0-023**: change the signed-in account's own password. JSON body `current_password`, `new_password`; the current one is verified exactly as a sign-in is, so a wrong one is `401 AUTHENTICATION_FAILED` (`issue_code INVALID_CREDENTIALS`) and the caller's session **stays valid**. A new password below `MIN_CREDENTIAL_LENGTH = 8` is `400 INVALID_REQUEST` (`issue_code CREDENTIAL_TOO_WEAK`). On success every **other** live session of the account is revoked and the caller's is kept.
+- `GET /auth/me` — the principal the presented session authorizes, plus `admin_bootstrap` (whether the one-shot first-administrator route is exposed). With no session and the development shortcut explicitly on and a valid tenant header it reports the shortcut: `authenticated: false`, no account, `development_shortcut: true`. With the shortcut off (the shipped default) it is `401 SESSION_REQUIRED`.
 - `POST /auth/logout` — revoke the presented session (a `revoked_at` write the next read honours, `DEC-RUNTIME-007`); idempotent.
 - `GET /accounts?role=` — **the account directory (V0-022)**, requires `ACCOUNT_READ`, and `role` (`teacher`|`student`) is **required** so the read cannot drift into an accidental directory dump. A caller without `ACCOUNT_WRITE` (a teacher) may list **students only** (`TEACHER_LISTABLE_ROLES`) and is refused `403 INSUFFICIENT_SCOPE` (`SCOPE_REQUIRED`) for any other role. An unknown role name is `400 INVALID_REQUEST`.
-- `POST /accounts` — **create a teacher or a student**, requires `ACCOUNT_WRITE`. Query params `email`, `role`, optional `display_name`. **Create-or-link**: the same address and role returns the existing account with `created: false` and no `development_credential` (a retry never re-mints a secret, `DEC-RUNTIME-003`); the same address with another role is `409 CONFLICT` (`issue_code EMAIL_ROLE_CONFLICT`); a role this surface does not manage — including `institution_admin` — is `409 CONFLICT` (`issue_code ROLE_NOT_MANAGEABLE`), because an administrator cannot create a peer. Returns `{created, account, development_credential, sessions_revoked}`; the credential is the labelled development mock's one-time code and is never stored in the clear.
+- `POST /accounts` — **create a teacher or a student**, requires `ACCOUNT_WRITE`. JSON body `email`, `role`, `password`, optional `display_name` (a password never travels in a URL). **Create-or-link**: the same address and role returns the existing account with `created: false` and `credential_set: false` (**a retry never overwrites the holder's password**, `DEC-RUNTIME-003`); the same address with another role is `409 CONFLICT` (`issue_code EMAIL_ROLE_CONFLICT`); a role this surface does not manage — including `institution_admin` — is `409 CONFLICT` (`issue_code ROLE_NOT_MANAGEABLE`), because an administrator cannot create a peer. Returns `{created, account, credential_set, sessions_revoked}`; the password is stored only as a digest and is never returned.
 - `GET /accounts/{accountId}` — one account, requires `ACCOUNT_READ`, with the same restriction as the list: without `ACCOUNT_WRITE` only a **student** account may be read. Another institution's account is `403 TENANT_ACCESS_DENIED` (the tenant exists; the account is not the caller's), an unknown id is `404`.
-- `PATCH /accounts/{accountId}` — **change a display name, a role or the enabled state**, requires `ACCOUNT_WRITE`. Query params `display_name`, `role`, `status` (`ACTIVE`|`DISABLED`); an omitted field is unchanged, and an unknown `status` is `400 INVALID_REQUEST`. **Disabling revokes the account's live sessions in the same call** (`DEC-RUNTIME-007`) and reports `sessions_revoked`; re-enabling restores sign-in. A **role change only ever removes** capabilities from a live session (the session's stored scopes are intersected with the issuing role), so a promotion takes effect at the account's next sign-in.
+- `PATCH /accounts/{accountId}` — **change a display name, a role, the enabled state or the password**, requires `ACCOUNT_WRITE`. JSON body `display_name`, `role`, `status` (`ACTIVE`|`DISABLED`), `password`; an omitted field is unchanged, and an unknown `status` is `400 INVALID_REQUEST`. **Disabling — and setting or resetting the password — revokes the account's live sessions in the same call** (`DEC-RUNTIME-007`) and reports `sessions_revoked`; re-enabling restores sign-in. A **role change only ever removes** capabilities from a live session (the session's stored scopes are intersected with the issuing role), so a promotion takes effect at the account's next sign-in.
 - `DELETE /accounts/{accountId}` — **remove an account**, requires `ACCOUNT_WRITE`. Refused while **any class roster** in the tenant references it: `409 CONFLICT` (`issue_code ACCOUNT_IN_USE`), and the remedy is `PATCH status=DISABLED` — removal is guarded rather than cascading, so a roster and the audit history behind it cannot be orphaned. An unreferenced account is removed together with its credential material and sessions in one transaction; an unknown id is `404`.
 - `POST /courses` — create a course; `title` query param, optional `course_id`.
 - `GET /courses` — list the tenant's courses (used by the frontend picker).
@@ -152,31 +153,33 @@ Every route below requires a principal and a capability (V0-021/V0-022), so `401
   `unsupported element` warning instead of being dropped silently.
 - **The tenant always comes from a credential, never from a request field.** With a
   session, `X-Institution-Id` is ignored and the tenant is the session's; with no
-  session it is only the development shortcut below. Every repository call is
-  tenant-scoped and cross-tenant access is rejected.
-- **The credential mechanism is not a decided technology (V0-021).** The spec's
-  requirement is institutional federation, and every identity-provider/token
+  session it is only the development shortcut below, which is off by default. Every
+  repository call is tenant-scoped and cross-tenant access is rejected.
+- **The credential mechanism is not a decided technology (V0-021/V0-023).** The
+  spec's requirement is institutional federation, and every identity-provider/token
   decision in the ledger is `OPEN`; `FND-002` (the identity ADR) is still `TODO`.
   So `app/identity/` defines the `Authenticator` port, and the only registered
   implementation is an explicitly-labelled development stand-in
   (`app/providers/local_credentials.py`, `local-credentials@1.0.0`,
   `kind="DEVELOPMENT_MOCK"`): stdlib `hashlib.scrypt`, per-account salt,
   **digest-only** storage, and a constant dummy-salt verification so an unknown
-  address and a wrong credential are the same code **and** the same timing (no
-  enumeration oracle). It issues a one-time sign-in code because federated sign-in
-  would not; the API therefore names it `development_credential`, and the response
-  carries `authenticator.kind` so the stand-in is visible on the wire, exactly as
-  the renderer and the neutral voice do for their own open decisions. An
+  address and a wrong password are the same code **and** the same timing (no
+  enumeration oracle). A caller supplies the secret — the administrator on create
+  and reset, the holder on change — and the adapter never mints or returns one; the
+  API therefore reports `credential_set: bool`, never a credential value. The
+  response carries `authenticator.kind` so the stand-in is visible on the wire,
+  exactly as the renderer and the neutral voice do for their own open decisions. An
   OIDC/OAuth adapter is a second implementation of the same ABC; nothing in the
   domain changes when one arrives.
-- **The tenant is a session claim.** With a session, `X-Institution-Id` is ignored
-  and the tenant comes from the session, so a caller cannot widen its own
-  institution by naming one. `X-Institution-Id` alone is the **development tenant
-  shortcut** (`MENTORA_DEV_TENANT_HEADER`, default on): it resolves a *teacher*
-  marked `authenticated: false` with no account. It cannot join a class, because
-  joining is the student's participant capability and the shortcut is a teacher —
-  the guard refuses it `403 INSUFFICIENT_SCOPE` (`SCOPE_REQUIRED`). Turning the flag
-  off makes every route require a real session.
+- **The tenant is a session claim, and a session is required (V0-023).** With a
+  session, `X-Institution-Id` is ignored and the tenant comes from the session, so a
+  caller cannot widen its own institution by naming one. `X-Institution-Id` alone is
+  the **development tenant shortcut** (`MENTORA_DEV_TENANT_HEADER`, default **off**):
+  with it explicitly on it resolves a *teacher* marked `authenticated: false` with no
+  account; off (the shipped default) every route without a session is `401
+  SESSION_REQUIRED`. It cannot join a class even when on, because joining is the
+  student's participant capability and the shortcut is a teacher — the guard refuses
+  it `403 INSUFFICIENT_SCOPE` (`SCOPE_REQUIRED`).
 - **Authorization is a capability, re-derived per request.** `app/api/security.py::require(scope)`
   guards every verb on every router, and a session's stored scopes are
   **intersected** with what the account's role currently grants on every read — so

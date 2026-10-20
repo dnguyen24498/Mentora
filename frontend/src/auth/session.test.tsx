@@ -97,13 +97,13 @@ describe('session store', () => {
     }
 
     render(<Probe />)
-    expect(screen.getByTestId('who').textContent).toBe('Development mode')
+    expect(screen.getByTestId('who').textContent).toBe('Not signed in')
 
     act(() => writeSession(session()))
     expect(screen.getByTestId('who').textContent).toBe('Student Seven · Student')
 
     act(() => clearSession())
-    expect(screen.getByTestId('who').textContent).toBe('Development mode')
+    expect(screen.getByTestId('who').textContent).toBe('Not signed in')
 
     // Each state change re-rendered the subscriber.
     expect(seen).toContain('Student Seven · Student')
@@ -135,15 +135,26 @@ describe('capability checks', () => {
     expect(hasScope(teacher, 'join')).toBe(false)
   })
 
-  it('treats no session as the development teacher shortcut', () => {
-    // The `X-Institution-Id` shortcut resolves a teacher server-side, so the
-    // teacher surface stays visible — the server still refuses anything else.
-    expect(hasScope(null, 'content:write')).toBe(true)
+  it('treats no session as no capabilities at all (V0-023)', () => {
+    // Every page requires a sign-in, and the development tenant shortcut is off by
+    // default, so a caller with no session holds nothing and is shown nothing — the
+    // route guard sends it to `/login`. The server enforces the same rule.
+    for (const scope of [
+      'content:read',
+      'content:write',
+      'class:write',
+      'enrollment:write',
+      'scene:read',
+      'account:write',
+      'join',
+    ] as const) {
+      expect(hasScope(null, scope)).toBe(false)
+    }
     expect(isSignedIn(null)).toBe(false)
     expect(isStudent(null)).toBe(false)
   })
 
-  it('distinguishes a real sign-in from the development shortcut', () => {
+  it('distinguishes a real sign-in from no session', () => {
     expect(isSignedIn(session())).toBe(true)
     expect(isStudent(session())).toBe(true)
     expect(isStudent(session({ principal: { ...session().principal, role: 'teacher' } }))).toBe(false)
@@ -156,8 +167,8 @@ describe('descriptions', () => {
     clearSession()
   })
 
-  it('names development mode rather than inventing a user', () => {
-    expect(describePrincipal(null)).toBe('Development mode')
+  it('says plainly that nobody is signed in', () => {
+    expect(describePrincipal(null)).toBe('Not signed in')
   })
 
   it('names the person and their role', () => {

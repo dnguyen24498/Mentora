@@ -35,8 +35,18 @@ that belongs to the trust boundary:
 
 - **The tenant is derived, never supplied.** A request's tenant comes from the
   session the API resolves; `X-Institution-Id` is the *development* shortcut
-  (`MENTORA_DEV_TENANT_HEADER`, default on) and is ignored whenever a session is
-  present. A caller can therefore never widen its own institution by naming one.
+  (`MENTORA_DEV_TENANT_HEADER`, default **off** as of V0-023, so a request with no
+  session is `401 SESSION_REQUIRED`) and is ignored whenever a session is present. A
+  caller can therefore never widen its own institution by naming one.
+- **Sign-in is required, and the credential is a password (V0-023).** Every route
+  except `/health`, `/auth/login` and the one-shot bootstrap answers only to a
+  session; the frontend renders the sign-in form for every other page until a
+  session exists, and returns to the page that was requested. The password is set by
+  the administrator at creation and reset, or changed by the holder through
+  `POST /auth/password`; it travels in a request **body**, never a URL. Setting or
+  resetting it revokes the account's live sessions (`DEC-RUNTIME-007`), while a
+  self-service change keeps only the caller's. The minimum length is a development
+  guard, not a decided policy.
 - **Authorization is a capability, checked at the route.** Every verb on every
   router carries `require(scope)`; `ROLE_SCOPES` is the single place a role's
   capabilities are decided. No route is protected only by its client.
@@ -62,10 +72,10 @@ that belongs to the trust boundary:
   same call** (`DEC-RUNTIME-007`), reporting how many.
 - **The account directory is `OPEN`-free and self-limiting.** An administrator
   cannot create or change another administrator (`ROLE_NOT_MANAGEABLE`); the first
-  one comes from a one-shot deployment bootstrap that is absent unless the
-  development shortcut is on, and refuses once the tenant is provisioned. Nothing
-  here is presented as the decided account-provisioning mechanism — with
-  institutional federation the identity provider owns it.
+  one comes from a one-shot deployment bootstrap gated on its own switch
+  (`MENTORA_ADMIN_BOOTSTRAP`, default on), and refuses once the tenant is
+  provisioned. Nothing here is presented as the decided account-provisioning
+  mechanism — with institutional federation the identity provider owns it.
 - **Credentials and tokens are stored as digests.** A session stores
   `sha256(token)`; a credential stores scrypt digest + per-account salt. Neither
   raw value is retrievable after the response that issued it.

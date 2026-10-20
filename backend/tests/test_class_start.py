@@ -64,6 +64,16 @@ OTHER_TENANT = {"X-Institution-Id": "university-002"}
 
 
 @pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
+
+
+@pytest.fixture
 def client(settings):
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -119,6 +129,8 @@ def _publish_version(client, course_id: str, data: bytes, filename: str = "lectu
 
 
 ADMIN_EMAIL = "root@uni.test"
+#: The password every account in this suite is created with (V0-023).
+PASSWORD = "correct-horse-battery-staple"
 #: Where a bootstrapped administrator's session is memoised, per app instance. The
 #: bootstrap is one-shot per tenant, so a test can only do it once; caching it on the
 #: app keeps a test that needs an administrator from having to thread one through.
@@ -126,11 +138,11 @@ _ADMIN_CACHE_ATTR = "_mentora_test_admins"
 
 
 def _sign_in(
-    client, email: str, credential: str, institution: str = "university-001"
+    client, email: str, password: str, institution: str = "university-001"
 ) -> dict:
     response = client.post(
         "/auth/login",
-        json={"institution_id": institution, "email": email, "credential": credential},
+        json={"institution_id": institution, "email": email, "password": password},
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
@@ -153,16 +165,15 @@ def _admin_headers(client, institution: str = "university-001") -> dict:
     if institution not in cache:
         boot = client.post(
             "/auth/bootstrap-admin",
-            params={
+            json={
                 "institution_id": institution,
                 "email": ADMIN_EMAIL,
+                "password": PASSWORD,
                 "display_name": "Root",
             },
         )
         assert boot.status_code == 201, boot.text
-        credential = boot.json()["development_credential"]
-        assert credential, boot.text
-        cache[institution] = _sign_in(client, ADMIN_EMAIL, credential, institution)
+        cache[institution] = _sign_in(client, ADMIN_EMAIL, PASSWORD, institution)
     return cache[institution]
 
 
@@ -173,7 +184,7 @@ def _provision(
 
     response = client.post(
         "/accounts",
-        params={"email": email, "role": role},
+        json={"email": email, "role": role, "password": PASSWORD},
         headers=_admin_headers(client, institution),
     )
     assert response.status_code == 201, response.text
@@ -218,15 +229,14 @@ def _student(client, class_id: str, email: str = "ana@uni.test") -> tuple[str, d
 
     mutation = _provision(client, email)
     account_id = mutation["account"]["account_id"]
-    credential = mutation["development_credential"]
-    assert credential, mutation
+    assert mutation["credential_set"], mutation
     enrolled = client.post(
         f"/classes/{class_id}/enrollments",
         params={"student_id": account_id},
         headers=HEADERS,
     )
     assert enrolled.status_code == 200, enrolled.text
-    return account_id, _sign_in(client, email, credential)
+    return account_id, _sign_in(client, email, PASSWORD)
 
 
 def _repository(client) -> ClassRepository:
@@ -827,7 +837,7 @@ def test_a_teacher_enrols_an_existing_student_but_creates_none(client):
     )
     assert by_email.status_code == 200, by_email.text
     assert by_email.json()["created"] is True
-    assert "development_credential" not in by_email.json(), "enrolment mints no secret"
+    assert "credential_set" not in by_email.json(), "enrolment mints no credential"
 
     second_class = _schedule(client, course_id)["class_id"]
     by_id = client.post(
@@ -848,7 +858,7 @@ def test_a_teacher_can_remove_a_student_from_a_class(client):
     _start(client, class_id)
     account = _provision(client, "ana@uni.test")
     account_id = account["account"]["account_id"]
-    student = _sign_in(client, "ana@uni.test", account["development_credential"])
+    student = _sign_in(client, "ana@uni.test", PASSWORD)
     enrolled = client.post(
         f"/classes/{class_id}/enrollments",
         params={"student_id": account_id},

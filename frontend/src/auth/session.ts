@@ -1,28 +1,26 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * The signed-in session, shared by every page (V0-021, V0-022).
+ * The signed-in session, shared by every page (V0-021, V0-022, V0-023).
  *
  * The session is the *only* thing that decides the tenant: the API derives it
- * from the token, so a page never has to send a tenant with a session (the
- * `X-Institution-Id` header stays for the development shortcut, described
- * below). This module is where the token lives and where the vocabulary of a
- * principal is defined — the three roles the platform models, and the
- * capabilities that decide what each page offers.
+ * from the token, so a page never has to send a tenant with a session. This module
+ * is where the token lives and where the vocabulary of a principal is defined — the
+ * three roles the platform models, and the capabilities that decide what each page
+ * offers.
  *
  * Two things are deliberately explicit rather than smoothed over:
  *
- * * `principal.authenticated` is false for the development tenant shortcut.
- *   That shortcut is accepted while the backend's `MENTORA_DEV_TENANT_HEADER`
- *   is on (default on) and resolves a *teacher* with no account behind it. It
- *   keeps the V0 teacher flows usable before an institutional-federation
- *   deployment, but it cannot request a class join — there is nobody to bind
- *   the join credential to. The UI says "development mode" rather than
- *   pretending a user is signed in.
+ * * **No session is no capabilities.** Since V0-023 every page requires a sign-in,
+ *   and the development tenant shortcut (`X-Institution-Id`) is off by default. So
+ *   `hasScope(null, …)` is `false` for every scope: a caller with no session is
+ *   shown nothing, and the route guard sends it to `/login`. A deployment that
+ *   turns the shortcut back on does so for *its* clients to use; the UI never
+ *   depends on it.
  * * The credential mechanism is not a decided technology. The canonical
- *   architecture names institutional federation (OIDC/OAuth) and no ADR
- *   accepts an implementation, so the registered adapter is a labelled
- *   development mock; `authenticator` carries that fact and the UI shows it.
+ *   architecture names institutional federation (OIDC/OAuth) and no ADR accepts an
+ *   implementation, so the registered adapter is a labelled development mock;
+ *   `authenticator` carries that fact and the UI shows it.
  */
 
 /** A capability a session carries. Kept in step with the API's `Scope` enum. */
@@ -161,26 +159,6 @@ export function useSession(): AuthSession | null {
 }
 
 /**
- * The capabilities the development tenant shortcut resolves to (V0-021).
- *
- * The shortcut is a **teacher** with no account behind it, so these are exactly
- * `ROLE_SCOPES[teacher]`. It is spelled out rather than assumed so that a surface
- * guarded by a capability the teacher does not hold — the Accounts directory
- * (`account:write`) — stays hidden in development mode too.
- */
-const DEVELOPMENT_SCOPES: readonly Scope[] = [
-  'account:read',
-  'class:read',
-  'class:write',
-  'content:read',
-  'content:write',
-  'enrollment:write',
-  'publication:write',
-  'review:write',
-  'scene:read',
-]
-
-/**
  * Whether the principal behind this request holds a capability.
  *
  * The check is **advisory**: it decides what the UI offers, never what is
@@ -188,16 +166,16 @@ const DEVELOPMENT_SCOPES: readonly Scope[] = [
  * every request and refuses a verb the caller lacks, so a stale client can only
  * ever show a button that fails — never perform the action.
  *
- * With no session the development tenant shortcut is in use, which resolves a
- * teacher server-side, so teacher surfaces stay visible and administrator ones do
- * not.
+ * **No session is no capabilities** (V0-023): every page requires a sign-in, and
+ * the development tenant shortcut is off by default, so a caller with no session
+ * holds nothing and is shown nothing (the route guard sends it to `/login`).
  */
 export function hasScope(session: AuthSession | null, scope: Scope): boolean {
-  if (!session) return DEVELOPMENT_SCOPES.includes(scope)
+  if (!session) return false
   return session.principal.scopes.includes(scope)
 }
 
-/** Whether the caller is signed in, as opposed to riding the development shortcut. */
+/** Whether the caller is signed in. */
 export function isSignedIn(session: AuthSession | null): boolean {
   return session?.principal.authenticated === true
 }
@@ -211,9 +189,7 @@ export function isStudent(session: AuthSession | null): boolean {
  * Whether the caller administers the institution's directory (V0-022).
  *
  * Read from the **capability**, not the role name: `account:write` is what the
- * Accounts surface needs, and it is what the server checks. A session that is not
- * signed in is the development tenant shortcut, which resolves a teacher — so it is
- * emphatically not an administrator.
+ * Accounts surface needs, and it is what the server checks.
  */
 export function isAdministrator(session: AuthSession | null): boolean {
   return session?.principal.scopes.includes('account:write') === true
@@ -224,12 +200,12 @@ export function describeRole(role: Role | null | undefined): string {
   if (role === 'institution_admin') return 'Administrator'
   if (role === 'teacher') return 'Teacher'
   if (role === 'student') return 'Student'
-  return 'Development mode'
+  return 'Not signed in'
 }
 
 /** A short human label for whose session this is. */
 export function describePrincipal(session: AuthSession | null): string {
-  if (!session) return 'Development mode'
+  if (!session) return 'Not signed in'
   const who =
     session.principal.display_name || session.principal.email || session.principal.account_id
   return `${who ?? 'Signed in'} · ${describeRole(session.principal.role)}`

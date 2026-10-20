@@ -50,6 +50,8 @@ class IdentityMetrics:
     accounts_deleted: int = 0
     accounts_disabled: int = 0
     admins_bootstrapped: int = 0
+    #: V0-023: a password was set or changed (by an administrator or by its holder).
+    passwords_set: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return dict(self.__dict__)
@@ -137,13 +139,14 @@ class IdentityTelemetry:
         subject: str,
         role: str,
         created: bool,
-        credential_issued: bool,
+        credential_set: bool,
         actor_role: str,
     ) -> dict[str, Any]:
         """An administrator created (or re-named) an account.
 
         The subject is recorded as a digest, as everywhere else: an address
-        identifies a person and a log is not the place for one.
+        identifies a person and a log is not the place for one. ``credential_set``
+        says only *whether* a credential was stored — never a value or a length.
         """
 
         if created:
@@ -156,7 +159,7 @@ class IdentityTelemetry:
             subject_digest=subject_digest(subject),
             role=role,
             created=created,
-            credential_issued=credential_issued,
+            credential_set=credential_set,
             actor_role=actor_role,
         )
 
@@ -200,7 +203,7 @@ class IdentityTelemetry:
         )
 
     def record_admin_bootstrapped(
-        self, *, institution_id: str, subject: str, credential_issued: bool
+        self, *, institution_id: str, subject: str, credential_set: bool
     ) -> dict[str, Any]:
         """The one-shot first-administrator creation, which is a security event.
 
@@ -214,7 +217,32 @@ class IdentityTelemetry:
             "identity.admin_bootstrap",
             institution_id=institution_id,
             subject_digest=subject_digest(subject),
-            credential_issued=credential_issued,
+            credential_set=credential_set,
+        )
+
+    # -- password credentials (V0-023) -------------------------------------------------
+    def record_password_changed(
+        self,
+        *,
+        institution_id: str,
+        account_id: str,
+        changed_by: str,
+        sessions_revoked: int,
+    ) -> dict[str, Any]:
+        """A password was set, reset or changed.
+
+        ``changed_by`` is ``self`` (the holder) or ``admin`` (an administrator
+        resetting it), because "who set this credential" is the security-relevant
+        fact. The password itself is never recorded, not even its length.
+        """
+
+        self.metrics.passwords_set += 1
+        return self.emit(
+            "identity.password_changed",
+            institution_id=institution_id,
+            account_id=account_id,
+            changed_by=changed_by,
+            sessions_revoked=sessions_revoked,
         )
 
 

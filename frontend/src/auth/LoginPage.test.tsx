@@ -53,30 +53,30 @@ describe('LoginPage', () => {
     expect(screen.getByText(/institutional federation/i)).toBeTruthy()
   })
 
-  it('names development mode as not a sign-in, and cannot join a class', () => {
+  it('says every page needs a sign-in, and that a password is what signs you in', () => {
     render(<LoginPage />)
 
-    expect(screen.getByText(/development shortcut/i)).toBeTruthy()
-    // The shortcut is a *teacher*, and joining is the student's own action, so it
-    // can never join — the page says so rather than offering a button that fails.
-    expect(screen.getByText(/cannot join one/i)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Continue in development mode' })).toBeTruthy()
+    expect(screen.getByText(/every page needs a sign-in/i)).toBeTruthy()
+    expect(screen.getByLabelText('Password')).toBeTruthy()
+    // The old "development mode" affordance is gone: there is no way to skip a
+    // sign-in from this page.
+    expect(screen.queryByRole('link', { name: /development mode/i })).toBeNull()
   })
 
-  it('signs in, stores the session and reports who it is', async () => {
+  it('signs in with a password, stores the session and reports who it is', async () => {
     const user = userEvent.setup()
     vi.mocked(login).mockResolvedValue(ISSUANCE)
     render(<LoginPage />)
 
     await user.type(screen.getByLabelText('Email'), 'student7@school.example')
-    await user.type(screen.getByLabelText('Sign-in code'), 'dev-code-7')
+    await user.type(screen.getByLabelText('Password'), 'dev-pass-7')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith({
         institutionId: INSTITUTION,
         email: 'student7@school.example',
-        credential: 'dev-code-7',
+        password: 'dev-pass-7',
       }),
     )
     // The store holds the session, and only the token is what gets sent.
@@ -92,7 +92,7 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(screen.getByLabelText('Email'), 'student7@school.example')
-    await user.type(screen.getByLabelText('Sign-in code'), 'wrong')
+    await user.type(screen.getByLabelText('Password'), 'wrong')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     expect(await screen.findByText(/AUTHENTICATION_FAILED/)).toBeTruthy()
@@ -108,7 +108,7 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(screen.getByLabelText('Email'), 'student7@school.example')
-    await user.type(screen.getByLabelText('Sign-in code'), 'dev-code-7')
+    await user.type(screen.getByLabelText('Password'), 'dev-pass-7')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     // Not "wrong credentials": the account may be perfectly valid.
@@ -157,7 +157,7 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(screen.getByLabelText('Email'), 'student7@school.example')
-    await user.type(screen.getByLabelText('Sign-in code'), 'dev-code-7')
+    await user.type(screen.getByLabelText('Password'), 'dev-pass-7')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     await waitFor(() => expect(window.location.pathname).toBe('/join/class-1'))
@@ -170,15 +170,15 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(screen.getByLabelText('Email'), 'student7@school.example')
-    await user.type(screen.getByLabelText('Sign-in code'), 'dev-code-7')
+    await user.type(screen.getByLabelText('Password'), 'dev-pass-7')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
     await waitFor(() => expect(window.location.pathname).toBe('/'))
   })
 
-  // -- the first administrator (V0-022) ----------------------------------------------
+  // -- the first administrator (V0-022, V0-023) ---------------------------------------
 
-  it('creates the institution’s first administrator and fills in its code for signing in', async () => {
+  it('creates the institution’s first administrator with a password and fills in the form', async () => {
     const user = userEvent.setup()
     vi.mocked(bootstrapAdministrator).mockResolvedValue({
       created: true,
@@ -192,21 +192,26 @@ describe('LoginPage', () => {
         status: 'ACTIVE',
         created_at: '2026-10-16T09:00:00Z',
       },
-      development_credential: 'admin-code-1',
+      credential_set: true,
       sessions_revoked: 0,
     })
     render(<LoginPage />)
 
     await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.type(screen.getByLabelText('Administrator password'), 'admin-pass-1')
     await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
 
     await waitFor(() =>
-      expect(bootstrapAdministrator).toHaveBeenCalledWith(INSTITUTION, 'root@school.example'),
+      expect(bootstrapAdministrator).toHaveBeenCalledWith(
+        INSTITUTION,
+        'root@school.example',
+        'admin-pass-1',
+      ),
     )
-    // The one-time code is shown once, and the sign-in form is ready to use it: the
-    // point of the panel is to get the operator to a session.
-    expect(await screen.findByText(/code is filled in above/)).toBeTruthy()
-    expect((screen.getByLabelText('Sign-in code') as HTMLInputElement).value).toBe('admin-code-1')
+    // The password the operator chose is filled into the sign-in form — no secret is
+    // ever returned to display — so the next step is one click away.
+    expect(await screen.findByText(/is now this institution's administrator/)).toBeTruthy()
+    expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('admin-pass-1')
     expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
       'root@school.example',
     )
@@ -220,13 +225,14 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.type(screen.getByLabelText('Administrator password'), 'admin-pass-1')
     await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
 
     const banner = await screen.findByText(/already has an administrator/)
     expect(banner.textContent).toMatch(/Sign in with that account/)
   })
 
-  it('says a hardened deployment provisions administrators elsewhere', async () => {
+  it('says a deployment with the bootstrap off provisions administrators elsewhere', async () => {
     const user = userEvent.setup()
     vi.mocked(bootstrapAdministrator).mockRejectedValue(
       new ApiError('NOT_FOUND', 'not exposed', 'BOOTSTRAP_DISABLED'),
@@ -234,6 +240,7 @@ describe('LoginPage', () => {
     render(<LoginPage />)
 
     await user.type(await screen.findByLabelText('Administrator email'), 'root@school.example')
+    await user.type(screen.getByLabelText('Administrator password'), 'admin-pass-1')
     await user.click(screen.getByRole('button', { name: 'Create the first administrator' }))
 
     // Institutional federation owns that account, so the page points at the operator

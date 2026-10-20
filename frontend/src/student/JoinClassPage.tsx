@@ -6,7 +6,6 @@ import {
   type ClassView,
 } from '../api/client'
 import { describePrincipal, hasScope, isSignedIn, useSession } from '../auth/session'
-import { useMode } from '../auth/mode'
 import { useInstitution } from '../institution'
 import { describeSchedule, useNow } from '../time'
 import PageHeader from '../components/PageHeader'
@@ -38,10 +37,10 @@ const STATE_TONE: Record<string, Tone> = {
  * credential a student's browser finally holds is bound to *their own account*,
  * so this page first establishes who is asking:
  *
- * * not signed in → sign in first. The development tenant shortcut is not a
- *   sign-in: it is a *teacher*, and joining is the student's own action, so it
- *   cannot join — the page says that rather than offering a button that can only
- *   fail.
+ * * not signed in → the route guard has already sent the browser to sign in, so
+ *   this is only a defensive fallback; a teacher signed in here is told plainly
+ *   that they have no seat in the class, instead of being offered a button that
+ *   can only fail.
  * * signed in → the class is shown, and "Join class" asks the server for the
  *   join credential. A refusal is reported with its precise reason: not on the
  *   roster (`NOT_ENROLLED`), the class has not started (`NOT_STARTED`), or the
@@ -54,7 +53,6 @@ const STATE_TONE: Record<string, Tone> = {
  */
 export default function JoinClassPage({ classId }: { classId: string }) {
   const session = useSession()
-  const mode = useMode()
   const [, setInstitution] = useInstitution()
   const now = useNow(1000, true)
   const [classView, setClassView] = useState<ClassView | null>(null)
@@ -66,8 +64,8 @@ export default function JoinClassPage({ classId }: { classId: string }) {
     document.title = 'Join a class — Mentora'
   }, [])
 
-  // The tenant for reads comes from the session; without one the development
-  // shortcut's remembered institution is used, which can read a class but never
+  // The tenant for reads comes from the session. Without one (the guard's job)
+  // the remembered institution is used, which can still read a class but never
   // join it.
   useEffect(() => {
     if (session) setInstitution(session.principal.institution_id)
@@ -151,15 +149,8 @@ export default function JoinClassPage({ classId }: { classId: string }) {
           <Panel title="Sign in to join">
             <p className="text-sm text-slate-700">
               A join credential is bound to <strong>your own account</strong>, so the class needs to know
-              who is asking. Sign in with the code your teacher gave you when they added you.
+              who is asking. Sign in with the password your teacher set for you when they added you.
             </p>
-            {mode.development && (
-              <p className="mt-2 text-sm text-slate-700">
-                This browser is in <strong>development mode</strong> (the tenant header shortcut), which
-                is authorized as a <strong>teacher</strong> — joining a class is the student's own
-                action, and a teacher has no seat in one.
-              </p>
-            )}
             <div className="mt-3 flex flex-wrap gap-2">
               <Link to={loginPath(`/join/${classId}`)} className={BUTTON_PRIMARY}>
                 Sign in

@@ -37,6 +37,8 @@ def spa_client(tmp_path, dist):
         database_path=tmp_path / "mentora.db",
         object_root=tmp_path / "objects",
         frontend_dist=dist,
+        # V0-023: the shortcut is off by default; the pre-identity API suites opt in.
+        dev_tenant_header=True,
     )
     init_db(settings.database_path)
     with TestClient(create_app(settings)) as client:

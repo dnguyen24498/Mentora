@@ -3,12 +3,21 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from './SettingsPage'
 import { readSettings } from './store'
-import { fetchObjectUrl, loadHealth, loadRendererStatus, type RendererStatus } from '../api/client'
+import {
+  ApiError,
+  changePassword,
+  fetchObjectUrl,
+  loadHealth,
+  loadRendererStatus,
+  type RendererStatus,
+} from '../api/client'
+import { clearSession, readSession, writeSession } from '../auth/session'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return {
     ...actual,
+    changePassword: vi.fn(),
     fetchObjectUrl: vi.fn(),
     loadHealth: vi.fn(),
     loadRendererStatus: vi.fn(),
@@ -157,5 +166,95 @@ describe('SettingsPage — accessibility', () => {
     expect(JSON.parse(localStorage.getItem('mentora.classroom.prefs') ?? '{}')).toMatchObject({
       reducedMotion: true,
     })
+  })
+})
+
+/**
+ * Security settings are the signed-in account changing its *own* password
+ * (V0-023). The current password is verified exactly as a sign-in is, so a
+ * mistyped field is not a sign-out, and the server revokes the account's other
+ * live sessions while keeping the caller's.
+ */
+describe('SettingsPage — security', () => {
+  beforeEach(() => {
+    clearSession()
+    writeSession({
+      token: 'tok-1',
+      principal: {
+        authenticated: true,
+        institution_id: 'university-001',
+        role: 'teacher',
+        scopes: ['content:read', 'content:write', 'class:read', 'class:write', 'scene:read'],
+        account_id: 'account-teacher',
+        email: 'teacher@school.example',
+        display_name: 'Tess Teacher',
+        session_id: 'session-1',
+      },
+      authenticator: {
+        id: 'local-credentials@1.0.0',
+        name: 'local-credentials',
+        version: '1.0.0',
+        kind: 'DEVELOPMENT_MOCK',
+      },
+      notice: 'mock',
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    })
+  })
+
+  it('changes the signed-in account’s password and revokes the others', async () => {
+    const user = userEvent.setup()
+    vi.mocked(changePassword).mockResolvedValue({ changed: true, sessions_revoked: 2 })
+    render(<SettingsPage section="security" />)
+
+    await user.type(await screen.findByLabelText('Current password'), 'old-pass-1')
+    await user.type(screen.getByLabelText('New password'), 'new-pass-2')
+    await user.type(screen.getByLabelText('Confirm new password'), 'new-pass-2')
+    await user.click(screen.getByRole('button', { name: 'Change password' }))
+
+    await waitFor(() => expect(changePassword).toHaveBeenCalledWith('old-pass-1', 'new-pass-2'))
+    expect(await screen.findByText(/2 other live session/)).toBeTruthy()
+    // The fields are cleared, and the caller is still signed in.
+    expect((screen.getByLabelText('Current password') as HTMLInputElement).value).toBe('')
+    expect(readSession()?.token).toBe('tok-1')
+  })
+
+  it('refuses a mismatch before it troubles the server', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage section="security" />)
+
+    await user.type(await screen.findByLabelText('Current password'), 'old-pass-1')
+    await user.type(screen.getByLabelText('New password'), 'new-pass-2')
+    await user.type(screen.getByLabelText('Confirm new password'), 'new-pass-3')
+
+    const submit = screen.getByRole('button', { name: 'Change password' })
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+    await user.click(submit)
+    expect(changePassword).not.toHaveBeenCalled()
+    expect(screen.getByText(/do not match/)).toBeTruthy()
+  })
+
+  it('keeps the session when the current password is wrong', async () => {
+    const user = userEvent.setup()
+    vi.mocked(changePassword).mockRejectedValue(
+      new ApiError('AUTHENTICATION_FAILED', 'credentials were not accepted', 'INVALID_CREDENTIALS'),
+    )
+    render(<SettingsPage section="security" />)
+
+    await user.type(await screen.findByLabelText('Current password'), 'wrong')
+    await user.type(screen.getByLabelText('New password'), 'new-pass-2')
+    await user.type(screen.getByLabelText('Confirm new password'), 'new-pass-2')
+    await user.click(screen.getByRole('button', { name: 'Change password' }))
+
+    // A mistyped field is not a sign-out: the refusal names the cause and the
+    // session stands.
+    expect(await screen.findByText(/INVALID_CREDENTIALS/)).toBeTruthy()
+    expect(readSession()?.token).toBe('tok-1')
+  })
+
+  it('says the credential mechanism is not a decided technology', () => {
+    render(<SettingsPage section="security" />)
+
+    expect(screen.getByText(/not a decided technology/)).toBeTruthy()
+    expect(screen.getByText(/institutional federation/)).toBeTruthy()
   })
 })

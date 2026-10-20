@@ -24,6 +24,12 @@ than adapter choices:
 
 It is dependency-free (stdlib ``hashlib.scrypt``) deliberately: no credential
 library is chosen while the mechanism is undecided.
+
+V0-023 makes the credential it manages a **password**: an administrator supplies an
+initial one when creating an account (and can reset it), and an account holder can
+change their own. This is still the mock standing in for federation — a password
+here is a development convenience, not a decided mechanism, and no password
+*policy* beyond a minimum-length guard is fixed (V0-022 left policy out of scope).
 """
 
 from __future__ import annotations
@@ -161,17 +167,17 @@ class LocalCredentialAuthenticator(Authenticator):
         # Constant-time: a byte-by-byte compare leaks the digest prefix.
         return hmac.compare_digest(candidate, record.digest)
 
-    def issue_credential(self, institution_id: str, account_id: str) -> Optional[str]:
-        """Provision a **development** sign-in code for a newly invited account.
+    def provision_credential(self, institution_id: str, account_id: str, secret: str) -> bool:
+        """Store a **caller-supplied** password for an account (V0-023).
 
-        Returned once, stored only as a digest. A federation deployment replaces
-        this: the identity provider owns the credential and an invitation grants no
-        local secret (the base class returns ``None`` for exactly that reason).
+        This adapter manages local credentials, so it returns ``True``; a federation
+        adapter returns ``False``, because the identity provider owns the credential.
+        Only the digest is stored — the caller (an administrator setting an initial
+        password, or an account holder changing their own) supplies the secret.
         """
 
-        secret = secrets.token_urlsafe(12)
         self.set_credential(institution_id, account_id, secret)
-        return secret
+        return True
 
     def set_credential(self, institution_id: str, account_id: str, secret: str) -> None:
         """Set a known credential (seeding and tests)."""

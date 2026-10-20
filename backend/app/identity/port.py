@@ -302,17 +302,21 @@ class Authenticator(ABC):
             consecutive_failures=self._consecutive_failures,
         )
 
-    def issue_credential(self, institution_id: str, account_id: str) -> Optional[str]:
-        """Provision a first credential for a newly invited account, returned **once**.
+    def provision_credential(self, institution_id: str, account_id: str, secret: str) -> bool:
+        """Store a **caller-supplied** credential for an account, returning whether it was.
 
         Provisioning is optional, and the default says so: a federation deployment
-        does not need it, because the identity provider owns the credential and an
-        invitation grants no local secret. Only a credential-issuing adapter (the
-        development mock) overrides this, and an override **MUST** store only a
-        digest.
+        returns ``False``, because the identity provider owns the credential and a
+        locally-created account grants no local secret at all. Only a
+        credential-managing adapter (the development mock) overrides this, and an
+        override **MUST** store only a digest.
+
+        The ``secret`` is whatever the adapter accepts as a credential — a password
+        for the development mock, and nothing the port inspects, so the domain stays
+        credential-agnostic.
         """
 
-        return None
+        return False
 
     # -- internals --------------------------------------------------------------------
     def _denied(

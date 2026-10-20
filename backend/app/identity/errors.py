@@ -38,6 +38,7 @@ from app.common.errors import (
     InsufficientScopeError,
     NotFoundError,
     UnauthenticatedError,
+    ValidationError,
 )
 
 #: No session was presented, or the presented one is not usable.
@@ -75,6 +76,10 @@ ISSUE_TENANT_ALREADY_PROVISIONED = "TENANT_ALREADY_PROVISIONED"
 #: V0-022: the first-administrator bootstrap is not exposed on this deployment
 #: (the development shortcut is off), so the route is absent rather than denied.
 ISSUE_BOOTSTRAP_DISABLED = "BOOTSTRAP_DISABLED"
+#: V0-023: a supplied password does not meet the (development) minimum. A guard,
+#: not a decided password policy: FND-002 is TODO and V0-022 left policy out of scope,
+#: so this exists only so an administrator cannot set a trivially guessable one.
+ISSUE_CREDENTIAL_TOO_WEAK = "CREDENTIAL_TOO_WEAK"
 
 #: Only these may be retried (``DEC-RELIABILITY-001``). A refusal is never in this
 #: set: retrying a wrong credential would be a brute-force amplifier.
@@ -219,6 +224,21 @@ class BootstrapDisabledError(NotFoundError):
         self.issue_code = issue_code
 
 
+class CredentialPolicyError(ValidationError):
+    """A supplied password does not meet the (development) minimum length (V0-023).
+
+    A ``400``, because the request is malformed rather than refused: the caller can
+    fix it by supplying a longer password. The ``issue_code`` is its own, so a client
+    can point at the field instead of showing a generic error.
+    """
+
+    def __init__(
+        self, message: str, *, issue_code: str = ISSUE_CREDENTIAL_TOO_WEAK
+    ) -> None:
+        super().__init__(message)
+        self.issue_code = issue_code
+
+
 __all__ = [
     "ISSUE_ACCOUNT_DISABLED",
     "ISSUE_ACCOUNT_IN_USE",
@@ -226,6 +246,7 @@ __all__ = [
     "ISSUE_AUTHENTICATION_TIMEOUT",
     "ISSUE_AUTHENTICATION_UNAVAILABLE",
     "ISSUE_BOOTSTRAP_DISABLED",
+    "ISSUE_CREDENTIAL_TOO_WEAK",
     "ISSUE_EMAIL_ROLE_CONFLICT",
     "ISSUE_INVALID_CREDENTIALS",
     "ISSUE_ROLE_NOT_MANAGEABLE",
@@ -241,6 +262,7 @@ __all__ = [
     "BootstrapClosedError",
     "BootstrapDisabledError",
     "CredentialDeniedError",
+    "CredentialPolicyError",
     "CredentialUnavailableError",
     "InvitationConflictError",
     "RoleNotManageableError",

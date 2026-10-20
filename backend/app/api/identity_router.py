@@ -2,16 +2,17 @@
 
 Routes (``contracts/openapi/openapi.yaml``):
 
-* ``POST /auth/login`` — present a credential for a subject in a tenant; on success
-  a short-lived session token is returned **once** (only its digest is stored).
+* ``POST /auth/login`` — present a password for a subject in a tenant; on success a
+  short-lived session token is returned **once** (only its digest is stored).
 * ``POST /auth/logout`` — revoke the presented session. Idempotent, and deliberately
   usable with an already-expired token, because signing out must never fail.
+* ``POST /auth/password`` — change the presented account's own password (V0-023).
 * ``GET  /auth/me`` — the principal the presented session authorizes.
 * ``POST /auth/bootstrap-admin`` — the deployment's one-shot creation of the
   institution's **first** administrator (V0-022). It is unauthenticated by
-  necessity (there is no administrator yet to authorize it), it exists only while
-  the development shortcut is enabled, and it closes the moment the tenant has an
-  administrator. Under institutional federation the identity provider provisions
+  necessity (there is no administrator yet to authorize it), it is exposed only
+  while ``Settings.admin_bootstrap`` is on, and it closes the moment the tenant has
+  an administrator. Under institutional federation the identity provider provisions
   that account, which is why this route is a development seam and not the platform's
   account-creation path.
 
@@ -48,13 +49,34 @@ from app.identity.models import Principal
 class LoginRequest(BaseModel):
     """A subject proving it is an account in a tenant.
 
-    ``credential`` is opaque to the API: a development sign-in code today, an
-    authorization-code result or an assertion once federation is decided.
+    ``password`` is the credential for the development adapter; the port keeps it
+    opaque, so an authorization-code result or an assertion takes its place once
+    federation is decided.
     """
 
     institution_id: str = Field(min_length=1, max_length=256)
     email: str = Field(min_length=1, max_length=320)
-    credential: str = Field(min_length=1, max_length=1024)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class PasswordChangeRequest(BaseModel):
+    """A signed-in account changing its own password (V0-023)."""
+
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
+class BootstrapRequest(BaseModel):
+    """The deployment's first administrator (V0-023).
+
+    A **body**, like every other request that carries a password: a password in a
+    URL would be written to access logs and browser history.
+    """
+
+    institution_id: str = Field(min_length=1, max_length=256)
+    email: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+    display_name: Optional[str] = Field(default=None, max_length=256)
 
 
 def _notice(identity: dict[str, Any]) -> str:
@@ -80,7 +102,7 @@ def build_identity_router(security: ApiSecurity) -> APIRouter:
         """Sign in. A refusal is a stable code, never prose to parse."""
 
         result = identity.login(
-            payload.institution_id, payload.email, payload.credential
+            payload.institution_id, payload.email, payload.password
         )
         if not result.authenticated:
             code = result.error_code or ""
@@ -102,27 +124,49 @@ def build_identity_router(security: ApiSecurity) -> APIRouter:
             "notice": _notice(capability),
         }
 
-    @router.post("/auth/bootstrap-admin", status_code=201)
-    def bootstrap_admin(
-        institution_id: str,
-        email: str,
-        display_name: Optional[str] = None,
+    @router.post("/auth/password")
+    def change_password(
+        payload: PasswordChangeRequest,
+        principal: Principal = Depends(security.principal),
     ) -> dict[str, Any]:
-        """Create the institution's first administrator — once, in development.
+        """Change the presented account's own password (V0-023).
 
-        Refused with ``404 BOOTSTRAP_DISABLED`` when the deployment has the
-        development shortcut off (institutional federation owns provisioning there,
-        so the route is *absent* rather than denied), and with ``409`` once the
-        tenant already has an administrator. It writes nothing when it refuses.
+        A wrong current password is refused exactly as a refused sign-in is
+        (``401 AUTHENTICATION_FAILED``/``INVALID_CREDENTIALS``) — the *session* is
+        still valid, which is why the client keeps it. On success every other live
+        session of the account is revoked, so the old password cannot keep a stale tab
+        working; the caller's own session is deliberately spared.
         """
 
-        if not security.development_shortcut:
+        revoked = identity.change_password(
+            principal.institution_id,
+            principal.account_id or "",
+            current_secret=payload.current_password,
+            new_secret=payload.new_password,
+            keep_session_id=principal.session_id,
+        )
+        return {"changed": True, "sessions_revoked": revoked}
+
+    @router.post("/auth/bootstrap-admin", status_code=201)
+    def bootstrap_admin(payload: BootstrapRequest) -> dict[str, Any]:
+        """Create the institution's first administrator — once.
+
+        Refused with ``404 BOOTSTRAP_DISABLED`` when the deployment does not expose
+        the bootstrap (institutional federation owns provisioning there, so the route
+        is *absent* rather than denied), and with ``409`` once the tenant already has
+        an administrator. It writes nothing when it refuses.
+        """
+
+        if not security.admin_bootstrap:
             raise BootstrapDisabledError(
                 "this deployment does not expose the first-administrator bootstrap; "
                 "an administrator is provisioned by the institution's identity provider"
             )
         mutation = identity.bootstrap_administrator(
-            institution_id, email=email, display_name=display_name or ""
+            payload.institution_id,
+            email=payload.email,
+            secret=payload.password,
+            display_name=payload.display_name or "",
         )
         return mutation.to_dict()
 
@@ -149,6 +193,7 @@ def build_identity_router(security: ApiSecurity) -> APIRouter:
             "authenticator": capability,
             "notice": _notice(capability),
             "development_shortcut": security.development_shortcut,
+            "admin_bootstrap": security.admin_bootstrap,
         }
 
     return router

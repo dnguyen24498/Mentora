@@ -46,25 +46,36 @@ class Settings:
     home_region: str = DEFAULT_HOME_REGION
     #: Whether the **pre-auth development shortcut** is accepted: a request with no
     #: session is trusted for whatever ``X-Institution-Id`` it names. V0-021 makes
-    #: the tenant come from an authenticated principal; this shortcut exists so the
-    #: V0 flows (and their tests) keep working before an institutional-federation
-    #: deployment, and it is *not* authentication — a request that uses it is
-    #: reported as ``authenticated: false``. Set ``MENTORA_DEV_TENANT_HEADER=0`` to
-    #: require a session on every route.
-    dev_tenant_header: bool = True
+    #: the tenant come from an authenticated principal; V0-023 makes this **off by
+    #: default**, so every route requires a real session and nothing is reachable
+    #: without a sign-in. It is *not* authentication — a request that uses it is
+    #: reported as ``authenticated: false`` — and it is a development seam, not a
+    #: deployment mode: set ``MENTORA_DEV_TENANT_HEADER=1`` to opt in.
+    dev_tenant_header: bool = False
+    #: Whether the one-shot **first-administrator bootstrap** is exposed
+    #: (``POST /auth/bootstrap-admin``, V0-022/V0-023). It is a *separate* switch
+    #: from the tenant-header shortcut on purpose: a locked deployment still needs a
+    #: way to create its first account, and with institutional federation the
+    #: identity provider provisions that account instead — so a hardened deployment
+    #: sets ``MENTORA_ADMIN_BOOTSTRAP=0``. It is unauthenticated by necessity and
+    #: closes the moment the tenant has an administrator.
+    admin_bootstrap: bool = True
     #: How long an issued session token stays valid (short-lived, least privilege).
     session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS
 
     @classmethod
     def from_env(cls, base_dir: Path | str | None = None) -> "Settings":
         base = Path(base_dir or os.environ.get("MENTORA_DATA_DIR", "var"))
-        shortcut = os.environ.get("MENTORA_DEV_TENANT_HEADER", "1").strip().lower()
+        # V0-023: locked by default. The shortcut is an explicit development opt-in.
+        shortcut = os.environ.get("MENTORA_DEV_TENANT_HEADER", "0").strip().lower()
+        bootstrap = os.environ.get("MENTORA_ADMIN_BOOTSTRAP", "1").strip().lower()
         return cls(
             database_path=Path(os.environ.get("MENTORA_DB_PATH", base / "mentora.db")),
             object_root=Path(os.environ.get("MENTORA_OBJECT_ROOT", base / "objects")),
             frontend_dist=Path(os.environ.get("MENTORA_FRONTEND_DIST", _default_frontend_dist())),
             home_region=os.environ.get("MENTORA_HOME_REGION", DEFAULT_HOME_REGION),
-            dev_tenant_header=shortcut not in {"0", "false", "no", "off"},
+            dev_tenant_header=shortcut in {"1", "true", "yes", "on"},
+            admin_bootstrap=bootstrap not in {"0", "false", "no", "off"},
             session_ttl_seconds=int(
                 os.environ.get("MENTORA_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)
             ),

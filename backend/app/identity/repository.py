@@ -255,15 +255,31 @@ class IdentityRepository:
             )
             return cur.rowcount == 1
 
-    def revoke_sessions_for_account(self, institution_id: str, account_id: str) -> int:
-        """Revoke every live session of one account (sign-out everywhere)."""
+    def revoke_sessions_for_account(
+        self, institution_id: str, account_id: str, *, keep_session_id: Optional[str] = None
+    ) -> int:
+        """Revoke every live session of one account (sign-out everywhere).
+
+        ``keep_session_id`` preserves one session — the caller's own, on a
+        self-service password change — so a credential change invalidates everything
+        the old credential could reach **except** the page the holder is changing it
+        from. It is a session id, not a token, so nothing here can be replayed.
+        """
 
         with transaction(self._conn):
-            cur = self._conn.execute(
-                "UPDATE auth_sessions SET revoked_at = ? "
-                "WHERE institution_id = ? AND account_id = ? AND revoked_at IS NULL",
-                (_now(), institution_id, account_id),
-            )
+            if keep_session_id:
+                cur = self._conn.execute(
+                    "UPDATE auth_sessions SET revoked_at = ? "
+                    "WHERE institution_id = ? AND account_id = ? AND revoked_at IS NULL "
+                    "AND session_id != ?",
+                    (_now(), institution_id, account_id, keep_session_id),
+                )
+            else:
+                cur = self._conn.execute(
+                    "UPDATE auth_sessions SET revoked_at = ? "
+                    "WHERE institution_id = ? AND account_id = ? AND revoked_at IS NULL",
+                    (_now(), institution_id, account_id),
+                )
             return int(cur.rowcount or 0)
 
     def count_live_sessions(self, institution_id: str) -> int:

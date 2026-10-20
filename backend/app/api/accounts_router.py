@@ -2,10 +2,10 @@
 
 Routes (``contracts/openapi/openapi.yaml``):
 
-* ``POST   /accounts``          — create a teacher or a student (create-or-link).
+* ``POST   /accounts``          — create a teacher or a student, with their password.
 * ``GET    /accounts``          — the tenant's accounts of one role.
 * ``GET    /accounts/{id}``     — one account.
-* ``PATCH  /accounts/{id}``     — display name, role, enabled state.
+* ``PATCH  /accounts/{id}``     — display name, role, enabled state, password.
 * ``DELETE /accounts/{id}``     — remove an account that no class references.
 
 Three things are deliberate here:
@@ -37,6 +37,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from app.api.security import ApiSecurity
 from app.classroom.service import ClassroomService
@@ -54,6 +55,29 @@ from app.identity.models import (
     Role,
     Scope,
 )
+
+
+class AccountCreateRequest(BaseModel):
+    """A new teacher or student, with the password they will sign in with.
+
+    A **body**, not query parameters: a password carried in a URL would be written to
+    access logs and browser history, and this codebase never lets a credential reach
+    a log — not even the length of one.
+    """
+
+    email: str = Field(min_length=1, max_length=320)
+    role: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
+    display_name: Optional[str] = Field(default=None, max_length=256)
+
+
+class AccountUpdateRequest(BaseModel):
+    """A partial change: an omitted field is unchanged; ``password`` resets it."""
+
+    display_name: Optional[str] = Field(default=None, max_length=256)
+    role: Optional[str] = Field(default=None, max_length=64)
+    status: Optional[str] = Field(default=None, max_length=16)
+    password: Optional[str] = Field(default=None, max_length=1024)
 
 
 def _role(value: str, *, allowed: frozenset[Role]) -> Role:
@@ -117,24 +141,26 @@ def build_accounts_router(
 
     @router.post("/accounts", status_code=201)
     def create_account(
-        email: str,
-        role: str,
+        payload: AccountCreateRequest,
         principal: Principal = Depends(require(Scope.ACCOUNT_WRITE)),
-        display_name: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Create a teacher or a student. Returns a **one-time** credential, if any.
+        """Create a teacher or a student, with the password they will sign in with.
 
         Create-or-link: the same address and role returns the existing account with
-        ``created: false`` and no credential, so a retry can never re-mint a secret
-        (``DEC-RUNTIME-003``).
+        ``created: false`` and sets no credential, so a retry can never overwrite the
+        password the holder may already have, nor re-mint a secret
+        (``DEC-RUNTIME-003``). ``credential_set`` reports whether the password was
+        stored; a federation deployment reports ``false`` (the identity provider owns
+        it).
         """
 
-        requested = _role(role, allowed=MANAGEABLE_ROLES)
+        requested = _role(payload.role, allowed=MANAGEABLE_ROLES)
         mutation = security.identity.create_account(
             principal.institution_id,
-            email=email,
+            email=payload.email,
             role=requested,
-            display_name=display_name or "",
+            secret=payload.password,
+            display_name=payload.display_name or "",
             actor_role=principal.role.value,
         )
         return mutation.to_dict()
@@ -163,32 +189,36 @@ def build_accounts_router(
     @router.patch("/accounts/{account_id}")
     def update_account(
         account_id: str,
+        payload: AccountUpdateRequest,
         principal: Principal = Depends(require(Scope.ACCOUNT_WRITE)),
-        display_name: Optional[str] = None,
-        role: Optional[str] = None,
-        status: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Change an account's display name, role or enabled state.
+        """Change an account's display name, role, enabled state or password.
 
         Disabling revokes the account's live sessions in the same call
         (``DEC-RUNTIME-007``); a role change is re-derived on the next read, so it can
-        only ever *remove* a capability from a live session.
+        only ever *remove* a capability from a live session. **Resetting the password
+        revokes them too** — a reset that left other live sessions working would not
+        really have changed who can get in — and this is the remedy for a holder who
+        has forgotten theirs.
         """
 
         disabled: Optional[bool] = None
-        if status is not None:
-            normalized = status.strip().upper()
+        if payload.status is not None:
+            normalized = payload.status.strip().upper()
             if normalized not in {"ACTIVE", "DISABLED"}:
                 raise ValidationError("status must be ACTIVE or DISABLED")
             disabled = normalized == "DISABLED"
 
-        requested = None if role is None else _role(role, allowed=MANAGEABLE_ROLES)
+        requested = (
+            None if payload.role is None else _role(payload.role, allowed=MANAGEABLE_ROLES)
+        )
         mutation = security.identity.update_account(
             principal.institution_id,
             account_id,
-            display_name=display_name,
+            display_name=payload.display_name,
             role=requested,
             disabled=disabled,
+            secret=payload.password,
             actor_role=principal.role.value,
         )
         return mutation.to_dict()

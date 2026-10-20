@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.app import create_app
@@ -31,6 +32,16 @@ def _client(settings) -> TestClient:
     # `raise_server_exceptions=False`: a handler error must be observed as the
     # 5xx a real client would see, not as an exception inside the test thread.
     return TestClient(create_app(settings), raise_server_exceptions=False)
+
+
+@pytest.fixture
+def settings(dev_settings):
+    """This suite drives the pre-identity V0 API as a teacher, so it opts into the
+    development tenant shortcut (V0-023). The shipped default requires a session on
+    every route; that locked default is covered by ``tests/test_required_sign_in.py``.
+    """
+
+    return dev_settings
 
 
 def test_concurrent_reads_and_writes_all_succeed(settings):
