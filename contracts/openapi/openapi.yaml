@@ -660,7 +660,9 @@ paths:
       operationId: getClass
       description: >-
         The class with its session and pinned runtime tuple. `session` and
-        `session_plan` are null before a successful start.
+        `session_plan` are null before a successful start. A student is a
+        participant, so their read is limited to a class on their roster
+        (403 NOT_ENROLLED); staff read by capability.
       parameters: [$ref: '#/components/parameters/ClassId']
       responses:
         '200':
@@ -669,7 +671,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ClassView'}
         '403':
-          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'
         '404':
           description: 'Unknown class (stable code NOT_FOUND)'
   /classes/{classId}/start:
@@ -714,7 +716,9 @@ paths:
         The authoritative session snapshot (DEC-DATA-004). Its schema version and
         checksum are validated before it is returned, so a damaged snapshot is
         refused (502 STORAGE_FAILURE, issue_code SNAPSHOT_INVALID) rather than
-        replayed.
+        replayed. The student's presentation view polls this document to follow
+        the teacher's current scene (V0-025); that is a short poll, not the ordered
+        per-class event stream (DEC-DATA-003 is OPEN, V1-002).
       parameters: [$ref: '#/components/parameters/ClassId']
       responses:
         '200':
@@ -723,21 +727,68 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SessionSnapshot'}
         '403':
-          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'
+          description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'
         '404':
           description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'
         '502':
           description: 'Stored snapshot fails validation (stable code STORAGE_FAILURE, issue_code SNAPSHOT_INVALID)'
+  /classes/{classId}/navigate:
+    post:
+      operationId: navigateClass
+      description: >-
+        Move the class to a **pinned slide**; requires `class:write`, so only a
+        teacher holds it. `order` is the package's scene order, not a lesson
+        section: the server resolves it against the session's pinned scene list and
+        lesson plan, then sends the in-process aggregate a fully resolved
+        `NAVIGATE_SCENE`. It never parses the source deck and never resolves the
+        course's current publication, so a correction published mid-lesson cannot
+        move a running class (DEC-CONTENT-001, DEC-CONTENT-005). A command is
+        idempotent by `command_id` and fenced by `expected_state_version`
+        (DEC-RUNTIME-003/DEC-RUNTIME-007). This is an HTTP command over the existing
+        aggregate, **not** the ordered per-class live stream (DEC-DATA-003 is OPEN,
+        V1-002); the student view learns the new scene by polling the snapshot.
+        A refusal writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClassNavigateRequest'}
+      responses:
+        '200':
+          description: >-
+            The aggregate's verdict, the updated session and the durable snapshot.
+            On a duplicate command `snapshot` is null: the first effect already
+            happened and nothing new was written.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassCommandResult'}
+        '400':
+          description: 'The order is negative (stable code INVALID_REQUEST)'
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404':
+          description: 'Unknown class, or the pinned package has no scene with that order (stable code NOT_FOUND)'
+        '409':
+          description: >-
+            The command cannot be applied: the class has not started (stable code
+            CLASS_NOT_READY, issue_code NOT_STARTED), the caller's view is behind
+            (stable code CONFLICT, issue_code STALE_STATE_VERSION), the class has
+            ended (stable code CONFLICT, issue_code INVALID_TRANSITION), or the
+            pinned lesson plan does not name the scene (stable code CONFLICT,
+            issue_code INCOMPATIBLE_CONTENT)
   /classes/{classId}/scenes:
     get:
       operationId: listClassScenes
       description: >-
         The slide list of the package the session **pinned** at start, with each
-        scene's text and notes. A student page uses it to offer navigation and to
-        gather narration, and reads `GET /classes/{classId}/scenes/{order}` for the
-        one slide on screen — so opening a lesson does not read every asset. Like the
-        single-scene read it resolves the session's own pinned plan, never the
-        course's current publication (DEC-CONTENT-005). Requires `scene:read`.
+        scene's text and notes. A student page uses it to gather the text of the
+        slide the teacher is on, and reads `GET /classes/{classId}/scenes/{order}`
+        for the one slide on screen — so opening a lesson does not read every
+        asset. Like the single-scene read it resolves the session's own pinned plan,
+        never the course's current publication (DEC-CONTENT-005). Requires
+        `scene:read`; a student's read is also limited to their own roster
+        (403 NOT_ENROLLED).
       parameters: [$ref: '#/components/parameters/ClassId']
       responses:
         '200':
@@ -745,7 +796,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ClassSceneList'}
-        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'}
         '404': {description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'}
         '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
   /classes/{classId}/scenes/{order}:
@@ -781,7 +832,7 @@ paths:
           content:
             image/svg+xml:
               schema: {type: string}
-        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED)'}
+        '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'}
         '404': {description: 'Unknown class, the class has not started, or the pinned package has no such scene (stable code NOT_FOUND)'}
         '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
   /classes/{classId}/enrollments:
@@ -1449,6 +1500,67 @@ components:
         created:
           type: boolean
           description: 'False when the request replayed an existing session (DEC-RUNTIME-003)'
+    ClassNavigateRequest:
+      description: >-
+        The teacher's presentation control: which pinned slide to show. `order` is
+        the scene order the package recorded (0-based), not a lesson section. The
+        server resolves it against the session's pinned scene list and lesson plan,
+        so the client never supplies a scene id or section position.
+      type: object
+      required: [order]
+      properties:
+        order:
+          type: integer
+          minimum: 0
+          description: 'The pinned scene order from `GET /classes/{classId}/scenes`'
+        expected_state_version:
+          type: [integer, 'null']
+          minimum: 1
+          description: >-
+            Optional fence: the state version the caller is showing. A stale value
+            is refused (409 CONFLICT, issue_code STALE_STATE_VERSION).
+        command_id:
+          type: [string, 'null']
+          description: >-
+            Optional idempotency key (DEC-RUNTIME-003). A replay returns the stored
+            verdict with `duplicate: true` and no new snapshot.
+    ClassCommandEvent:
+      description: 'One ordered effect of an accepted command (DEC-DATA-003''s unit).'
+      type: object
+      required: [event_id, type, sequence, state_version, actor_epoch, occurred_at, payload]
+      properties:
+        event_id: {type: string}
+        type: {type: string}
+        sequence: {type: integer, minimum: 0}
+        state_version: {type: integer, minimum: 1}
+        actor_epoch: {type: integer, minimum: 1}
+        occurred_at: {type: string}
+        payload: {type: object}
+    ClassCommandVerdict:
+      description: >-
+        The terminal verdict of a command. A duplicate returns the original verdict
+        with `duplicate: true`; a refusal is returned as a 409 by the API.
+      type: object
+      required: [command_id, accepted, issue_code, state_version, event_sequence, duplicate, events]
+      properties:
+        command_id: {type: string}
+        accepted: {type: boolean}
+        issue_code: {type: [string, 'null']}
+        state_version: {type: integer, minimum: 1}
+        event_sequence: {type: integer, minimum: 0}
+        duplicate: {type: boolean}
+        events: {type: array, items: {$ref: '#/components/schemas/ClassCommandEvent'}}
+    ClassCommandResult:
+      description: >-
+        The result of an accepted class command: the verdict, the updated session
+        and the durable snapshot the transition appended. `snapshot` is null on a
+        duplicate command (nothing new was written).
+      type: object
+      required: [result, session, snapshot]
+      properties:
+        result: {$ref: '#/components/schemas/ClassCommandVerdict'}
+        session: {oneOf: [{$ref: '#/components/schemas/ClassroomSession'}, {type: 'null'}]}
+        snapshot: {oneOf: [{$ref: '#/components/schemas/SessionSnapshot'}, {type: 'null'}]}
     ClassSceneList:
       description: >-
         The slides of the package a session pinned, with each scene's text and notes.

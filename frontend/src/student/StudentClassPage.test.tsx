@@ -1,15 +1,18 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StudentClassPage from './StudentClassPage'
 import {
   ApiError,
   classSceneUrl,
   issueBootstrapToken,
+  loadClass,
   loadClassScenes,
+  loadSnapshot,
   type ClassSceneList,
+  type ClassView,
 } from '../api/client'
 import { clearSession, writeSession } from '../auth/session'
+import { makeSnapshot } from '../classroom/state/testing'
 import { INSTITUTION } from '../test/fixtures'
 
 vi.mock('../api/client', async (importOriginal) => {
@@ -18,7 +21,9 @@ vi.mock('../api/client', async (importOriginal) => {
     ...actual,
     classSceneUrl: vi.fn(),
     issueBootstrapToken: vi.fn(),
+    loadClass: vi.fn(),
     loadClassScenes: vi.fn(),
+    loadSnapshot: vi.fn(),
   }
 })
 
@@ -73,6 +78,26 @@ const TOKEN = {
   expires_at: '2026-10-16T09:21:00Z',
 }
 
+const ACTIVE: ClassView = {
+  class: {
+    class_id: 'class-1',
+    institution_id: INSTITUTION,
+    course_id: 'course-1',
+    title: 'Biology 101',
+    version_id: null,
+    scheduled_for: null,
+    state: 'ACTIVE',
+    created_at: '2026-10-16T09:00:00Z',
+    started_at: '2026-10-16T09:05:00Z',
+  },
+  session: null,
+  session_plan: null,
+}
+
+function classIn(state: string): ClassView {
+  return { ...ACTIVE, class: { ...ACTIVE.class, state } }
+}
+
 function signInAsStudent() {
   writeSession({
     token: 'tok-1',
@@ -103,78 +128,99 @@ describe('StudentClassPage', () => {
     clearSession()
     vi.clearAllMocks()
     signInAsStudent()
+    vi.mocked(loadClass).mockResolvedValue(ACTIVE)
     vi.mocked(issueBootstrapToken).mockResolvedValue(TOKEN)
     vi.mocked(loadClassScenes).mockResolvedValue(LISTING)
+    vi.mocked(loadSnapshot).mockResolvedValue(makeSnapshot())
     vi.mocked(classSceneUrl).mockImplementation(async (_classId, order) => `blob:slide-${order}`)
     window.history.replaceState({}, '', '/student/class-1')
   })
 
-  it('joins on open and shows the first slide full-width', async () => {
+  it('opens on the slide the teacher is presenting, not slide one', async () => {
+    vi.mocked(loadSnapshot).mockResolvedValue(
+      makeSnapshot({ sceneId: 'ppt/slides/slide2.xml', sectionIndex: 1 }),
+    )
     render(<StudentClassPage classId="class-1" />)
 
-    // The credential is requested before the slides are read, so the read is
-    // authorized by the join rather than the other way round.
+    // The join still happens first: the credential is the participant's, and the
+    // server checks the same roster on every read.
     await waitFor(() => expect(issueBootstrapToken).toHaveBeenCalledWith('class-1'))
-    await waitFor(() => expect(classSceneUrl).toHaveBeenCalledWith('class-1', 0))
-
-    const slide = await screen.findByRole('img', { name: 'Slide 1' })
-    expect(slide.getAttribute('src')).toBe('blob:slide-0')
-    expect(screen.getByTestId('student-slide-counter').textContent).toBe('Slide 1 / 3')
+    const slide = await screen.findByRole('img', { name: 'Slide 2' })
+    expect(slide.getAttribute('src')).toBe('blob:slide-1')
+    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Slide 2 / 3')
+    expect(screen.getByText('Slide 2 body')).toBeTruthy()
   })
 
-  it('navigates slides by button', async () => {
-    const user = userEvent.setup()
+  it('has no slide navigation at all — not buttons, not a picker, not arrow keys', async () => {
+    vi.mocked(loadSnapshot).mockResolvedValue(
+      makeSnapshot({ sceneId: 'ppt/slides/slide2.xml', sectionIndex: 1 }),
+    )
     render(<StudentClassPage classId="class-1" />)
+    await screen.findByRole('img', { name: 'Slide 2' })
+
+    expect(screen.queryByRole('button', { name: /previous/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /next/i })).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByLabelText('Slide')).toBeNull()
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    fireEvent.keyDown(window, { key: 'PageDown' })
+    expect(screen.getByRole('img', { name: 'Slide 2' })).toBeTruthy()
+    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Slide 2 / 3')
+  })
+
+  it('follows the teacher when the authoritative snapshot moves', async () => {
+    vi.mocked(loadSnapshot)
+      .mockResolvedValueOnce(makeSnapshot())
+      .mockResolvedValue(
+        makeSnapshot({ sceneId: 'ppt/slides/slide2.xml', sectionIndex: 1, sequence: 2 }),
+      )
+
+    render(<StudentClassPage classId="class-1" followPollMs={25} />)
     await screen.findByRole('img', { name: 'Slide 1' })
 
-    await user.click(screen.getByRole('button', { name: /Next/ }))
-
+    const followed = await screen.findByRole('img', { name: 'Slide 2' })
+    expect(followed.getAttribute('src')).toBe('blob:slide-1')
+    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Slide 2 / 3')
     await waitFor(() => expect(classSceneUrl).toHaveBeenCalledWith('class-1', 1))
-    expect(screen.getByTestId('student-slide-counter').textContent).toBe('Slide 2 / 3')
-    // Previous is live again; Next stays live until the last slide.
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(
-      false,
+  })
+
+  it('waits for the teacher to start, then joins by itself', async () => {
+    vi.mocked(loadClass)
+      .mockResolvedValueOnce(classIn('SCHEDULED'))
+      .mockResolvedValue(ACTIVE)
+
+    render(<StudentClassPage classId="class-1" followPollMs={30} />)
+
+    expect(await screen.findByText(/has not started yet/i)).toBeTruthy()
+    expect(screen.queryByRole('img')).toBeNull()
+    await waitFor(() => expect(issueBootstrapToken).toHaveBeenCalledWith('class-1'))
+    expect(await screen.findByRole('img', { name: 'Slide 1' })).toBeTruthy()
+  })
+
+  it('shows a finished class’s last slide but offers no live controls', async () => {
+    vi.mocked(loadClass).mockResolvedValue(classIn('COMPLETED'))
+    vi.mocked(loadSnapshot).mockResolvedValue(
+      makeSnapshot({
+        state: 'COMPLETED',
+        sceneId: 'ppt/slides/slide3.xml',
+        sectionIndex: 2,
+      }),
     )
-  })
 
-  it('disables the ends of the deck rather than wrapping around', async () => {
     render(<StudentClassPage classId="class-1" />)
-    await screen.findByRole('img', { name: 'Slide 1' })
 
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
-    expect((screen.getByRole('button', { name: /Next/ }) as HTMLButtonElement).disabled).toBe(false)
-  })
-
-  it('shows the slide’s own text and notes, and says it is text only and not live', async () => {
-    render(<StudentClassPage classId="class-1" />)
-    await screen.findByRole('img', { name: 'Slide 1' })
-
-    expect(screen.getByText('Slide 1 body')).toBeTruthy()
-    expect(screen.getByText('Notes for slide 1')).toBeTruthy()
-    // The page must not imply a model wrote it, or that it follows the teacher.
-    expect(screen.getByRole('heading', { name: /in text/i })).toBeTruthy()
-    expect(screen.getByText(/no model wrote it/i)).toBeTruthy()
-    expect(screen.getByText(/not live/i)).toBeTruthy()
-  })
-
-  it('flags a degraded slide instead of hiding it', async () => {
-    const user = userEvent.setup()
-    render(<StudentClassPage classId="class-1" />)
-    await screen.findByRole('img', { name: 'Slide 1' })
-
-    await user.click(screen.getByRole('button', { name: /Next/ }))
-    await user.click(screen.getByRole('button', { name: /Next/ }))
-
-    expect(await screen.findByText('DEGRADED_RENDERED')).toBeTruthy()
-    // A slide with no text of its own says so rather than showing nothing.
-    expect(screen.getByText(/no text of its own/i)).toBeTruthy()
+    expect(await screen.findByRole('img', { name: 'Slide 3' })).toBeTruthy()
+    expect(screen.getByText(/class has ended/i)).toBeTruthy()
+    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Last slide · Slide 3 / 3')
+    expect(screen.queryByRole('button', { name: /previous|next/i })).toBeNull()
+    // A finished class is read, not joined.
+    expect(issueBootstrapToken).not.toHaveBeenCalled()
   })
 
   it('says why a join was refused, and points back at the join page', async () => {
-    vi.mocked(issueBootstrapToken).mockRejectedValue(
-      new ApiError('NOT_ENROLLED', 'this account is not enrolled in this class'),
+    vi.mocked(loadClass).mockRejectedValue(
+      new ApiError('NOT_ENROLLED', 'this account is not enrolled in this class', 'NOT_ENROLLED'),
     )
     render(<StudentClassPage classId="class-1" />)
 
@@ -182,8 +228,9 @@ describe('StudentClassPage', () => {
     expect(screen.getByRole('link', { name: /open the join page/i }).getAttribute('href')).toBe(
       '/join/class-1',
     )
-    // Nothing was read from the package: an unauthorized join reads no content.
+    // Nothing was read from the package: an unauthorized student reads no content.
     expect(loadClassScenes).not.toHaveBeenCalled()
+    expect(issueBootstrapToken).not.toHaveBeenCalled()
   })
 
   it('surfaces a slide that cannot be read rather than showing a blank frame', async () => {
@@ -193,13 +240,28 @@ describe('StudentClassPage', () => {
     render(<StudentClassPage classId="class-1" />)
 
     expect(await screen.findByText(/SCENE_CHECKSUM_MISMATCH/)).toBeTruthy()
+    expect(screen.getByText(/cannot be shown/i)).toBeTruthy()
   })
 
-  it('reports the slides it loaded, not a re-render of them', async () => {
-    render(<StudentClassPage classId="class-1" />)
+  it('reports the slides it loaded once; polling does not re-read the package', async () => {
+    render(<StudentClassPage classId="class-1" followPollMs={20} />)
 
     await screen.findByRole('img', { name: 'Slide 1' })
-    // The list is read once; each slide's asset is fetched as it is shown.
+    // Let the snapshot poll run at least once (waitFor keeps React updates inside act).
+    await waitFor(() =>
+      expect(vi.mocked(loadSnapshot).mock.calls.length).toBeGreaterThanOrEqual(2),
+    )
     expect(loadClassScenes).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the slide’s own text and notes as text only', async () => {
+    render(<StudentClassPage classId="class-1" />)
+    await screen.findByRole('img', { name: 'Slide 1' })
+
+    expect(screen.getByText('Slide 1 body')).toBeTruthy()
+    expect(screen.getByText('Notes for slide 1')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /in text/i })).toBeTruthy()
+    expect(screen.getByText(/no model wrote it/i)).toBeTruthy()
+    expect(screen.getByText(/not audio/i)).toBeTruthy()
   })
 })

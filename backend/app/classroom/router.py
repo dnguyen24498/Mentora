@@ -25,9 +25,11 @@ Routes (``contracts/openapi/openapi.yaml``):
 Every route resolves a principal through :mod:`app.api.security`, and the tenant is
 derived from it, so a caller cannot read or write another institution's class by
 naming it. Write verbs additionally require a capability: a student token is refused
-(``403`` ``INSUFFICIENT_SCOPE``) on scheduling, starting, enrolling and the roster,
-and a student's join credential is always their **own** — the request cannot name
-whose credential it wants.
+(``403`` ``INSUFFICIENT_SCOPE``) on scheduling, starting, navigating, enrolling and
+the roster, and a student's join credential is always their **own** — the request
+cannot name whose credential it wants. A student's reads of a class, its snapshot
+and its pinned scenes are also checked against the class roster
+(``403`` ``NOT_ENROLLED``), so the participant read path agrees with the join path.
 """
 
 from __future__ import annotations
@@ -36,8 +38,10 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from app.api.security import ApiSecurity
+from app.classroom.errors import ClassCommandError
 from app.classroom.service import ClassroomService
 from app.common.errors import ValidationError
 from app.identity.errors import (
@@ -46,6 +50,25 @@ from app.identity.errors import (
     SessionError,
 )
 from app.identity.models import Principal, Role, Scope
+
+
+class NavigateRequest(BaseModel):
+    """The teacher's presentation control: which pinned slide to show (V0-025).
+
+    ``order`` is the scene order the package recorded (0-based), not a lesson
+    section. The server resolves it against the pinned scene list and lesson plan,
+    so the client never supplies a scene id or section position.
+    """
+
+    order: int
+    expected_state_version: Optional[int] = None
+    command_id: Optional[str] = None
+
+
+def _student_id(principal: Principal) -> Optional[str]:
+    """The roster id a student's read must be checked against; staff pass ``None``."""
+
+    return principal.account_id if principal.role is Role.STUDENT else None
 
 
 def build_class_router(
@@ -101,8 +124,15 @@ def build_class_router(
     def get_class(
         class_id: str, principal: Principal = Depends(require(Scope.CLASS_READ))
     ) -> dict:
-        """The class with its session and pinned tuple (both ``null`` before start)."""
+        """The class with its session and pinned tuple (both ``null`` before start).
 
+        A student is a participant, so the read is limited to a class on their
+        roster (``403 NOT_ENROLLED`` otherwise); staff read by capability.
+        """
+
+        service.require_enrollment(
+            principal.institution_id, class_id, student_id=_student_id(principal)
+        )
         return service.class_view(principal.institution_id, class_id)
 
     @router.post("/classes/{class_id}/start")
@@ -124,9 +154,52 @@ def build_class_router(
     def get_snapshot(
         class_id: str, principal: Principal = Depends(require(Scope.CLASS_READ))
     ) -> dict:
-        """The authoritative snapshot (checksum + schema validated before returned)."""
+        """The authoritative snapshot (checksum + schema validated before returned).
 
+        The student view polls this to follow the teacher's slide, so a student's
+        read is checked against the class roster first (``403 NOT_ENROLLED``).
+        """
+
+        service.require_enrollment(
+            principal.institution_id, class_id, student_id=_student_id(principal)
+        )
         return service.get_snapshot(principal.institution_id, class_id).to_dict()
+
+    @router.post("/classes/{class_id}/navigate")
+    def navigate_class(
+        class_id: str,
+        body: NavigateRequest,
+        principal: Principal = Depends(require(Scope.CLASS_WRITE)),
+    ) -> dict:
+        """Move the class to a pinned slide (V0-025).
+
+        The teacher's presentation control. ``order`` is the package's scene order;
+        the server resolves it against the session's **pinned** scene list and
+        lesson plan, then sends the aggregate a resolved ``NAVIGATE_SCENE``. It is
+        an HTTP command over the existing in-process aggregate — **not** the ordered
+        per-class event stream (``DEC-DATA-003`` is ``OPEN``, V1-002). Students see
+        the new slide by polling ``GET .../snapshot``; no source document is parsed
+        and no later publication can move a running session (``DEC-CONTENT-005``).
+
+        ``409 CONFLICT`` with ``issue_code`` ``STALE_STATE_VERSION`` when the
+        teacher's view is behind, ``INVALID_TRANSITION`` after the class ended, and
+        ``409 CLASS_NOT_READY``/``NOT_STARTED`` before it starts. A refusal writes
+        nothing.
+        """
+
+        outcome = service.navigate_to_order(
+            principal.institution_id,
+            class_id,
+            order=body.order,
+            command_id=body.command_id,
+            expected_state_version=body.expected_state_version,
+        )
+        if not outcome.result.accepted:
+            raise ClassCommandError(
+                f"the class cannot move to slide order {body.order} now",
+                issue_code=outcome.result.issue_code or "INVALID_COMMAND",
+            )
+        return outcome.to_dict()
 
     @router.get("/classes/{class_id}/scenes")
     def list_scenes(
@@ -134,12 +207,16 @@ def build_class_router(
     ) -> dict[str, Any]:
         """The slide list of the package this session pinned, with each slide's text.
 
-        A student page uses it to offer navigation and gather narration; the
-        *renders* are fetched one at a time by ``GET .../scenes/{order}``, so opening
-        a lesson does not read every asset. Both resolve the session's own pinned
-        plan, so neither can drift to a newer publication (``DEC-CONTENT-005``).
+        A student page uses it to gather the text of the slide the teacher is on;
+        the *renders* are fetched one at a time by ``GET .../scenes/{order}``, so
+        opening a lesson does not read every asset. A student's read is limited to
+        their own roster. Both resolve the session's own pinned plan, so neither can
+        drift to a newer publication (``DEC-CONTENT-005``).
         """
 
+        service.require_enrollment(
+            principal.institution_id, class_id, student_id=_student_id(principal)
+        )
         plan, scenes = service.pinned_scenes(principal.institution_id, class_id)
         return {
             "class_id": class_id,
@@ -159,11 +236,14 @@ def build_class_router(
 
         Resolved from the session's own ``RuntimeSessionPlan``, so a correction
         published after the start does not change what this class sees
-        (``DEC-CONTENT-005``). ``404`` when the class has not started or the package
-        has no such scene; ``502`` when the pinned bytes no longer match their
-        recorded digest.
+        (``DEC-CONTENT-005``). A student's read is limited to their own roster.
+        ``404`` when the class has not started or the package has no such scene;
+        ``502`` when the pinned bytes no longer match their recorded digest.
         """
 
+        service.require_enrollment(
+            principal.institution_id, class_id, student_id=_student_id(principal)
+        )
         scene = service.pinned_scene(principal.institution_id, class_id, order)
         return Response(
             content=scene.svg,

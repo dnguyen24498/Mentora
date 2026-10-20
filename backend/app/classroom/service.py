@@ -80,6 +80,7 @@ from app.classroom.errors import (
     ISSUE_VERSION_NOT_PUBLISHED,
     ISSUE_WRONG_STATE,
     ClassStartError,
+    ClassCommandError,
     JoinDeniedError,
 )
 from app.classroom.models import (
@@ -510,6 +511,31 @@ class ClassroomService:
         self._repository.get_class(institution_id, class_id)
         return self._repository.list_enrollments(institution_id, class_id)
 
+    def require_enrollment(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        student_id: Optional[str],
+    ) -> None:
+        """Require a participant to be on this class's roster (V0-025).
+
+        A teacher or an institution administrator reads by capability and passes
+        ``student_id=None``. A student is a participant, so their reads of a class,
+        its snapshot and its pinned scenes are limited to classes a teacher assigned
+        them. This is the same roster the join credential is issued against; the
+        read path now agrees with the join path instead of relying on a UI.
+        """
+
+        if student_id is None:
+            return
+        self._repository.get_class(institution_id, class_id)  # 404/403 first
+        if not self._repository.is_enrolled(institution_id, class_id, student_id):
+            raise JoinDeniedError(
+                f"the caller is not enrolled in class {class_id!r}",
+                issue_code=ISSUE_NOT_ENROLLED,
+            )
+
     def unenroll(self, institution_id: str, class_id: str, student_id: str) -> bool:
         """Remove a student from a class roster; idempotent (``DEC-RUNTIME-003``).
 
@@ -648,6 +674,78 @@ class ClassroomService:
         return self._repository.revoke_bootstrap_token(institution_id, record.token_sha256) is not None
 
     # -- the aggregate command path (V0-010) -----------------------------------------
+    def navigate_to_order(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        order: int,
+        command_id: Optional[str] = None,
+        expected_state_version: Optional[int] = None,
+    ) -> CommandOutcome:
+        """Move the class to a slide order through the aggregate (V0-025).
+
+        The teacher's presentation control names a **scene order** (what the
+        student sees), not a raw lesson position. This method resolves that order
+        against the package the session pinned — the scene list and the pinned
+        lesson plan — and then sends the aggregate a fully resolved
+        ``NAVIGATE_SCENE``. It never parses the source deck and never asks the
+        course for its current publication (``DEC-CONTENT-001``,
+        ``DEC-CONTENT-005``).
+
+        A scene the package does not have is ``404``. A pinned plan that does not
+        name the scene is a damaged/incompatible package rather than a bad request,
+        so it is refused before the aggregate is touched.
+        """
+
+        if order < 0:
+            raise ValidationError("order must be non-negative")
+        plan = self._repository.get_session_plan(institution_id, class_id)
+        if plan is None:
+            self._repository.get_class(institution_id, class_id)  # 404/403 first
+            raise ClassStartError(
+                f"class {class_id!r} has not started",
+                issue_code=ISSUE_NOT_STARTED,
+            )
+        scenes = self._scenes.scenes(plan.package_id)
+        target = next((scene for scene in scenes if scene.order == order), None)
+        if target is None:
+            raise NotFoundError(
+                f"the package this session pinned has no scene {order}"
+            )
+
+        lesson_plan = self._scenes.lesson_plan(plan.package_id)
+        sections = [
+            section
+            for section in (lesson_plan.get("sections") or [])
+            if isinstance(section, dict)
+        ]
+        matches = [
+            (index, section)
+            for index, section in enumerate(sections)
+            if section.get("scene_id") == target.scene_id
+        ]
+        if not matches:
+            raise ClassCommandError(
+                "the pinned lesson plan does not name the requested scene",
+                issue_code=ISSUE_INCOMPATIBLE_CONTENT,
+            )
+        # A plan may revisit a scene. The closest section to the slide's own
+        # position is the deterministic choice; the baseline plan is one-to-one.
+        section_index, section = min(matches, key=lambda item: abs(item[0] - order))
+        section_id = section.get("section_id")
+        scene_step_id = section.get("scene_step_id")
+        return self.navigate_scene(
+            institution_id,
+            class_id,
+            section_index=section_index,
+            section_id=section_id if isinstance(section_id, str) else None,
+            scene_id=target.scene_id,
+            scene_step_id=scene_step_id if isinstance(scene_step_id, str) else None,
+            command_id=command_id,
+            expected_state_version=expected_state_version,
+        )
+
     def navigate_scene(
         self,
         institution_id: str,

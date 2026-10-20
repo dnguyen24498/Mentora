@@ -71,6 +71,10 @@ graph TD
   V0_009 --> V0_024
   V0_022 --> V0_024
   V0_023 --> V0_024
+  V0_025["V0-025 Teacher-driven slide follow"]
+  V0_010 --> V0_025
+  V0_011 --> V0_025
+  V0_024 --> V0_025
   V1_001["V1-001 Accept V1 runtime media and STT ADRs"]
   V0_017 --> V1_001
   V1_002["V1-002 Actor epoch event outbox and replay"]

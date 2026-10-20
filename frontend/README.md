@@ -1,11 +1,12 @@
 # Frontend
 
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
-runtime page, the Learning page (slide + teaching canvas + automatic text-only
-narration, which can also be set to start at a chosen time), an Admin area
-(accounts, courses, classes, publications), Settings, and — V0-021/V0-022 —
-sign-in for the three account types (administrator, teacher, student), a class
-join page and a student's own class view, as real
+runtime page (with the teacher's presentation stage), the Learning page (slide +
+teaching canvas + automatic text-only narration, which can also be set to start
+at a chosen time), an Admin area (accounts, courses, classes, publications),
+Settings, and — V0-021/V0-022 — sign-in for the three account types
+(administrator, teacher, student), a class join page and a student's own class
+view that follows the teacher's slide (V0-025), as real
 pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
@@ -14,14 +15,14 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | --- | --- | --- |
 | `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
-| `/classroom/{classId}` | Classroom — authoritative runtime state of a session (V0-011) | `src/classroom/ClassroomPage.tsx` |
+| `/classroom/{classId}` | Classroom — authoritative runtime state, plus the teacher's presentation stage (V0-011/V0-025) | `src/classroom/ClassroomPage.tsx` |
 | `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, accounts, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility, security | `src/settings/SettingsPage.tsx` |
 | `/login` | Sign in — institution, address, **password**; the only public route (V0-023) | `src/auth/LoginPage.tsx` |
 | `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
 | `/student` | My classes — only the classes a teacher assigned this student (V0-024) | `src/student/StudentHomePage.tsx` |
-| `/student/{classId}` | The student's own fullscreen view of a running class | `src/student/StudentClassPage.tsx` |
+| `/student/{classId}` | The student's view of a running class — follows the teacher's slide, with no slide navigation (V0-025) | `src/student/StudentClassPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
 `/admin` and `/settings` are their default sections (overview/general); an unknown
@@ -465,19 +466,23 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   enables the moment the teacher starts. The server refusal is still the rule
   (a direct call before the start is `409 NOT_STARTED`), not a UI convention.
 - **`src/student/StudentClassPage.tsx`** (`/student/{classId}`) is the
-  **fullscreen** view, built for the phone a student actually holds: the slide
+  **fullscreen viewer**, built for the phone a student actually holds: the slide
   fills the viewport with a real **Fullscreen** button as well (a phone browser
-  keeps its own chrome), Previous/Next buttons and ←/→ keys move a slide, the
-  ends are disabled rather than wrapping, and the current slide's text and notes
-  are shown as the narration. It is explicit about two limits: the slide shown is
-  this student's own position, because the ordered per-class event stream is
-  `DEC-DATA-003` (`OPEN`, live path V1-002), and the narration is **text only** —
-  the deck's own words, not a model's and not audio (`DEC-TECH-007` is `OPEN`).
-  What *is* authoritative is the content: each scene comes from the package the
-  session pinned at start (`GET /classes/{id}/scenes[/{order}]`,
-  `DEC-CONTENT-005`), so a correction published mid-lesson cannot change the slide
-  under a student, and a scene whose file does not match the manifest digest
-  (`SCENE_CHECKSUM_MISMATCH`) is refused by the server and reported, never drawn.
+  keeps its own chrome), but there is **no slide navigation** — no Previous/Next,
+  no picker and no arrow keys. The teacher drives the class; this page reads the
+  same authoritative `GET /classes/{id}/snapshot` and moves to the scene its
+  lesson position names (V0-025), and the current slide's text and notes are shown
+  as the narration. It waits for the teacher to start and joins by itself; a class
+  already over is read as the last slide, not joined. Three limits are stated
+  rather than hidden: the update is a **short poll** (about every 1.5 s), not the
+  ordered per-class stream (`DEC-DATA-003` is `OPEN`, live path V1-002); the
+  narration is **text only** — the deck's own words, not a model's and not audio
+  (`DEC-TECH-007` is `OPEN`); and every scene comes from the package the session
+  pinned at start (`GET /classes/{id}/scenes[/{order}]`, `DEC-CONTENT-005`), so a
+  correction published mid-lesson cannot change the slide under a student. A
+  scene whose file does not match the manifest digest
+  (`SCENE_CHECKSUM_MISMATCH`) is refused by the server and reported, never drawn;
+  the student's class/snapshot/scene reads are also checked against their roster.
 
 Teacher-side, the Admin area's **classes** section (`src/admin/ClassesAdmin.tsx`)
 uses the real roster: V0-022 changed how a student gets onto it — the **picker
@@ -518,12 +523,24 @@ restores scene and state**.
   controls — the command controls are disabled whenever the client is not `live`
   — a recovery banner (`role="status"` / `role="alert"`), and accessibility
   preference toggles (reduced motion, high contrast) persisted to `localStorage`.
+  For a teacher the runtime scene buttons are hidden, because the presentation
+  stage above owns slide movement (V0-025).
+- **`TeacherStage.tsx`** (V0-025) is the teacher's presentation surface: it loads
+  the pinned scene list, shows the slide the session is on, and moves the class
+  with **Previous slide**, **Next slide** and a slide picker. Each move is
+  `POST /classes/{id}/navigate` with the `state_version` the page is showing; the
+  response's durable snapshot is applied to the store, so the stage and the shell
+  agree immediately. A stale refusal (`STALE_STATE_VERSION`) or an ended class is
+  shown and triggers a resynchronise rather than silently presenting the wrong
+  slide. This is an HTTP command over the existing aggregate, not the V1-002
+  ordered stream.
 - **Transport** (`transport.ts`) is an interface. The ordered per-class
   command/event mechanism is `DEC-DATA-003` and its technology is `OPEN`, so the
   shipped transport reads the snapshot only and advertises
   `liveEvents:false`/`commands:false`; the page says so instead of faking a
-  stream. The live stream and command path are V1-002. Tests and a local demo
-  drive events through the injected `ClassroomTransport`.
+  stream. The teacher's slide command and the student's short snapshot poll are
+  the V0 stopgap; the live stream and runtime command path are V1-002. Tests and a
+  local demo drive events through the injected `ClassroomTransport`.
 - **Telemetry** (`telemetry.ts`) emits structured events and counters — identities
   and outcomes only, never scene text, transcript or audio.
 
@@ -594,17 +611,24 @@ bounded-retry disconnect and the telemetry contract;
 `src/classroom/ClassroomPage.test.tsx` is the component-level end-to-end
 (refresh restores scene/state, duplicate ignored, gap freezes controls and
 recovers, accessibility smoke), with the event stream driven by an injected
-transport so no server is needed.
+transport so no server is needed. For V0-025, `src/classroom/TeacherStage.test.tsx`
+covers the teacher's slide stage (the pinned slide, next/picker commands fenced by
+`state_version`, a stale refusal triggering resync, no slides before start, the
+last slide after the end), `src/classroom/ClassroomPage.teacher.test.tsx` proves
+the page exposes it only to a teacher and applies the returned snapshot, and
+`src/classroom/scenePosition.test.ts` covers the snapshot scene-id/section-index
+mapping. `src/student/StudentClassPage.test.tsx` covers the student viewer (opens
+on the teacher's slide, no buttons/picker/arrow keys, follows a snapshot change on
+the poll, waits for the start and joins by itself, shows a finished class without
+live controls, and refuses to read an unassigned class).
 
 For V0-021, `src/auth/session.test.tsx` covers the session store (write/read,
 expiry dropped on read, cross-tab updates, scope helpers, the development
 shortcut never counted as signed in), `src/auth/LoginPage.test.tsx` covers the
 sign-in page (success stores the session and reports the issuer, a refusal is
-shown without navigating, the mock is named), `src/student/JoinClassPage.test.tsx`
-covers the join page's refusals and its signed-out prompt, and
-`src/student/StudentClassPage.test.tsx` covers the student view (slide loading,
-the ends of the deck disabled rather than wrapping, the text-only narration, a
-degraded scene). `src/components/SiteNav.test.tsx` and `src/App.test.tsx` add the
+shown without navigating, the mock is named), and
+`src/student/JoinClassPage.test.tsx` covers the join page's refusals and its
+signed-out prompt. `src/components/SiteNav.test.tsx` and `src/App.test.tsx` add the
 identity cases: the role-aware nav, the student landing, and the student
 route guard. V0-023 adds the guard to `App.test.tsx` (an unauthenticated browser is
 sent to `/login` with the requested page remembered, `/login` is public, and nothing

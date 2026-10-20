@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { SessionSnapshot } from '../api/client'
 import { ClassroomStore } from './state/store'
 import { ClassroomSession, type ClassroomSessionOptions } from './state/session'
 import { ClassroomTelemetry } from './state/telemetry'
@@ -24,6 +25,8 @@ export interface ClassroomSessionApi {
   capabilities: ClassroomTransportCapabilities
   send: (type: ClassroomCommandType) => void
   resync: () => void
+  /** Apply a snapshot the server returned (e.g. a navigation command's result). */
+  applySnapshot: (snapshot: SessionSnapshot) => void
   toggleFocusScene: () => void
   updatePreferences: (patch: Partial<ClassroomUiPreferences>) => void
 }
@@ -85,6 +88,13 @@ export function useClassroomSession({
     void sessionRef.current?.resync()
   }, [])
 
+  const applySnapshot = useCallback(
+    (snapshot: SessionSnapshot) => {
+      store.applySnapshot(snapshot)
+    },
+    [store],
+  )
+
   const toggleFocusScene = useCallback(() => {
     store.setUi({ focusScene: !store.getState().ui.focusScene })
   }, [store])
@@ -96,5 +106,5 @@ export function useClassroomSession({
     [store],
   )
 
-  return { state, capabilities, send, resync, toggleFocusScene, updatePreferences }
+  return { state, capabilities, send, resync, applySnapshot, toggleFocusScene, updatePreferences }
 }

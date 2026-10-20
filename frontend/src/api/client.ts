@@ -544,6 +544,54 @@ export function describeApiError(cause: unknown): string {
 export const loadSnapshot = (institutionId: string, classId: string) =>
   request<SessionSnapshot>(`/classes/${classId}/snapshot`, institutionId)
 
+// -- teacher-driven presentation (V0-025) -----------------------------------------
+//
+// The teacher's slide control is an HTTP command over the existing in-process
+// aggregate, not the ordered per-class event stream (DEC-DATA-003 is OPEN,
+// V1-002). The response carries the durable snapshot the transition appended, so
+// the teacher's page can apply the new position without a second read.
+
+export interface ClassCommandEvent {
+  event_id: string
+  type: string
+  sequence: number
+  state_version: number
+  actor_epoch: number
+  occurred_at: string
+  payload: Record<string, unknown>
+}
+
+export interface ClassCommandVerdict {
+  command_id: string
+  accepted: boolean
+  issue_code: string | null
+  state_version: number
+  event_sequence: number
+  duplicate: boolean
+  events: ClassCommandEvent[]
+}
+
+export interface ClassCommandResult {
+  result: ClassCommandVerdict
+  session: ClassroomSessionSummary | null
+  snapshot: SessionSnapshot | null
+}
+
+export interface NavigateClassInput {
+  /** The pinned scene order (`GET /classes/{id}/scenes`), not a lesson section. */
+  order: number
+  expected_state_version?: number | null
+  command_id?: string | null
+}
+
+/**
+ * Move the class to a pinned slide. A teacher-only verb (`class:write`); the
+ * server resolves the order against the package the session pinned, so a later
+ * publication cannot change what the class sees (DEC-CONTENT-005).
+ */
+export const navigateClassScene = (classId: string, input: NavigateClassInput) =>
+  request<ClassCommandResult>(`/classes/${classId}/navigate`, '', JSON_POST(input))
+
 // -- admin: classes, enrolments, publications, renderer (V0-008/V0-009) ----------
 //
 // Everything here maps onto an endpoint that already exists. The API has no

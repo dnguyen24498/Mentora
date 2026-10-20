@@ -1,0 +1,9 @@
+id: V0-025
+title: "Teacher-driven slide follow"
+week: W8
+status: DONE
+depends_on: ["V0-010", "V0-011", "V0-024"]
+started_at: "2026-10-20"
+completed_at: "2026-10-20"
+commit: null
+blockers: []

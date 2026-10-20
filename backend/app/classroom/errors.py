@@ -24,7 +24,12 @@ The ``issue_code`` values are the client-visible branch points.
 
 from __future__ import annotations
 
-from app.common.errors import ClassNotReadyError, NotEnrolledError, StorageError
+from app.common.errors import (
+    ClassNotReadyError,
+    ConflictError,
+    NotEnrolledError,
+    StorageError,
+)
 
 #: The class's course version has no publication — a draft, or never published.
 ISSUE_VERSION_NOT_PUBLISHED = "VERSION_NOT_PUBLISHED"
@@ -82,6 +87,16 @@ class JoinDeniedError(NotEnrolledError):
         self.issue_code = issue_code
 
 
+class ClassCommandError(ConflictError):
+    """A command reached the aggregate but cannot be applied to this state."""
+
+    def __init__(
+        self, message: str, *, issue_code: str = ISSUE_INVALID_COMMAND
+    ) -> None:
+        super().__init__(message)
+        self.issue_code = issue_code
+
+
 class SnapshotIntegrityError(StorageError):
     """The stored snapshot fails validation, so it must not be replayed."""
 
@@ -125,6 +140,7 @@ __all__ = [
     "ISSUE_TOKEN_UNKNOWN",
     "ISSUE_VERSION_NOT_PUBLISHED",
     "ISSUE_WRONG_STATE",
+    "ClassCommandError",
     "ClassStartError",
     "JoinDeniedError",
     "PinnedSceneError",

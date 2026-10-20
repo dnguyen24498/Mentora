@@ -35,7 +35,11 @@ from app.classroom.errors import (
     PinnedSceneError,
 )
 from app.common.errors import NotFoundError, StorageError
-from app.compiler.package_builder.layout import MANIFEST_FILENAME, package_prefix
+from app.compiler.package_builder.layout import (
+    LESSON_PLAN_FILENAME,
+    MANIFEST_FILENAME,
+    package_prefix,
+)
 from app.storage.object_store import ObjectStore
 
 #: A self-limiting bound on one served scene file: a slide render is far smaller
@@ -161,6 +165,30 @@ class PinnedSceneSource:
             document = self._parse(path, self._read_listed(prefix, listed, path))
             summaries.append(self._summarize(order, path, document))
         return tuple(summaries)
+
+    def lesson_plan(self, package_id: str) -> dict[str, Any]:
+        """The pinned package's lesson plan, read through the manifest.
+
+        A slide command must resolve a scene order to the lesson position that
+        names it. That is a read of the package the session pinned — never the
+        course's current publication — and it reads only the manifest and the
+        plan, not the scene assets.
+        """
+
+        prefix = package_prefix(package_id)
+        manifest = self._manifest(prefix)
+        listed = self._listed_files(manifest)
+        if LESSON_PLAN_FILENAME not in listed:
+            raise PinnedSceneError(
+                "the pinned package carries no lesson plan",
+                issue_code=ISSUE_SCENE_UNAVAILABLE,
+            )
+        document = self._parse(
+            LESSON_PLAN_FILENAME,
+            self._read_listed(prefix, listed, LESSON_PLAN_FILENAME),
+            issue_code=ISSUE_SCENE_CHECKSUM_MISMATCH,
+        )
+        return document
 
     # -- internals ---------------------------------------------------------------------
     def _parse(

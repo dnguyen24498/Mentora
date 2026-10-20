@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import ClassroomShell from './ClassroomShell'
+import TeacherStage from './TeacherStage'
 import PageHeader from '../components/PageHeader'
 import { PAGE_PADDING } from '../components/ui'
 import { useInstitution, writeSelectedClass } from '../institution'
@@ -36,8 +37,16 @@ export default function ClassroomPage({
 }: ClassroomPageProps) {
   const [institution, setInstitution] = useInstitution()
   const session = useSession()
-  const { state, capabilities, send, resync, toggleFocusScene, updatePreferences } =
-    useClassroomSession({ institutionId: institution, classId, createTransport, telemetry, sessionOptions })
+  const canTeach = hasScope(session, 'class:write')
+  const {
+    state,
+    capabilities,
+    send,
+    resync,
+    applySnapshot,
+    toggleFocusScene,
+    updatePreferences,
+  } = useClassroomSession({ institutionId: institution, classId, createTransport, telemetry, sessionOptions })
 
   useEffect(() => {
     document.title = `Classroom ${classId} — Mentora`
@@ -72,6 +81,17 @@ export default function ClassroomPage({
             </Link>
           </div>
         )}
+        {canTeach && (
+          <TeacherStage
+            classId={classId}
+            sessionState={state.events.sessionState}
+            currentSceneId={state.events.scene.sceneId}
+            currentSectionIndex={state.events.scene.sectionIndex}
+            stateVersion={state.events.stateVersion}
+            onSnapshot={applySnapshot}
+            onResync={resync}
+          />
+        )}
         <ClassroomShell
           state={state}
           capabilities={capabilities}
@@ -79,6 +99,7 @@ export default function ClassroomPage({
           onResync={resync}
           onToggleFocusScene={toggleFocusScene}
           onPreferenceChange={updatePreferences}
+          hideSceneControls={canTeach}
         />
       </main>
     </div>

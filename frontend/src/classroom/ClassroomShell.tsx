@@ -13,6 +13,8 @@ export interface ClassroomShellProps {
   onResync: () => void
   onToggleFocusScene: () => void
   onPreferenceChange: (patch: Partial<ClassroomUiPreferences>) => void
+  /** The teacher's presentation stage owns slide movement (V0-025). */
+  hideSceneControls?: boolean
 }
 
 const STATUS_LABEL: Record<ClassroomStatus, string> = {
@@ -48,6 +50,7 @@ export default function ClassroomShell({
   onResync,
   onToggleFocusScene,
   onPreferenceChange,
+  hideSceneControls = false,
 }: ClassroomShellProps) {
   const { events, ui } = state
   const status = events.status
@@ -161,22 +164,26 @@ export default function ClassroomShell({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onNavigate('NAVIGATE_PREVIOUS')}
-          disabled={!canControl}
-          className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
-        >
-          Previous scene
-        </button>
-        <button
-          type="button"
-          onClick={() => onNavigate('NAVIGATE_NEXT')}
-          disabled={!canControl}
-          className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
-        >
-          Next scene
-        </button>
+        {!hideSceneControls && (
+          <>
+            <button
+              type="button"
+              onClick={() => onNavigate('NAVIGATE_PREVIOUS')}
+              disabled={!canControl}
+              className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
+            >
+              Previous scene
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('NAVIGATE_NEXT')}
+              disabled={!canControl}
+              className="inline-flex min-h-11 items-center justify-center rounded border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0 lg:py-1.5"
+            >
+              Next scene
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={onResync}
@@ -217,9 +224,10 @@ export default function ClassroomShell({
 
       {!capabilities.liveEvents && (
         <p data-testid="classroom-transport-notice" className="mt-4 text-xs text-slate-500">
-          This build reads the authoritative snapshot only. The ordered per-class event stream and
-          command path arrive with V1-002 (<span className="font-mono">DEC-DATA-003</span> is OPEN),
-          so live controls stay disabled.
+          This build reads the authoritative snapshot only. The teacher&apos;s slide stage travels
+          over the class navigation endpoint and students follow by a short poll; the ordered
+          per-class event stream and its live command path are V1-002 (
+          <span className="font-mono">DEC-DATA-003</span> is OPEN).
         </p>
       )}
     </section>
