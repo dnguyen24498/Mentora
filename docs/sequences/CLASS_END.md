@@ -24,6 +24,8 @@ Stop accepting turns -> revoke/cancel -> persist final checkpoint/outcomes -> st
 
 No stale epoch effect, duplicate side effect, leaked reservation/token, version change, unauthorized retrieval, or indefinite wait. Every terminal path emits metrics and user-visible state.
 
+`COMPLETED` closes the **occurrence**, not the class record: the class metadata and list stay readable so a participant can see that it ended, while participant reads of the lesson content (the snapshot and the pinned scenes) are refused until an explicit `REOPEN` (`COMPLETED -> ACTIVE`) starts a new actor epoch. `REOPEN` keeps the roster and the pinned package and returns the lesson to its first position.
+
 ## Requirement Trace
 
 - `DEC-RUNTIME-003`

@@ -38,3 +38,4 @@ V0-023,W8,DONE,Required sign-in and password credentials,V0-022,tasks/V0-023-req
 V0-024,W8,DONE,Teacher assigns students and a started class is joinable,V0-009;V0-021;V0-022;V0-023,tasks/V0-024-teacher-assigns-and-student-joins
 V0-025,W8,DONE,Teacher-driven slide follow,V0-010;V0-011;V0-024,tasks/V0-025-teacher-driven-slide-follow
 V0-026,W8,DONE,Classroom hub and automatic play,V0-011;V0-024;V0-025,tasks/V0-026-classroom-hub-and-automatic-play
+V0-027,W8,DONE,Class lifecycle end lock and reopen,V0-009;V0-010;V0-024;V0-025;V0-026,tasks/V0-027-class-lifecycle-end-and-reopen

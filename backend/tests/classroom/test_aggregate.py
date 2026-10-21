@@ -17,10 +17,12 @@ from app.classroom.aggregate import (
     COMMAND_CHECKPOINT,
     COMMAND_END,
     COMMAND_NAVIGATE,
+    COMMAND_REOPEN,
     COMMAND_START,
     EVENT_CHECKPOINT_RECORDED,
     EVENT_SCENE_CHANGED,
     EVENT_SESSION_ENDED,
+    EVENT_SESSION_REOPENED,
     EVENT_SESSION_STARTED,
     ClassroomAggregate,
     Command,
@@ -178,6 +180,54 @@ def test_navigate_after_end_is_an_invalid_transition():
     assert not result.accepted
     assert result.issue_code == ISSUE_INVALID_TRANSITION
     assert aggregate.state_version == 2, "end was the only accepted transition"
+
+
+def test_reopen_after_end_starts_a_new_epoch_at_the_first_position():
+    aggregate = _started_aggregate()
+    assert aggregate.handle(_navigate(section_index=2, scene_id="scene-3")).accepted
+    assert aggregate.handle(Command.create(COMMAND_END)).accepted
+
+    result = aggregate.handle(Command.create(COMMAND_REOPEN, **LESSON))
+
+    assert result.accepted
+    assert result.events[0].type == EVENT_SESSION_REOPENED
+    assert aggregate.state == CLASSROOM_STATE_ACTIVE
+    assert aggregate.actor_epoch == 2, "a reopen must not reuse the ended epoch"
+    assert result.state_version == 4
+    assert aggregate.lesson == LESSON
+    assert aggregate.timeline["scene_id"] == "scene-1"
+    assert aggregate.timeline["step_id"] == "step-1"
+    assert aggregate.timeline["checkpoint"] is None
+    assert aggregate.turn == {"queue": [], "floor": None, "stt_reservation": None}
+    assert result.events[0].payload["previous_actor_epoch"] == 1
+    assert result.events[0].payload["previous_scene_id"] == "scene-3"
+
+    restored = ClassroomAggregate.restore(aggregate.snapshot(), clock=lambda: FIXED_NOW)
+    assert restored.actor_epoch == 2
+    assert restored.lesson == LESSON
+
+
+def test_reopen_of_a_running_class_is_refused():
+    aggregate = _started_aggregate()
+    result = aggregate.handle(Command.create(COMMAND_REOPEN, **LESSON))
+
+    assert not result.accepted
+    assert result.issue_code == ISSUE_INVALID_TRANSITION
+    assert aggregate.actor_epoch == 1
+    assert aggregate.state_version == 1
+
+
+def test_a_command_from_the_ended_epoch_is_stale_after_reopen():
+    aggregate = _started_aggregate()
+    assert aggregate.handle(_navigate(section_index=2, scene_id="scene-3")).accepted
+    assert aggregate.handle(Command.create(COMMAND_END)).accepted
+    assert aggregate.handle(Command.create(COMMAND_REOPEN, **LESSON)).accepted
+
+    result = aggregate.handle(_navigate(expected_actor_epoch=1))
+
+    assert not result.accepted
+    assert result.issue_code == ISSUE_STALE_EPOCH
+    assert aggregate.lesson["scene_id"] == "scene-1", "the pre-end command changed nothing"
 
 
 def test_navigate_without_a_scene_is_an_invalid_command():

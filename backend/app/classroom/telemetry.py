@@ -23,6 +23,7 @@ from app.classroom.aggregate import (
     COMMAND_CHECKPOINT,
     COMMAND_END,
     COMMAND_NAVIGATE,
+    COMMAND_REOPEN,
 )
 
 logger = logging.getLogger("mentora.classroom")
@@ -52,6 +53,7 @@ class ClassroomMetrics:
     scenes_changed: int = 0
     checkpoints_recorded: int = 0
     sessions_ended: int = 0
+    sessions_reopened: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return dict(self.__dict__)
@@ -289,6 +291,8 @@ class ClassroomTelemetry:
                 self.metrics.checkpoints_recorded += 1
             elif command_type == COMMAND_END:
                 self.metrics.sessions_ended += 1
+            elif command_type == COMMAND_REOPEN:
+                self.metrics.sessions_reopened += 1
         else:
             self.metrics.commands_rejected += 1
         return self.emit(

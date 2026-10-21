@@ -60,6 +60,7 @@ from app.classroom.aggregate import (
     COMMAND_CHECKPOINT,
     COMMAND_END,
     COMMAND_NAVIGATE,
+    COMMAND_REOPEN,
     COMMAND_START,
     ClassroomAggregate,
     Command,
@@ -67,6 +68,7 @@ from app.classroom.aggregate import (
 )
 from app.classroom.catalog import RuntimeCatalog, capability_version
 from app.classroom.errors import (
+    ISSUE_CLASS_ENDED,
     ISSUE_COMMIT_CONFLICT,
     ISSUE_CONTENT_DIGEST_MISMATCH,
     ISSUE_INCOMPATIBLE_CONTENT,
@@ -87,6 +89,10 @@ from app.classroom.models import (
     BOOTSTRAP_TOKEN_SCOPES,
     BOOTSTRAP_TOKEN_TTL_SECONDS,
     CLASSROOM_STATE_ACTIVE,
+    CLASSROOM_STATE_COMPLETED,
+    CLASSROOM_STATE_DEGRADED,
+    CLASSROOM_STATE_ENDING,
+    CLASSROOM_STATE_FAILED,
     CLASSROOM_STATE_SCHEDULED,
     INITIAL_ACTOR_EPOCH,
     INITIAL_EVENT_SEQUENCE,
@@ -294,6 +300,14 @@ class ClassroomService:
         # which is not the SCHEDULED state the transition's precondition names.
         existing = self._repository.get_session(institution_id, class_id)
         if existing is not None:
+            if scheduled_class.state in (CLASSROOM_STATE_COMPLETED, CLASSROOM_STATE_FAILED):
+                # A completed occurrence is not restarted by START: it has its own
+                # explicit REOPEN transition, which keeps the roster and the pinned
+                # tuple and starts a new epoch.
+                self._block(
+                    scheduled_class, STAGE_RESOLVING, ISSUE_WRONG_STATE,
+                    f"class {class_id!r} has ended; reopen it instead of starting it",
+                )
             plan = self._repository.get_session_plan(institution_id, class_id)
             snapshot = self._repository.latest_snapshot(institution_id, existing.session_id)
             assert plan is not None and snapshot is not None, "a session has its plan and snapshot"
@@ -536,6 +550,44 @@ class ClassroomService:
                 issue_code=ISSUE_NOT_ENROLLED,
             )
 
+    def require_student_content_access(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        student_id: Optional[str],
+    ) -> None:
+        """A student may read the lesson only while its session is not closed.
+
+        The class list and the class metadata stay readable after the end, so a
+        student can see that the class they attended has finished. What is locked
+        is the **content** — the snapshot and the pinned scenes — because a
+        completed occurrence is closed until a teacher reopens it (``REOPEN``,
+        which starts a new epoch). Staff are not participants and read by
+        capability, so a teacher can still review the last slide of an ended class.
+        A class that never started has no content, so the routes' own 404 stays the
+        answer; this guard only turns the ended states into ``CLASS_ENDED``.
+        """
+
+        if student_id is None:
+            return
+        self.require_enrollment(institution_id, class_id, student_id=student_id)
+        session = self._repository.get_session(institution_id, class_id)
+        # A class that never started has no snapshot and no scene, so the route's
+        # own 404 remains the honest answer. Only the ended states turn "there is
+        # nothing yet" into "there is something, and it is locked".
+        if session is None:
+            return
+        if session.state in (
+            CLASSROOM_STATE_COMPLETED,
+            CLASSROOM_STATE_FAILED,
+            CLASSROOM_STATE_ENDING,
+        ):
+            raise ClassStartError(
+                f"class {class_id!r} is {session.state}; its content is locked",
+                issue_code=ISSUE_CLASS_ENDED,
+            )
+
     def unenroll(self, institution_id: str, class_id: str, student_id: str) -> bool:
         """Remove a student from a class roster; idempotent (``DEC-RUNTIME-003``).
 
@@ -578,17 +630,28 @@ class ClassroomService:
 
         scheduled_class = self._repository.get_class(institution_id, class_id)
         session = self._repository.get_session(institution_id, class_id)
-        if session is None or session.state != CLASSROOM_STATE_ACTIVE:
+        if session is None or session.state not in (
+            CLASSROOM_STATE_ACTIVE,
+            CLASSROOM_STATE_DEGRADED,
+        ):
+            ended = session is not None and session.state in (
+                CLASSROOM_STATE_COMPLETED,
+                CLASSROOM_STATE_FAILED,
+                CLASSROOM_STATE_ENDING,
+            )
+            issue_code = ISSUE_CLASS_ENDED if ended else ISSUE_NOT_STARTED
             self._telemetry.record_join(
                 institution_id=institution_id,
                 class_id=class_id,
                 session_id=session.session_id if session is not None else None,
                 authorized=False,
-                issue_code=ISSUE_NOT_STARTED,
+                issue_code=issue_code,
             )
             raise ClassStartError(
-                f"class {class_id!r} is not running; start it before joining",
-                issue_code=ISSUE_NOT_STARTED,
+                f"class {class_id!r} is not running; start it before joining"
+                if not ended
+                else f"class {class_id!r} has ended; a teacher must reopen it before joining",
+                issue_code=issue_code,
             )
 
         student = (student_id or "").strip()
@@ -662,6 +725,14 @@ class ClassroomService:
             raise JoinDeniedError(
                 "bootstrap token belongs to a stale session epoch",
                 issue_code=ISSUE_STALE_EPOCH,
+            )
+        if session.state not in (CLASSROOM_STATE_ACTIVE, CLASSROOM_STATE_DEGRADED):
+            # An ended session's credentials are revoked by ``end_class``; this is
+            # the structural backstop, so a credential cannot outlive the running
+            # state even if the revocation write were lost.
+            raise JoinDeniedError(
+                "bootstrap token's session is no longer running",
+                issue_code=ISSUE_TOKEN_REVOKED,
             )
         return record
 
@@ -825,6 +896,60 @@ class ClassroomService:
             )
         return outcome
 
+    def reopen_class(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        command_id: Optional[str] = None,
+        expected_state_version: Optional[int] = None,
+    ) -> CommandOutcome:
+        """``COMPLETED -> ACTIVE``: run the same class occurrence again.
+
+        Reopening keeps the roster and the **pinned** package (``DEC-CONTENT-005``)
+        and returns to the first lesson position, so the teacher and the class see
+        the lesson from the beginning. The aggregate starts a new actor epoch, so
+        every join credential and fenced command from before the end is stale
+        (``DEC-RUNTIME-007``); the service also revokes the session's tokens so the
+        database records the terminal path as well.
+
+        The first position is resolved from the pinned package's own lesson plan,
+        never from the source deck or a newer publication (``DEC-CONTENT-001``).
+        A class that has not started is refused before the aggregate is touched.
+        """
+
+        plan = self._repository.get_session_plan(institution_id, class_id)
+        session = self._repository.get_session(institution_id, class_id)
+        if plan is None or session is None:
+            self._repository.get_class(institution_id, class_id)  # 404/403 first
+            raise ClassStartError(
+                f"class {class_id!r} has not started; there is nothing to reopen",
+                issue_code=ISSUE_NOT_STARTED,
+            )
+        # Resolve the first position from the pinned plan before taking the
+        # aggregate lock. The plan is immutable, and computing it even for a class
+        # that is not ended yet removes a race: if END lands between this read and
+        # the handle, the REOPEN command still carries a complete first position.
+        lesson_plan = self._scenes.lesson_plan(plan.package_id)
+        position = first_lesson_position(lesson_plan)
+        if str(position.get("lesson_plan_version")) != plan.lesson_plan_version:
+            raise ClassCommandError(
+                "the pinned lesson plan no longer matches the session plan",
+                issue_code=ISSUE_INCOMPATIBLE_CONTENT,
+            )
+        command = Command.create(
+            COMMAND_REOPEN,
+            command_id=command_id,
+            expected_state_version=expected_state_version,
+            **position,
+        )
+        outcome = self._apply_command(institution_id, class_id, command)
+        if outcome.result.accepted and outcome.session is not None:
+            self._repository.revoke_bootstrap_tokens(
+                institution_id, outcome.session.session_id
+            )
+        return outcome
+
     def _apply_command(
         self, institution_id: str, class_id: str, command: Command
     ) -> CommandOutcome:
@@ -844,6 +969,7 @@ class ClassroomService:
                 aggregate = self._get_aggregate(institution_id, class_id)
                 prior_state = aggregate.state
                 prior_version = aggregate.state_version
+                prior_epoch = aggregate.actor_epoch
                 result = aggregate.handle(command)
                 if result.duplicate:
                     # A replayed command has already been answered: return its stored
@@ -881,6 +1007,7 @@ class ClassroomService:
                         expected_state=prior_state,
                         expected_state_version=prior_version,
                         actor_epoch=aggregate.actor_epoch,
+                        expected_actor_epoch=prior_epoch,
                         new_state=aggregate.state,
                         state_version=aggregate.state_version,
                         event_sequence=aggregate.event_sequence,

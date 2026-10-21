@@ -481,8 +481,11 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   no picker and no arrow keys. The teacher drives the class; this page reads the
   same authoritative `GET /classes/{id}/snapshot` and moves to the scene its
   lesson position names (V0-025), and the current slide's text and notes are shown
-  as the narration. It waits for the teacher to start and joins by itself; a class
-  already over is read as the last slide, not joined. Three limits are stated
+  as the narration. It waits for the teacher to start and joins by itself. When
+  the teacher ends the class it shows a locked **Ended** screen with no slide or
+  text — the server refuses a student's snapshot/scene reads with `CLASS_ENDED`
+  (V0-027) — and it keeps re-reading the class metadata, so a teacher's **Reopen
+  class** joins the new actor epoch by itself. Three limits are stated
   rather than hidden: the update is a **short poll** (about every 1.5 s), not the
   ordered per-class stream (`DEC-DATA-003` is `OPEN`, live path V1-002); the
   narration is **text only** — the deck's own words, not a model's and not audio
@@ -516,6 +519,17 @@ class is started: a teacher presses **Start class**, which calls the real
 `POST /classes/{id}/start` and opens `/classroom/{id}?autoplay=1`. There is no
 separate "learning page" destination any more; `/learn/{artifactId}` is kept for
 direct links only and is not in the nav.
+
+A class whose session is `COMPLETED` reads **Ended** (the domain state is kept;
+only the label changes). Its lesson is locked for students: the row still shows
+the class and the reason, but offers no Join or lesson link, and the student
+viewer draws no slide or text. A teacher sees **Reopen class**, which calls
+`POST /classes/{id}/reopen` and opens the same class at `?autoplay=1`; the same
+roster and the same pinned package are kept, the lesson returns to its first
+slide, and a **new actor epoch** is started, so every pre-end join credential is
+stale (V0-027, `DEC-CONTENT-005`, `DEC-RUNTIME-007`). Ending is an explicit
+teacher action — auto-play reaching the last slide stops, it does not end the
+class — because a durable scheduler is `DEC-TECH-003` (`OPEN`).
 
 On that URL the teacher's stage (`src/classroom/TeacherStage.tsx`) advances the
 **pinned** slides by itself. The dwell for each slide is
@@ -652,13 +666,17 @@ recovers, accessibility smoke), with the event stream driven by an injected
 transport so no server is needed. For V0-025, `src/classroom/TeacherStage.test.tsx`
 covers the teacher's slide stage (the pinned slide, next/picker commands fenced by
 `state_version`, a stale refusal triggering resync, no slides before start, the
-last slide after the end), `src/classroom/ClassroomPage.teacher.test.tsx` proves
-the page exposes it only to a teacher and applies the returned snapshot, and
+last slide after the end), with V0-027 adding **End class** (confirmed, applies
+the completed snapshot) and **Reopen class** (applies the new first-slide
+snapshot). `src/classroom/ClassroomPage.teacher.test.tsx` proves the page exposes
+it only to a teacher and applies the returned snapshot, and
 `src/classroom/scenePosition.test.ts` covers the snapshot scene-id/section-index
-mapping. `src/student/StudentClassPage.test.tsx` covers the student viewer (opens
-on the teacher's slide, no buttons/picker/arrow keys, follows a snapshot change on
-the poll, waits for the start and joins by itself, shows a finished class without
-live controls, and refuses to read an unassigned class).
+mapping. `src/classroom/ClassroomHomePage.test.tsx` covers the hub's ended row
+(teacher Reopen, student locked with no lesson link). `src/student/StudentClassPage.test.tsx`
+covers the student viewer (opens on the teacher's slide, no buttons/picker/arrow
+keys, follows a snapshot change on the poll, waits for the start and joins by
+itself, locks an ended class instead of drawing its last slide, joins the same
+class after a reopen, and refuses to read an unassigned class).
 
 For V0-021, `src/auth/session.test.tsx` covers the session store (write/read,
 expiry dropped on read, cross-tab updates, scope helpers, the development

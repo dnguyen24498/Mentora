@@ -84,7 +84,23 @@ describe('JoinClassPage', () => {
     // The title is in the class panel and in the header's qualifier, so it
     // legitimately appears more than once.
     expect((await screen.findAllByText('Period 3')).length).toBeGreaterThan(0)
-    expect(screen.getByText('ACTIVE')).toBeTruthy()
+    expect(screen.getByText('Live')).toBeTruthy()
+  })
+
+  it('shows an ended class as locked and keeps Join disabled', async () => {
+    signInAsStudent()
+    vi.mocked(loadClass).mockResolvedValue({
+      ...CLASS_VIEW,
+      class: { ...CLASS_VIEW.class, state: 'COMPLETED' },
+    })
+
+    render(<JoinClassPage classId="class-1" />)
+
+    expect(await screen.findByText('Ended')).toBeTruthy()
+    const button = await screen.findByRole('button', { name: 'Class ended' })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/locked until your teacher reopens/i)).toBeTruthy()
+    expect(issueBootstrapToken).not.toHaveBeenCalled()
   })
 
   it('asks a signed-out visitor to sign in, and says development mode cannot join', async () => {

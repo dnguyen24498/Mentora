@@ -71,6 +71,7 @@ export default function StudentClassPage({
   const [phase, setPhase] = useState<FollowPhase>('loading')
   const [error, setError] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [followKey, setFollowKey] = useState(0)
   const stage = useRef<HTMLDivElement | null>(null)
 
   const institutionId = session?.principal.institution_id ?? ''
@@ -92,21 +93,21 @@ export default function StudentClassPage({
   }, [session, setInstitution])
 
   // The lifecycle: wait for the teacher to start, join once the class is running,
-  // and load the snapshot that names the current slide. A class that is already
-  // over can still be read (the snapshot and pinned slides outlive the session),
-  // but it is not joined and has no live presentation.
+  // and show the ended lock screen after it ends. A student may see *that* the
+  // class ended, but the lesson itself — the snapshot and the pinned slides — is
+  // refused by the server until a teacher reopens it. This page keeps checking the
+  // class metadata (not its content) so a reopen joins by itself.
   useEffect(() => {
     let cancelled = false
     let timer: number | undefined
 
-    async function loadFinal(view: ClassView) {
-      const scenes = await loadClassScenes(classId)
-      if (cancelled) return
-      const snapshot = await loadSnapshot(institutionId, classId)
-      if (cancelled) return
-      setClassView(view)
-      setListing(scenes)
-      setOrder(sceneOrderFor(scenes.scenes, snapshot) ?? scenes.scenes[0]?.order ?? null)
+    function markEnded(view: ClassView | null) {
+      if (view) setClassView(view)
+      setListing(null)
+      setOrder(null)
+      setToken(null)
+      setSyncError(null)
+      setError(null)
       setPhase('ended')
     }
 
@@ -135,7 +136,10 @@ export default function StudentClassPage({
           return
         }
         if (state === 'COMPLETED' || state === 'FAILED' || state === 'ENDING') {
-          await loadFinal(view)
+          markEnded(view)
+          // Keep watching the metadata: a reopened class returns to ACTIVE and
+          // the student joins the new epoch without a manual refresh.
+          timer = window.setTimeout(() => void tick(), followPollMs)
           return
         }
         // SCHEDULED / PREPARING / RECOVERING / anything not yet runnable: the
@@ -145,6 +149,11 @@ export default function StudentClassPage({
         timer = window.setTimeout(() => void tick(), followPollMs)
       } catch (cause) {
         if (cancelled) return
+        if (isEnded(cause)) {
+          markEnded(null)
+          timer = window.setTimeout(() => void tick(), followPollMs)
+          return
+        }
         if (isNotStarted(cause)) {
           setPhase('waiting')
           timer = window.setTimeout(() => void tick(), followPollMs)
@@ -160,7 +169,7 @@ export default function StudentClassPage({
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [classId, followPollMs, institutionId])
+  }, [classId, followKey, followPollMs, institutionId])
 
   // While teaching, the snapshot is the only truth. Read it again on a short
   // interval and move the student to the scene the teacher is on. A failure does
@@ -171,6 +180,16 @@ export default function StudentClassPage({
     const sceneList = listing.scenes
     let cancelled = false
     let timer: number | undefined
+
+    function markEnded() {
+      setListing(null)
+      setOrder(null)
+      setToken(null)
+      setSyncError(null)
+      setPhase('ended')
+      // Re-arm the lifecycle effect, which now watches the metadata for a reopen.
+      setFollowKey((value) => value + 1)
+    }
 
     // One poll at a time: a slow request must not overlap the next one and let an
     // older snapshot arrive last and move the slide backwards.
@@ -185,12 +204,20 @@ export default function StudentClassPage({
         } else {
           setSyncError('The class is on a slide this package does not list.')
         }
-        if (snapshot.state === 'COMPLETED' || snapshot.state === 'FAILED') {
-          setPhase('ended')
+        if (
+          snapshot.state === 'COMPLETED' ||
+          snapshot.state === 'FAILED' ||
+          snapshot.state === 'ENDING'
+        ) {
+          markEnded()
           return
         }
       } catch (cause) {
         if (cancelled) return
+        if (isEnded(cause)) {
+          markEnded()
+          return
+        }
         setSyncError(describeApiError(cause))
       }
       if (!cancelled) timer = window.setTimeout(() => void poll(), followPollMs)
@@ -272,16 +299,8 @@ export default function StudentClassPage({
           </div>
         )}
 
-        {(phase === 'live' || phase === 'ended') && listing && (
+        {phase === 'live' && listing && (
           <>
-            {phase === 'ended' && (
-              <div className="p-3 sm:p-4">
-                <Banner tone="neutral">
-                  This class has ended. This is the last slide your teacher presented.
-                </Banner>
-              </div>
-            )}
-
             {syncError && (
               <div className="px-3 pt-3 sm:px-4">
                 <Banner tone="warn">
@@ -319,8 +338,7 @@ export default function StudentClassPage({
                   className="text-sm text-slate-200"
                   data-testid="student-slide-counter"
                 >
-                  {phase === 'ended' ? 'Last slide' : 'Following your teacher'} · Slide {index + 1}{' '}
-                  / {scenes.length}
+                  Following your teacher · Slide {index + 1} / {scenes.length}
                 </span>
                 {scene?.fidelity && (
                   <Badge tone={scene.fidelity === 'DEGRADED_RENDERED' ? 'warn' : 'neutral'}>
@@ -336,9 +354,8 @@ export default function StudentClassPage({
                 </button>
               </div>
               <p className="mt-1 text-[11px] text-slate-500">
-                {phase === 'live'
-                  ? 'The slide moves when your teacher moves theirs. This page follows the class state by a short poll, not a pushed live stream (V1-002).'
-                  : 'The class is over; there is no live slide to follow.'}
+                The slide moves when your teacher moves theirs. This page follows the class state
+                by a short poll, not a pushed live stream (V1-002).
               </p>
             </div>
 
@@ -374,8 +391,20 @@ export default function StudentClassPage({
         )}
 
         {phase === 'ended' && !listing && (
-          <div className="p-4">
-            <EmptyState>This class has finished and has no slides to show.</EmptyState>
+          <div className="mx-auto mt-6 max-w-2xl p-3 sm:p-4">
+            <Banner tone="neutral">
+              <strong>{title}</strong> has ended. The lesson is locked until your teacher reopens
+              it.
+            </Banner>
+            <p className="mt-3 text-sm text-slate-300">
+              There is no slide or text to show while the class is closed. This page checks again
+              automatically; when your teacher reopens the class it will join by itself.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link to={CLASSROOM_PATH} className={BUTTON_SECONDARY}>
+                Classroom
+              </Link>
+            </div>
           </div>
         )}
 
@@ -395,10 +424,16 @@ export default function StudentClassPage({
   )
 }
 
+/** A refusal that means the class has ended and its lesson is locked. */
+function isEnded(cause: unknown): boolean {
+  return cause instanceof ApiError && cause.issueCode === 'CLASS_ENDED'
+}
+
 /** A refusal that means "not started yet" rather than "cannot join this class". */
 function isNotStarted(cause: unknown): boolean {
   return (
     cause instanceof ApiError &&
+    !isEnded(cause) &&
     (cause.issueCode === 'NOT_STARTED' || cause.code === 'CLASS_NOT_READY')
   )
 }

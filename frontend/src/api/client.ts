@@ -592,6 +592,22 @@ export interface NavigateClassInput {
 export const navigateClassScene = (classId: string, input: NavigateClassInput) =>
   request<ClassCommandResult>(`/classes/${classId}/navigate`, '', JSON_POST(input))
 
+export interface ClassLifecycleInput {
+  expected_state_version?: number | null
+  command_id?: string | null
+}
+
+/** End the class: locks the lesson for students and revokes their join tokens. */
+export const endClass = (classId: string, input: ClassLifecycleInput = {}) =>
+  request<ClassCommandResult>(`/classes/${classId}/end`, '', JSON_POST(input))
+
+/**
+ * Reopen an ended class: the same roster and pinned content, back at the first
+ * slide, in a new actor epoch. The old join credentials are stale.
+ */
+export const reopenClass = (classId: string, input: ClassLifecycleInput = {}) =>
+  request<ClassCommandResult>(`/classes/${classId}/reopen`, '', JSON_POST(input))
+
 // -- admin: classes, enrolments, publications, renderer (V0-008/V0-009) ----------
 //
 // Everything here maps onto an endpoint that already exists. The API has no

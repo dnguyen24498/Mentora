@@ -479,6 +479,7 @@ class ClassRepository:
         snapshot: dict,
         snapshot_checksum: str,
         snapshot_id: Optional[str] = None,
+        expected_actor_epoch: Optional[int] = None,
     ) -> tuple[ClassroomSession, SessionSnapshot]:
         """Commit one accepted aggregate transition (``DEC-RUNTIME-007`` fencing).
 
@@ -490,29 +491,37 @@ class ClassRepository:
         a session's counters and its newest snapshot can never disagree
         (``DEC-DATA-004``).
 
+        ``actor_epoch`` is the epoch the transition writes. A ``REOPEN`` moves to a
+        new epoch, so it passes the pre-command epoch as ``expected_actor_epoch``:
+        the guard fences on the old value while the session row and the new
+        snapshot carry the new one.
+
         Raises :class:`CommitConflict` when the guard lost a race (rolled back,
         nothing written).
         """
 
         snapshot_id = snapshot_id or _new_id()
         now = _now()
+        guard_epoch = actor_epoch if expected_actor_epoch is None else expected_actor_epoch
         try:
             with transaction(self._conn):
                 cur = self._conn.execute(
                     "UPDATE classroom_sessions "
-                    "SET state = ?, state_version = ?, event_sequence = ?, snapshot_id = ? "
+                    "SET state = ?, state_version = ?, event_sequence = ?, actor_epoch = ?, "
+                    "    snapshot_id = ? "
                     "WHERE session_id = ? AND institution_id = ? "
                     "  AND state = ? AND state_version = ? AND actor_epoch = ?",
                     (
                         new_state,
                         state_version,
                         event_sequence,
+                        actor_epoch,
                         snapshot_id,
                         session_id,
                         institution_id,
                         expected_state,
                         expected_state_version,
-                        actor_epoch,
+                        guard_epoch,
                     ),
                 )
                 if cur.rowcount == 0:

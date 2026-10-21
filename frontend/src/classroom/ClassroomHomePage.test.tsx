@@ -2,13 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ClassroomHomePage from './ClassroomHomePage'
-import { listClasses, startClass, type ClassSummary } from '../api/client'
+import { listClasses, reopenClass, startClass, type ClassSummary } from '../api/client'
 import { clearSession, writeSession } from '../auth/session'
 import { INSTITUTION } from '../test/fixtures'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, listClasses: vi.fn(), startClass: vi.fn() }
+  return { ...actual, listClasses: vi.fn(), reopenClass: vi.fn(), startClass: vi.fn() }
 })
 
 function signIn(role: 'teacher' | 'student' | 'institution_admin') {
@@ -191,5 +191,56 @@ describe('ClassroomHomePage (V0-026)', () => {
 
     expect(await screen.findByText(/VERSION_NOT_PUBLISHED/)).toBeTruthy()
     expect(window.location.pathname).toBe('/classroom')
+  })
+
+  it('shows an ended class as Ended and lets a teacher reopen the same class', async () => {
+    signIn('teacher')
+    vi.mocked(listClasses).mockResolvedValue([
+      klass({ class_id: 'class-done', title: 'Yesterday', state: 'COMPLETED' }),
+    ])
+    vi.mocked(reopenClass).mockResolvedValue({
+      result: {
+        command_id: 'cmd-reopen',
+        accepted: true,
+        issue_code: null,
+        state_version: 7,
+        event_sequence: 7,
+        duplicate: false,
+        events: [],
+      },
+      session: null,
+      snapshot: null,
+    })
+
+    const user = userEvent.setup()
+    render(<ClassroomHomePage />)
+
+    expect(await screen.findByText('Ended')).toBeTruthy()
+    expect(screen.getByText(/students are locked out/i)).toBeTruthy()
+    // An ended class cannot be started; it is reopened.
+    expect(screen.queryByRole('button', { name: 'Start class' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Reopen class' }))
+
+    await waitFor(() => expect(reopenClass).toHaveBeenCalledWith('class-done'))
+    await waitFor(() =>
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        '/classroom/class-done?autoplay=1',
+      ),
+    )
+  })
+
+  it('locks an ended class for a student: Ended, no lesson link, no slide', async () => {
+    signIn('student')
+    vi.mocked(listClasses).mockResolvedValue([
+      klass({ class_id: 'class-done', title: 'Yesterday', state: 'COMPLETED' }),
+    ])
+
+    render(<ClassroomHomePage />)
+
+    expect(await screen.findByText('Ended')).toBeTruthy()
+    expect(screen.getByText(/locked until your teacher reopens it/i)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /last slide|join class|open classroom/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /reopen|start class/i })).toBeNull()
   })
 })

@@ -18,8 +18,14 @@
 ## States and flow
 
 ```text
-SCHEDULED -> PREPARING -> ACTIVE <-> DEGRADED -> RECOVERING -> ACTIVE/DEGRADED -> ENDING -> COMPLETED; FAILED only when no safe continuation. Pin versions and epoch in PREPARING. Non-active states have no valid floor.
+SCHEDULED -> PREPARING -> ACTIVE <-> DEGRADED -> RECOVERING -> ACTIVE/DEGRADED -> ENDING -> COMPLETED -> (REOPEN, new epoch) ACTIVE; FAILED only when no safe continuation. Pin versions and epoch in PREPARING. Non-active states have no valid floor.
 ```
+
+## End and reopen
+
+`END` moves `ACTIVE`/`DEGRADED` to `COMPLETED`, writes the final checkpoint, and revokes the session's join credentials. A `COMPLETED` class is **ended**: its lesson content (snapshot and pinned scenes) is refused to participants, while the class metadata and the class list remain readable so a student can see that it ended.
+
+`REOPEN` is the one transition out of `COMPLETED`: `COMPLETED -> ACTIVE`. It continues the **same class occurrence** — the roster and the pinned version tuple are retained (`DEC-CONTENT-005`) — and returns the lesson to its first position. It starts a **new actor epoch** before emitting `classroom.session.reopened`, so every join credential and fenced command from the previous epoch is stale (`DEC-RUNTIME-007`). `FAILED` is not reopened: it has no safe continuation and requires a new class occurrence.
 
 ## Universal transition contract
 

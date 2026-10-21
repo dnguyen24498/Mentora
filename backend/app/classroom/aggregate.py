@@ -11,13 +11,19 @@ The design mirrors the state machine
 
 ```text
 (NEW) --START--> ACTIVE --NAVIGATE/CHECKPOINT--> ACTIVE
-                ACTIVE/DEGRADED --END--> COMPLETED
+                ACTIVE/DEGRADED --END--> COMPLETED --REOPEN--> ACTIVE
 ```
 
 ``ENDING`` is in-process only and is never persisted (the same reasoning as
 ``PREPARING``/``SEALING``/``INDEXING``/``COMMITTING``): an ``END`` commits the
 ``ACTIVE -> COMPLETED`` change and its final checkpoint in one snapshot, so a
 crash mid-end is indistinguishable from one that never ended.
+
+``REOPEN`` continues an ended **class occurrence**: it keeps the pinned tuple and
+returns to the first lesson position, so the teacher can run the same lesson again
+without losing the roster. It starts a new actor epoch, which is what makes every
+join credential issued before the end stale (``DEC-RUNTIME-007``); the old
+snapshots remain durable history and a new one is appended.
 
 Three properties are structural, not advisory:
 
@@ -71,6 +77,7 @@ COMMAND_START = "START"
 COMMAND_NAVIGATE = "NAVIGATE_SCENE"
 COMMAND_CHECKPOINT = "CHECKPOINT"
 COMMAND_END = "END"
+COMMAND_REOPEN = "REOPEN"
 
 #: The events each accepted command emits. These are the in-process event names;
 #: the wire event schemas (``contracts/events/``) are V1-002's.
@@ -78,6 +85,7 @@ EVENT_SESSION_STARTED = "classroom.session.started"
 EVENT_SCENE_CHANGED = "classroom.scene.changed"
 EVENT_CHECKPOINT_RECORDED = "classroom.checkpoint.recorded"
 EVENT_SESSION_ENDED = "classroom.session.ended"
+EVENT_SESSION_REOPENED = "classroom.session.reopened"
 
 #: States that a navigation/checkpoint/end command may be applied from.
 _MUTABLE_STATES: tuple[str, ...] = (CLASSROOM_STATE_ACTIVE, CLASSROOM_STATE_DEGRADED)
@@ -406,6 +414,8 @@ class ClassroomAggregate:
             return self._checkpoint(command.payload)
         if command.type == COMMAND_END:
             return self._end()
+        if command.type == COMMAND_REOPEN:
+            return self._reopen(command.payload)
         raise _Rejected(ISSUE_INVALID_COMMAND)
 
     def _start(self) -> Event:
@@ -468,6 +478,56 @@ class ClassroomAggregate:
         self.state = CLASSROOM_STATE_COMPLETED
         return self._event(EVENT_SESSION_ENDED, {"final_checkpoint": checkpoint})
 
+    def _reopen(self, payload: Mapping[str, Any]) -> Event:
+        """``COMPLETED -> ACTIVE`` for a new run of the same class occurrence.
+
+        The pinned tuple is untouched (``DEC-CONTENT-005``), the roster stays with
+        the class, and the lesson returns to the first section so automatic play
+        has somewhere to go. The epoch is bumped **before** the event is built, so
+        every credential and every fenced command issued before the end belongs to
+        a stale epoch (``DEC-RUNTIME-007``); old snapshots are still valid history.
+        """
+
+        if self.state != CLASSROOM_STATE_COMPLETED:
+            raise _Rejected(ISSUE_INVALID_TRANSITION)
+        section_index = payload.get("section_index")
+        scene_id = payload.get("scene_id")
+        if not isinstance(section_index, int) or section_index < 0:
+            raise _Rejected(ISSUE_INVALID_COMMAND)
+        if not isinstance(scene_id, str) or not scene_id:
+            raise _Rejected(ISSUE_INVALID_COMMAND)
+        previous_epoch = self.actor_epoch
+        previous_scene_id = self.lesson.get("scene_id")
+
+        self.actor_epoch += 1
+        self.state = CLASSROOM_STATE_ACTIVE
+        self.turn = {"queue": [], "floor": None, "stt_reservation": None}
+        self.lesson.update(
+            {
+                "lesson_plan_version": payload.get("lesson_plan_version"),
+                "lesson_id": payload.get("lesson_id"),
+                "section_index": section_index,
+                "section_id": payload.get("section_id"),
+                "scene_id": scene_id,
+                "scene_step_id": payload.get("scene_step_id"),
+            }
+        )
+        self.timeline["scene_id"] = scene_id
+        self.timeline["step_id"] = payload.get("scene_step_id")
+        self.timeline["checkpoint"] = None
+        return self._event(
+            EVENT_SESSION_REOPENED,
+            {
+                "state": CLASSROOM_STATE_ACTIVE,
+                "previous_state": CLASSROOM_STATE_COMPLETED,
+                "previous_actor_epoch": previous_epoch,
+                "actor_epoch": self.actor_epoch,
+                "previous_scene_id": previous_scene_id,
+                "scene_id": scene_id,
+                "section_index": section_index,
+            },
+        )
+
     def _build_checkpoint(self, *, label: Optional[str], final: bool) -> dict[str, Any]:
         return {
             "checkpoint_id": str(uuid.uuid4()),
@@ -514,10 +574,12 @@ __all__ = [
     "COMMAND_CHECKPOINT",
     "COMMAND_END",
     "COMMAND_NAVIGATE",
+    "COMMAND_REOPEN",
     "COMMAND_START",
     "EVENT_CHECKPOINT_RECORDED",
     "EVENT_SCENE_CHANGED",
     "EVENT_SESSION_ENDED",
+    "EVENT_SESSION_REOPENED",
     "EVENT_SESSION_STARTED",
     "AggregateIntegrityError",
     "ClassroomAggregate",

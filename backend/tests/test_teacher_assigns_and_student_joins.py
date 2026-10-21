@@ -169,3 +169,86 @@ def test_a_student_cannot_assign_students(client):
 
     roster = client.get(f"/classes/{class_id}/enrollments", headers=student)
     assert roster.status_code == 403
+
+
+def test_ending_locks_the_student_and_reopening_runs_the_same_class_again(client):
+    """End is a lock, not a deletion; reopen keeps the roster and pinned content.
+
+    The student may still see *that* the class ended in the class metadata, but
+    the lesson's content (snapshot and slides) is refused until the teacher
+    reopens it. Reopening is the same class occurrence — same roster, same pinned
+    package — reset to its first slide in a new actor epoch, so credentials from
+    before the end cannot be replayed.
+    """
+
+    teacher = _teacher(client)
+    student = _student(client)
+    class_id = _class_for(client, teacher)
+    _enrol(client, teacher, class_id, student)
+    started = client.post(f"/classes/{class_id}/start", headers=teacher)
+    assert started.status_code == 200, started.text
+    first_epoch = started.json()["session"]["actor_epoch"]
+
+    # While running, the student reads the lesson normally.
+    assert client.get(f"/classes/{class_id}/snapshot", headers=student).status_code == 200
+    assert client.get(f"/classes/{class_id}/scenes", headers=student).status_code == 200
+    assert client.get(f"/classes/{class_id}/scenes/0", headers=student).status_code == 200
+    old_token = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
+    assert old_token.status_code == 200
+
+    # The teacher ends the class. The class mirrors COMPLETED and the final
+    # checkpoint is durable.
+    ended = client.post(f"/classes/{class_id}/end", headers=teacher)
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["session"]["state"] == "COMPLETED"
+    snapshot = client.get(f"/classes/{class_id}/snapshot", headers=teacher).json()
+    assert snapshot["state"] == "COMPLETED"
+    assert snapshot["document"]["timeline"]["checkpoint"]["final"] is True
+
+    # A student still sees the ended class in the class metadata (so the hub can
+    # show "Ended"), but may not read or join the lesson.
+    metadata = client.get(f"/classes/{class_id}", headers=student)
+    assert metadata.status_code == 200
+    assert metadata.json()["class"]["state"] == "COMPLETED"
+    locked_reads = [
+        client.get(f"/classes/{class_id}/snapshot", headers=student),
+        client.get(f"/classes/{class_id}/scenes", headers=student),
+        client.get(f"/classes/{class_id}/scenes/0", headers=student),
+        client.post(f"/classes/{class_id}/bootstrap-token", headers=student),
+    ]
+    for response in locked_reads:
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["issue_code"] == "CLASS_ENDED"
+
+    # Staff retain review access, and START is refused rather than silently
+    # returning the completed session.
+    assert client.get(f"/classes/{class_id}/snapshot", headers=teacher).status_code == 200
+    restarted = client.post(f"/classes/{class_id}/start", headers=teacher)
+    assert restarted.status_code == 409, restarted.text
+    assert restarted.json()["error"]["issue_code"] == "WRONG_STATE"
+    invalid_end = client.post(f"/classes/{class_id}/end", headers=teacher)
+    assert invalid_end.status_code == 409
+    assert invalid_end.json()["error"]["issue_code"] == "INVALID_TRANSITION"
+
+    # Reopen: ACTIVE again, a new epoch, and the lesson back at its first section.
+    reopened = client.post(f"/classes/{class_id}/reopen", headers=teacher)
+    assert reopened.status_code == 200, reopened.text
+    body = reopened.json()
+    assert body["session"]["state"] == "ACTIVE"
+    assert body["session"]["actor_epoch"] == first_epoch + 1
+    assert body["snapshot"]["document"]["lesson"]["section_index"] == 0
+    assert body["snapshot"]["document"]["timeline"]["checkpoint"] is None
+    assert client.get(f"/classes/{class_id}", headers=teacher).json()["class"]["state"] == "ACTIVE"
+
+    # The student can rejoin in the new epoch and read the lesson again; the
+    # credential issued before the end is no longer usable.
+    issued = client.post(f"/classes/{class_id}/bootstrap-token", headers=student)
+    assert issued.status_code == 200, issued.text
+    assert issued.json()["actor_epoch"] == first_epoch + 1
+    assert client.get(f"/classes/{class_id}/snapshot", headers=student).status_code == 200
+    assert client.get(f"/classes/{class_id}/scenes/0", headers=student).status_code == 200
+
+    # A second reopen is not a transition: the class is running again.
+    second = client.post(f"/classes/{class_id}/reopen", headers=teacher)
+    assert second.status_code == 409
+    assert second.json()["error"]["issue_code"] == "INVALID_TRANSITION"

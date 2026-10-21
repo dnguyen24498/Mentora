@@ -5,8 +5,10 @@ import TeacherStage from './TeacherStage'
 import {
   ApiError,
   classSceneUrl,
+  endClass,
   loadClassScenes,
   navigateClassScene,
+  reopenClass,
   type ClassCommandResult,
   type ClassSceneList,
 } from '../api/client'
@@ -17,8 +19,10 @@ vi.mock('../api/client', async (importOriginal) => {
   return {
     ...actual,
     classSceneUrl: vi.fn(),
+    endClass: vi.fn(),
     loadClassScenes: vi.fn(),
     navigateClassScene: vi.fn(),
+    reopenClass: vi.fn(),
   }
 })
 
@@ -78,6 +82,27 @@ function movedToSlideThree(): ClassCommandResult {
       sectionIndex: 2,
       sequence: 2,
     }),
+  }
+}
+
+function lifecycleResult(
+  state: 'ACTIVE' | 'COMPLETED',
+  sequence: number,
+  sceneId = 'ppt/slides/slide1.xml',
+  sectionIndex = 0,
+): ClassCommandResult {
+  return {
+    result: {
+      command_id: `cmd-${state.toLowerCase()}`,
+      accepted: true,
+      issue_code: null,
+      state_version: sequence,
+      event_sequence: sequence,
+      duplicate: false,
+      events: [],
+    },
+    session: null,
+    snapshot: makeSnapshot({ state, sceneId, sectionIndex, sequence }),
   }
 }
 
@@ -211,6 +236,87 @@ describe('TeacherStage', () => {
     expect(await screen.findByRole('img', { name: 'Slide 3' })).toBeTruthy()
     expect(screen.getByText(/class has ended/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /previous slide|next slide/i })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reopen class' })).toBeTruthy()
+  })
+
+  it('ends the class and applies the completed snapshot', async () => {
+    const user = userEvent.setup()
+    const onSnapshot = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(endClass).mockResolvedValue(
+      lifecycleResult('COMPLETED', 2, 'ppt/slides/slide3.xml', 2),
+    )
+
+    render(
+      <TeacherStage
+        classId="class-1"
+        sessionState="ACTIVE"
+        currentSceneId="ppt/slides/slide3.xml"
+        currentSectionIndex={2}
+        stateVersion={1}
+        onSnapshot={onSnapshot}
+        onResync={vi.fn()}
+      />,
+    )
+    await screen.findByRole('img', { name: 'Slide 3' })
+
+    await user.click(screen.getByRole('button', { name: 'End class' }))
+
+    await waitFor(() =>
+      expect(endClass).toHaveBeenCalledWith(
+        'class-1',
+        expect.objectContaining({
+          expected_state_version: 1,
+          command_id: expect.any(String),
+        }),
+      ),
+    )
+    expect(onSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        document: expect.objectContaining({ state: 'COMPLETED' }),
+      }),
+    )
+    expect(confirm).toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('reopens an ended class and applies the new first-slide snapshot', async () => {
+    const user = userEvent.setup()
+    const onSnapshot = vi.fn()
+    vi.mocked(reopenClass).mockResolvedValue(lifecycleResult('ACTIVE', 3))
+
+    render(
+      <TeacherStage
+        classId="class-1"
+        sessionState="COMPLETED"
+        currentSceneId="ppt/slides/slide3.xml"
+        currentSectionIndex={2}
+        stateVersion={2}
+        onSnapshot={onSnapshot}
+        onResync={vi.fn()}
+      />,
+    )
+    await screen.findByRole('img', { name: 'Slide 3' })
+
+    await user.click(screen.getByRole('button', { name: 'Reopen class' }))
+
+    await waitFor(() =>
+      expect(reopenClass).toHaveBeenCalledWith(
+        'class-1',
+        expect.objectContaining({
+          expected_state_version: 2,
+          command_id: expect.any(String),
+        }),
+      ),
+    )
+    expect(onSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        document: expect.objectContaining({
+          state: 'ACTIVE',
+          lesson: expect.objectContaining({ section_index: 0 }),
+        }),
+      }),
+    )
   })
 
   describe('auto-play (V0-026)', () => {

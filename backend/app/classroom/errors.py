@@ -49,6 +49,8 @@ ISSUE_SNAPSHOT_INVALID = "SNAPSHOT_INVALID"
 ISSUE_NOT_ENROLLED = "NOT_ENROLLED"
 #: The join is refused because the class has no session yet.
 ISSUE_NOT_STARTED = "NOT_STARTED"
+#: The class has ended. Its content is locked until a teacher reopens it.
+ISSUE_CLASS_ENDED = "CLASS_ENDED"
 #: The presented token is unknown to this tenant (never presented, or not ours).
 ISSUE_TOKEN_UNKNOWN = "TOKEN_UNKNOWN"
 #: The presented token is past its (bounded) lifetime.
@@ -128,6 +130,7 @@ __all__ = [
     "ISSUE_INCOMPATIBLE_INDEX",
     "ISSUE_INVALID_COMMAND",
     "ISSUE_INVALID_TRANSITION",
+    "ISSUE_CLASS_ENDED",
     "ISSUE_NOT_ENROLLED",
     "ISSUE_NOT_STARTED",
     "ISSUE_SCENE_CHECKSUM_MISMATCH",

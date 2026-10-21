@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   describeApiError,
+  endClass,
   loadClassScenes,
   navigateClassScene,
+  reopenClass,
   type ClassScene,
   type ClassSceneList,
   type SessionSnapshot,
@@ -133,6 +135,62 @@ export default function TeacherStage({
 
   const nextScene =
     index >= 0 && index < scenes.length - 1 ? scenes[index + 1] : null
+
+  // End and reopen are lifecycle commands, not slide moves: they are fenced by
+  // the same state version and applied through the same snapshot the page holds.
+  const [lifecycle, setLifecycle] = useState<'end' | 'reopen' | null>(null)
+
+  const endNow = useCallback(async () => {
+    if (!running || pending || lifecycle !== null) return
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function' &&
+      !window.confirm(
+        'End this class? Students will not be able to open the lesson until you reopen it.',
+      )
+    ) {
+      return
+    }
+    setLifecycle('end')
+    setError(null)
+    try {
+      const outcome = await endClass(classId, {
+        expected_state_version: stateVersion,
+        command_id: newCommandId(),
+      })
+      if (outcome.snapshot) onSnapshot(outcome.snapshot)
+      else if (outcome.result.duplicate) onResync()
+    } catch (cause) {
+      setError(describeApiError(cause))
+      onResync()
+    } finally {
+      setIsPlaying(false)
+      setLifecycle(null)
+    }
+  }, [classId, lifecycle, onResync, onSnapshot, pending, running, stateVersion])
+
+  const reopenNow = useCallback(async () => {
+    if (sessionState !== 'COMPLETED' || pending || lifecycle !== null) return
+    setLifecycle('reopen')
+    setError(null)
+    try {
+      const outcome = await reopenClass(classId, {
+        expected_state_version: stateVersion,
+        command_id: newCommandId(),
+      })
+      if (outcome.snapshot) {
+        onSnapshot(outcome.snapshot)
+        setIsPlaying(Boolean(autoPlay))
+      } else if (outcome.result.duplicate) {
+        onResync()
+      }
+    } catch (cause) {
+      setError(describeApiError(cause))
+      onResync()
+    } finally {
+      setLifecycle(null)
+    }
+  }, [autoPlay, classId, lifecycle, onResync, onSnapshot, pending, sessionState, stateVersion])
 
   // Seed the play flag from `?autoplay=1` once the session is running. A pause
   // made by the teacher survives later scene updates because this only depends
@@ -288,12 +346,34 @@ export default function TeacherStage({
               Showing this slide to the class…
             </span>
           )}
+
+          <button
+            type="button"
+            onClick={() => void endNow()}
+            disabled={pending || lifecycle !== null}
+            className={BUTTON_SECONDARY}
+          >
+            {lifecycle === 'end' ? 'Ending…' : 'End class'}
+          </button>
         </div>
       ) : (
-        <p role="status" className="mt-3 text-sm text-slate-600">
-          This class has ended. Students keep the last slide; there is no live presentation to
-          drive.
-        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p role="status" className="min-w-0 flex-1 text-sm text-slate-600">
+            {sessionState === 'COMPLETED'
+              ? 'This class has ended. Its lesson is locked for students until you reopen it.'
+              : 'This class has ended. There is no live presentation to drive.'}
+          </p>
+          {sessionState === 'COMPLETED' && (
+            <button
+              type="button"
+              onClick={() => void reopenNow()}
+              disabled={pending || lifecycle !== null}
+              className={BUTTON_SECONDARY}
+            >
+              {lifecycle === 'reopen' ? 'Reopening…' : 'Reopen class'}
+            </button>
+          )}
+        </div>
       )}
     </section>
   )

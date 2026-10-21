@@ -198,24 +198,48 @@ describe('StudentClassPage', () => {
     expect(await screen.findByRole('img', { name: 'Slide 1' })).toBeTruthy()
   })
 
-  it('shows a finished class’s last slide but offers no live controls', async () => {
+  it('locks an ended class instead of showing its last slide', async () => {
     vi.mocked(loadClass).mockResolvedValue(classIn('COMPLETED'))
-    vi.mocked(loadSnapshot).mockResolvedValue(
-      makeSnapshot({
-        state: 'COMPLETED',
-        sceneId: 'ppt/slides/slide3.xml',
-        sectionIndex: 2,
-      }),
-    )
 
-    render(<StudentClassPage classId="class-1" />)
+    render(<StudentClassPage classId="class-1" followPollMs={30} />)
 
-    expect(await screen.findByRole('img', { name: 'Slide 3' })).toBeTruthy()
-    expect(screen.getByText(/class has ended/i)).toBeTruthy()
-    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Last slide · Slide 3 / 3')
-    expect(screen.queryByRole('button', { name: /previous|next/i })).toBeNull()
-    // A finished class is read, not joined.
+    expect(await screen.findByText(/lesson is locked until your teacher reopens it/i)).toBeTruthy()
+    // The ended class shows no lesson content at all: no slide, no text, no
+    // counter. The server refuses a student's snapshot/scenes reads with
+    // CLASS_ENDED, so the page does not even ask for them.
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByTestId('student-slide-counter')).toBeNull()
+    expect(loadClassScenes).not.toHaveBeenCalled()
+    expect(loadSnapshot).not.toHaveBeenCalled()
     expect(issueBootstrapToken).not.toHaveBeenCalled()
+  })
+
+  it('joins by itself when an ended class is reopened', async () => {
+    vi.mocked(loadClass)
+      .mockResolvedValueOnce(classIn('COMPLETED'))
+      .mockResolvedValue(ACTIVE)
+
+    render(<StudentClassPage classId="class-1" followPollMs={25} />)
+
+    expect(await screen.findByText(/lesson is locked until your teacher reopens it/i)).toBeTruthy()
+    // The metadata poll notices the reopen and joins the new epoch.
+    expect(await screen.findByRole('img', { name: 'Slide 1' })).toBeTruthy()
+    expect(issueBootstrapToken).toHaveBeenCalledWith('class-1')
+    expect(screen.getByTestId('student-slide-counter').textContent).toContain('Slide 1 / 3')
+  })
+
+  it('locks the lesson when the teacher ends a running class', async () => {
+    vi.mocked(loadClass).mockResolvedValueOnce(ACTIVE).mockResolvedValue(classIn('COMPLETED'))
+    vi.mocked(loadSnapshot)
+      .mockResolvedValueOnce(makeSnapshot())
+      .mockResolvedValue(makeSnapshot({ state: 'COMPLETED', sequence: 2 }))
+
+    render(<StudentClassPage classId="class-1" followPollMs={25} />)
+
+    expect(await screen.findByRole('img', { name: 'Slide 1' })).toBeTruthy()
+    expect(await screen.findByText(/lesson is locked until your teacher reopens it/i)).toBeTruthy()
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByTestId('student-slide-counter')).toBeNull()
   })
 
   it('says why a join was refused, and points back at the join page', async () => {

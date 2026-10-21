@@ -730,6 +730,12 @@ paths:
           description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'
         '404':
           description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'
+        '409':
+          description: >-
+            A student is reading an ended class (stable code CLASS_NOT_READY,
+            issue_code CLASS_ENDED). The class metadata and class list remain
+            readable so the student can see that it ended; the lesson itself is
+            locked until a teacher reopens it. Staff review reads by capability.
         '502':
           description: 'Stored snapshot fails validation (stable code STORAGE_FAILURE, issue_code SNAPSHOT_INVALID)'
   /classes/{classId}/navigate:
@@ -777,6 +783,77 @@ paths:
             ended (stable code CONFLICT, issue_code INVALID_TRANSITION), or the
             pinned lesson plan does not name the scene (stable code CONFLICT,
             issue_code INCOMPATIBLE_CONTENT)
+  /classes/{classId}/end:
+    post:
+      operationId: endClass
+      description: >-
+        End the class: `ACTIVE`/`DEGRADED` → `COMPLETED`; requires `class:write`.
+        The aggregate writes the final checkpoint and the completed state in one
+        snapshot, and the service revokes every outstanding join credential for the
+        session. The class then appears as **Ended** in the class list. Its lesson
+        is locked for students — the snapshot and the pinned scenes answer `409`
+        `CLASS_ENDED` — until a teacher reopens it; staff may still review it. A
+        command is idempotent by `command_id` and fenced by
+        `expected_state_version` (DEC-RUNTIME-003/DEC-RUNTIME-007). A refusal
+        writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClassLifecycleRequest'}
+      responses:
+        '200':
+          description: >-
+            The aggregate's verdict, the completed session and the durable final
+            snapshot. On a duplicate command `snapshot` is null.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassCommandResult'}
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+        '409':
+          description: >-
+            The class is not running (stable code CONFLICT, issue_code
+            INVALID_TRANSITION), or the caller's view is behind (stable code
+            CONFLICT, issue_code STALE_STATE_VERSION)
+  /classes/{classId}/reopen:
+    post:
+      operationId: reopenClass
+      description: >-
+        Reopen an ended class: `COMPLETED` → `ACTIVE`; requires `class:write`. It is
+        the **same class occurrence**: the roster and the pinned package are kept
+        (DEC-CONTENT-005), and the lesson returns to its first position so the class
+        can be taught again. A new actor epoch is started, so every join credential
+        and fenced command issued before the end is stale (DEC-RUNTIME-007). The
+        response carries the new snapshot; a teacher's stage can apply it. A refusal
+        writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClassLifecycleRequest'}
+      responses:
+        '200':
+          description: >-
+            The aggregate's verdict, the reopened session (new `actor_epoch`) and the
+            new snapshot at the first lesson position. On a duplicate command
+            `snapshot` is null.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassCommandResult'}
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+        '409':
+          description: >-
+            The class has not ended (stable code CONFLICT, issue_code
+            INVALID_TRANSITION), it has not started (stable code CLASS_NOT_READY,
+            issue_code NOT_STARTED), its pinned lesson plan is unusable (stable code
+            CONFLICT, issue_code INCOMPATIBLE_CONTENT), or the caller's view is behind
+            (stable code CONFLICT, issue_code STALE_STATE_VERSION)
   /classes/{classId}/scenes:
     get:
       operationId: listClassScenes
@@ -798,6 +875,7 @@ paths:
               schema: {$ref: '#/components/schemas/ClassSceneList'}
         '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'}
         '404': {description: 'Unknown class, or the class has not started (stable code NOT_FOUND)'}
+        '409': {description: 'A student is reading an ended class whose lesson is locked (stable code CLASS_NOT_READY, issue_code CLASS_ENDED)'}
         '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
   /classes/{classId}/scenes/{order}:
     get:
@@ -834,6 +912,7 @@ paths:
               schema: {type: string}
         '403': {description: 'Class belongs to another institution (stable code TENANT_ACCESS_DENIED), or a student is not on the class roster (stable code NOT_ENROLLED)'}
         '404': {description: 'Unknown class, the class has not started, or the pinned package has no such scene (stable code NOT_FOUND)'}
+        '409': {description: 'A student is reading an ended class whose lesson is locked (stable code CLASS_NOT_READY, issue_code CLASS_ENDED)'}
         '502': {description: 'A pinned file no longer matches the digest the package recorded (stable code STORAGE_FAILURE, issue_code SCENE_CHECKSUM_MISMATCH)'}
   /classes/{classId}/enrollments:
     post:
@@ -1513,6 +1592,24 @@ components:
           type: integer
           minimum: 0
           description: 'The pinned scene order from `GET /classes/{classId}/scenes`'
+        expected_state_version:
+          type: [integer, 'null']
+          minimum: 1
+          description: >-
+            Optional fence: the state version the caller is showing. A stale value
+            is refused (409 CONFLICT, issue_code STALE_STATE_VERSION).
+        command_id:
+          type: [string, 'null']
+          description: >-
+            Optional idempotency key (DEC-RUNTIME-003). A replay returns the stored
+            verdict with `duplicate: true` and no new snapshot.
+    ClassLifecycleRequest:
+      description: >-
+        The optional fence/idempotency fields of `end` and `reopen`. Neither command
+        has a content payload: the server resolves the final state, and for a reopen
+        the first lesson position, from the session's own pinned package.
+      type: object
+      properties:
         expected_state_version:
           type: [integer, 'null']
           minimum: 1

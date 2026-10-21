@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   describeApiError,
   listClasses,
+  reopenClass,
   startClass,
   type ClassSummary,
 } from '../api/client'
@@ -18,18 +19,10 @@ import {
   PAGE_PADDING,
   Panel,
   Row,
-  type Tone,
 } from '../components/ui'
 import { CLASSROOM_PATH, Link, adminPath, classroomPath, navigate } from '../router'
 import { describeSchedule, useNow } from '../time'
-
-const STATE_TONE: Record<string, Tone> = {
-  SCHEDULED: 'info',
-  PREPARING: 'warn',
-  ACTIVE: 'good',
-  DEGRADED: 'warn',
-  COMPLETED: 'neutral',
-}
+import { STATE_TONE, stateLabel } from './classState'
 
 /**
  * The one classroom hub — `/classroom` (V0-026).
@@ -60,7 +53,8 @@ export default function ClassroomHomePage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
   const [starting, setStarting] = useState<string | null>(null)
-  const [startError, setStartError] = useState<{ classId: string; message: string } | null>(null)
+  const [reopening, setReopening] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<{ classId: string; message: string } | null>(null)
 
   const student = isStudent(session)
   const canStart = hasScope(session, 'class:write')
@@ -106,7 +100,7 @@ export default function ClassroomHomePage() {
 
   async function start(item: ClassSummary): Promise<void> {
     setStarting(item.class_id)
-    setStartError(null)
+    setActionError(null)
     try {
       await startClass(session?.principal.institution_id ?? '', item.class_id)
       // The stage opens in auto-play mode. The start response itself is not the
@@ -115,9 +109,24 @@ export default function ClassroomHomePage() {
       // press by hand.
       navigate(`${classroomPath(item.class_id)}?autoplay=1`)
     } catch (cause) {
-      setStartError({ classId: item.class_id, message: describeApiError(cause) })
+      setActionError({ classId: item.class_id, message: describeApiError(cause) })
     } finally {
       setStarting(null)
+    }
+  }
+
+  async function reopen(item: ClassSummary): Promise<void> {
+    setReopening(item.class_id)
+    setActionError(null)
+    try {
+      await reopenClass(item.class_id)
+      // Reopening keeps the class id, its roster and its pinned content; the
+      // stage opens at the first slide and plays it when the URL asks for it.
+      navigate(`${classroomPath(item.class_id)}?autoplay=1`)
+    } catch (cause) {
+      setActionError({ classId: item.class_id, message: describeApiError(cause) })
+    } finally {
+      setReopening(null)
     }
   }
 
@@ -180,14 +189,14 @@ export default function ClassroomHomePage() {
             const finished = item.state === 'COMPLETED'
             const scheduled = item.state === 'SCHEDULED' || item.state === 'PREPARING'
             const localError =
-              startError?.classId === item.class_id ? startError.message : null
+              actionError?.classId === item.class_id ? actionError.message : null
 
             return (
               <Panel
                 key={item.class_id}
                 title={item.title}
                 actions={
-                  <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{item.state}</Badge>
+                  <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{stateLabel(item.state)}</Badge>
                 }
               >
                 <dl className="space-y-1 text-sm">
@@ -219,13 +228,26 @@ export default function ClassroomHomePage() {
                   </Link>
                 )}
 
-                {finished && canView && (
+                {finished && canView && !student && (
                   <Link
                     to={classroomPath(item.class_id)}
                     className={`${BUTTON_SECONDARY} mt-3 w-full sm:w-auto`}
                   >
-                    View the last slide
+                    Review last slide
                   </Link>
+                )}
+
+                {finished && canStart && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void reopen(item)}
+                      disabled={reopening !== null}
+                      className={`${BUTTON_PRIMARY} w-full sm:w-auto`}
+                    >
+                      {reopening === item.class_id ? 'Reopening…' : 'Reopen class'}
+                    </button>
+                  </div>
                 )}
 
                 {scheduled && canStart && (
@@ -255,16 +277,41 @@ export default function ClassroomHomePage() {
                   </p>
                 )}
 
-                {finished && !student && (
+                {finished && canStart && (
                   <p className="mt-3 text-xs text-slate-500">
-                    The session is over. The last slide remains readable from the pinned package.
+                    The session is over and students are locked out of the lesson until you
+                    reopen it. Reopening keeps the roster and the pinned slides and starts again
+                    from the first slide; you can also{' '}
+                    <Link
+                      to={adminPath('classes')}
+                      className="font-medium text-indigo-700 hover:underline"
+                    >
+                      schedule a new class
+                    </Link>
+                    .
+                  </p>
+                )}
+
+                {finished && !student && !canStart && (
+                  <p className="mt-3 text-xs text-slate-500">
+                    The session is over and its students are locked out of the lesson. A teacher
+                    reopens it, or a new class is scheduled.
+                  </p>
+                )}
+
+                {finished && student && (
+                  <p
+                    role="status"
+                    className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                  >
+                    This class has ended. It is locked until your teacher reopens it.
                   </p>
                 )}
 
                 {!running && !finished && !scheduled && (
                   <p className="mt-3 text-sm text-slate-600">
-                    This class is {item.state}. A teacher can open the classroom when the session
-                    is running.
+                    This class is {stateLabel(item.state)}. A teacher can open the classroom when
+                    the session is running.
                   </p>
                 )}
               </Panel>

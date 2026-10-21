@@ -36,15 +36,8 @@ import {
   INPUT_CLASS,
   Panel,
   Row,
-  type Tone,
 } from '../components/ui'
-
-const STATE_TONE: Record<string, Tone> = {
-  SCHEDULED: 'info',
-  PREPARING: 'warn',
-  ACTIVE: 'good',
-  COMPLETED: 'neutral',
-}
+import { STATE_TONE, stateLabel } from '../classroom/classState'
 
 /**
  * Classes and their enrolments — the admin view.
@@ -482,7 +475,7 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
                         </span>
                       )}
                     </span>
-                    <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{item.state}</Badge>
+                    <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{stateLabel(item.state)}</Badge>
                   </button>
                 </li>
               )
@@ -550,7 +543,7 @@ export default function ClassesAdmin({ institutionId }: { institutionId: string 
               <dl className="space-y-1 text-sm">
                 <Row label="Class">{detail.class.class_id}</Row>
                 <Row label="Course">{detail.class.course_id}</Row>
-                <Row label="State">{detail.class.state}</Row>
+                <Row label="State">{stateLabel(detail.class.state)}</Row>
                 <Row label="Version">{detail.class.version_id ?? 'current published'}</Row>
                 <Row label="Scheduled for">
                   {detail.class.scheduled_for

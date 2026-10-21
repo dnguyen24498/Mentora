@@ -8,6 +8,11 @@ Routes (``contracts/openapi/openapi.yaml``):
 * ``POST /classes/{classId}/start`` — ``SCHEDULED -> ACTIVE``; resolves and pins the
   exact version tuple once and commits the initial snapshot with it. Idempotent: a
   replay returns the same session with ``created: false``.
+* ``POST /classes/{classId}/navigate`` — move to a pinned slide (teacher).
+* ``POST /classes/{classId}/end`` — ``ACTIVE/DEGRADED -> COMPLETED``; locks the
+  lesson for students and revokes their join credentials.
+* ``POST /classes/{classId}/reopen`` — ``COMPLETED -> ACTIVE``; runs the same
+  class occurrence again from the first slide, in a new actor epoch.
 * ``GET  /classes/{classId}/snapshot`` — the authoritative snapshot, checksum-validated.
 * ``GET  /classes/{classId}/scenes`` — the slide list of the package the session
   pinned, with each slide's text (navigation + narration).
@@ -61,6 +66,17 @@ class NavigateRequest(BaseModel):
     """
 
     order: int
+    expected_state_version: Optional[int] = None
+    command_id: Optional[str] = None
+
+
+class LifecycleRequest(BaseModel):
+    """The optional fencing/idempotency fields of end and reopen.
+
+    Neither command has a payload beyond the fence: the server resolves the end
+    state and, for a reopen, the first lesson position from the pinned package.
+    """
+
     expected_state_version: Optional[int] = None
     command_id: Optional[str] = None
 
@@ -157,10 +173,13 @@ def build_class_router(
         """The authoritative snapshot (checksum + schema validated before returned).
 
         The student view polls this to follow the teacher's slide, so a student's
-        read is checked against the class roster first (``403 NOT_ENROLLED``).
+        read is checked against the class roster first (``403 NOT_ENROLLED``) and
+        then against the session state: a completed class is locked
+        (``409 CLASS_NOT_READY``, ``CLASS_ENDED``) until a teacher reopens it.
+        Staff read by capability, so a teacher can review an ended class.
         """
 
-        service.require_enrollment(
+        service.require_student_content_access(
             principal.institution_id, class_id, student_id=_student_id(principal)
         )
         return service.get_snapshot(principal.institution_id, class_id).to_dict()
@@ -201,6 +220,72 @@ def build_class_router(
             )
         return outcome.to_dict()
 
+    @router.post("/classes/{class_id}/end")
+    def end_class(
+        class_id: str,
+        body: Optional[LifecycleRequest] = None,
+        principal: Principal = Depends(require(Scope.CLASS_WRITE)),
+    ) -> dict[str, Any]:
+        """End the class: ``ACTIVE/DEGRADED -> COMPLETED``.
+
+        The teacher's close action. The aggregate writes the final checkpoint and
+        the completed state in one snapshot, and the service revokes the session's
+        join credentials. The lesson is then **locked** for students — they may
+        still see that the class ended in their list, but the snapshot and the
+        pinned slides are refused (``409 CLASS_NOT_READY``, ``CLASS_ENDED``) until
+        a teacher reopens it. A teacher can still review the last slide.
+
+        ``409 CONFLICT`` with ``issue_code`` ``INVALID_TRANSITION`` when the class
+        is not running; a refusal writes nothing.
+        """
+
+        request = body or LifecycleRequest()
+        outcome = service.end_class(
+            principal.institution_id,
+            class_id,
+            command_id=request.command_id,
+            expected_state_version=request.expected_state_version,
+        )
+        if not outcome.result.accepted:
+            raise ClassCommandError(
+                "the class cannot be ended now",
+                issue_code=outcome.result.issue_code or "INVALID_TRANSITION",
+            )
+        return outcome.to_dict()
+
+    @router.post("/classes/{class_id}/reopen")
+    def reopen_class(
+        class_id: str,
+        body: Optional[LifecycleRequest] = None,
+        principal: Principal = Depends(require(Scope.CLASS_WRITE)),
+    ) -> dict[str, Any]:
+        """Reopen an ended class: ``COMPLETED -> ACTIVE``.
+
+        Keeps the class's roster and its **pinned** package and returns the lesson
+        to its first position, so the same occurrence can be taught again. A new
+        actor epoch is started, which makes every credential and fenced command
+        from before the end stale (``DEC-RUNTIME-007``). The response is the new
+        snapshot; the teacher's stage can apply it and continue.
+
+        ``409 CONFLICT`` with ``issue_code`` ``INVALID_TRANSITION`` when the class
+        has not ended; ``409 CLASS_NOT_READY``/``NOT_STARTED`` before its first
+        start. A refusal writes nothing.
+        """
+
+        request = body or LifecycleRequest()
+        outcome = service.reopen_class(
+            principal.institution_id,
+            class_id,
+            command_id=request.command_id,
+            expected_state_version=request.expected_state_version,
+        )
+        if not outcome.result.accepted:
+            raise ClassCommandError(
+                "the class cannot be reopened now",
+                issue_code=outcome.result.issue_code or "INVALID_TRANSITION",
+            )
+        return outcome.to_dict()
+
     @router.get("/classes/{class_id}/scenes")
     def list_scenes(
         class_id: str, principal: Principal = Depends(require(Scope.SCENE_READ))
@@ -210,11 +295,12 @@ def build_class_router(
         A student page uses it to gather the text of the slide the teacher is on;
         the *renders* are fetched one at a time by ``GET .../scenes/{order}``, so
         opening a lesson does not read every asset. A student's read is limited to
-        their own roster. Both resolve the session's own pinned plan, so neither can
+        their own roster, and to a running session — an ended class is locked until
+        reopened. Both resolve the session's own pinned plan, so neither can
         drift to a newer publication (``DEC-CONTENT-005``).
         """
 
-        service.require_enrollment(
+        service.require_student_content_access(
             principal.institution_id, class_id, student_id=_student_id(principal)
         )
         plan, scenes = service.pinned_scenes(principal.institution_id, class_id)
@@ -236,12 +322,13 @@ def build_class_router(
 
         Resolved from the session's own ``RuntimeSessionPlan``, so a correction
         published after the start does not change what this class sees
-        (``DEC-CONTENT-005``). A student's read is limited to their own roster.
+        (``DEC-CONTENT-005``). A student's read is limited to their own roster and
+        a running session (an ended class is locked until reopened).
         ``404`` when the class has not started or the package has no such scene;
         ``502`` when the pinned bytes no longer match their recorded digest.
         """
 
-        service.require_enrollment(
+        service.require_student_content_access(
             principal.institution_id, class_id, student_id=_student_id(principal)
         )
         scene = service.pinned_scene(principal.institution_id, class_id, order)
