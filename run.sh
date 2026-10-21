@@ -81,6 +81,11 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Checked before anything is stopped, so a bad flag never touches a running stack.
+if [ "$FRONTEND_PORT" = "$BACKEND_PORT" ]; then
+  fail "frontend and backend cannot share port $FRONTEND_PORT. Pick another -p/--port (or move the backend with --backend-port)."
+fi
+
 # --- process discovery -----------------------------------------------------
 # Command-line matching is the precise test. It is not sufficient on its own:
 # uvicorn --reload spawns its worker (and a multiprocessing resource tracker)
@@ -92,12 +97,17 @@ done
 pid_cmdline() {
   if [ -r "/proc/$1/cmdline" ]; then
     tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null || true
+  else
+    ps -o args= -p "$1" 2>/dev/null || true
   fi
 }
 
 pid_cwd() {
   if [ -e "/proc/$1/cwd" ]; then
     readlink -f "/proc/$1/cwd" 2>/dev/null || true
+  elif command -v lsof >/dev/null 2>&1; then
+    # macOS: no /proc, so ask lsof for the cwd descriptor.
+    lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
   fi
 }
 
@@ -112,13 +122,11 @@ pids_on_port() {
 
 # Print the given PIDs plus every descendant of them (de-duplicated).
 with_descendants() {
-  local -a queue=()
-  local -A seen=()
-  local pid child index=0
+  local queue=() seen=" " pid child index=0
 
   for pid in "$@"; do
-    if [ -n "$pid" ] && [ -z "${seen[$pid]:-}" ]; then
-      seen["$pid"]=1
+    if [ -n "$pid" ] && [[ "$seen" != *" $pid "* ]]; then
+      seen="$seen$pid "
       queue+=("$pid")
     fi
   done
@@ -126,13 +134,13 @@ with_descendants() {
     pid="${queue[$index]}"
     index=$((index + 1))
     while read -r child; do
-      if [ -n "$child" ] && [ -z "${seen[$child]:-}" ]; then
-        seen["$child"]=1
+      if [ -n "$child" ] && [[ "$seen" != *" $child "* ]]; then
+        seen="$seen$child "
         queue+=("$child")
       fi
     done < <(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$pid" '$2 == parent { print $1 }')
   done
-  printf '%s\n' "${queue[@]}"
+  if [ "${#queue[@]}" -gt 0 ]; then printf '%s\n' "${queue[@]}"; fi
 }
 
 matches_our_command_line() {
@@ -170,7 +178,7 @@ collect_targets() {
   done < <(ps -eo pid=,args= 2>/dev/null)
 
   # Multiprocessing children count as ours only when they run from backend/.
-  for pid in "${spawned[@]}"; do
+  for pid in ${spawned[@]+"${spawned[@]}"}; do
     if [ "$(pid_cwd "$pid")" = "$BACKEND_DIR" ]; then
       seeds+=("$pid")
     fi
@@ -314,7 +322,12 @@ start_server() {
   local role="$1" dir="$2"
   shift 2
   # `setsid` keeps the pid (it is not a group leader), so $! is also the PGID.
-  ( cd "$dir" && exec setsid "$@" ) &
+  # macOS has no setsid(1); python3's os.setsid() + exec does the same thing.
+  if command -v setsid >/dev/null 2>&1; then
+    ( cd "$dir" && exec setsid "$@" ) &
+  else
+    ( cd "$dir" && exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@" ) &
+  fi
   pids+=("$!")
   roles+=("$role")
 }
@@ -324,13 +337,13 @@ cleanup() {
   printf '\n'
   log "stopping servers..."
   local pid
-  for pid in "${pids[@]:-}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     [ -n "$pid" ] || continue
     # Negative pid = the whole process group (the server plus its children).
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   done
   sleep 0.5
-  for pid in "${pids[@]:-}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     [ -n "$pid" ] || continue
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
   done
@@ -370,8 +383,20 @@ if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )
   wait -n -p exited_pid || status=$?
   # Defensive: `wait -p` leaves the variable unset if a trap interrupted it.
   exited_pid="${exited_pid:-}"
-else
+elif (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )); then
   wait -n || status=$?
+else
+  # bash 3.2 (macOS /bin/bash) has no `wait -n`: poll until one server is gone.
+  while [ -z "$exited_pid" ]; do
+    for pid in "${pids[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        exited_pid="$pid"
+        wait "$pid" || status=$?
+        break
+      fi
+    done
+    [ -n "$exited_pid" ] || sleep 1
+  done
 fi
 
 role="a server"
