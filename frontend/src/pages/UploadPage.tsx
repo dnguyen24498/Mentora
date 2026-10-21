@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ContentIrView from '../components/ContentIrView'
-import SiteNav from '../components/SiteNav'
+import PageHeader from '../components/PageHeader'
 import { BUTTON_PRIMARY, BUTTON_SMALL, INPUT_CLASS, PANEL_PADDING } from '../components/ui'
 import { Link, classroomPath, studioPath } from '../router'
 import {
@@ -258,37 +258,21 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <SiteNav current="library" artifactId={selectedId ?? navArtifactId} />
-            <span className="ml-auto text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Mentora
-            </span>
-          </div>
-          <h1 className="mt-3 text-lg font-semibold sm:text-xl">Mentora — Upload Course Material</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Upload a PowerPoint <code className="rounded bg-slate-100 px-1">.pptx</code> file: it is validated,
-            stored immutably, recorded in SQLite, and can be structurally extracted.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        nav="library"
+        title="Upload Course Material"
+        subtitle="Mentora"
+        artifactId={selectedId ?? navArtifactId}
+        institution={institution}
+        onInstitutionChange={setInstitution}
+      />
 
       <main className="mx-auto grid grid-cols-1 max-w-7xl gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8 md:grid-cols-[360px_minmax(0,1fr)]">
+        <p className="text-sm text-slate-500 md:col-span-2">
+          Upload a PowerPoint <code className="rounded bg-slate-100 px-1">.pptx</code> file: it is
+          validated, stored immutably, recorded in SQLite, and can be structurally extracted.
+        </p>
         <section className={`space-y-5 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm`}>
-          <div>
-            <label className="block text-sm font-medium text-slate-700" htmlFor="institution">
-              Institution ID
-            </label>
-            <input
-              id="institution"
-              value={institution}
-              onChange={(event) => setInstitution(event.target.value)}
-              className={`mt-1 ${INPUT_CLASS}`}
-            />
-            <p className="mt-1 text-xs text-slate-400">Sent as the X-Institution-Id tenant header.</p>
-          </div>
-
           <div>
             <label className="block text-sm font-medium text-slate-700" htmlFor="course">
               Course

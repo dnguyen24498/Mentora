@@ -13,6 +13,7 @@ import {
   Banner,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
+  BUTTON_SMALL,
   EmptyState,
   PAGE_PADDING,
   Panel,
@@ -129,11 +130,12 @@ export default function ClassroomHomePage() {
         institution={session?.principal.institution_id ?? ''}
         onInstitutionChange={() => undefined}
         institutionEditable={false}
-      >
-        <button type="button" onClick={() => void load()} className={BUTTON_SECONDARY}>
-          Refresh
-        </button>
-      </PageHeader>
+        actions={
+          <button type="button" onClick={() => void load()} className={BUTTON_SMALL}>
+            Refresh
+          </button>
+        }
+      />
 
       <main className={`mx-auto grid max-w-4xl grid-cols-1 gap-5 ${PAGE_PADDING}`}>
         <Banner tone="info">

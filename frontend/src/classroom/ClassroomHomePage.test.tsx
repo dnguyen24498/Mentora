@@ -153,6 +153,19 @@ describe('ClassroomHomePage (V0-026)', () => {
     expect(screen.queryByRole('button', { name: 'Start class' })).toBeNull()
   })
 
+  it('puts Refresh in the app bar actions, not in a stray second row', async () => {
+    signIn('teacher')
+    vi.mocked(listClasses).mockResolvedValue([])
+
+    render(<ClassroomHomePage />)
+
+    const refresh = await screen.findByRole('button', { name: 'Refresh' })
+    // The actions slot is the tenant group: the page action belongs beside the
+    // institution field, as on every other page — not under the header.
+    const actions = refresh.parentElement
+    expect(actions?.contains(screen.getByLabelText('Institution'))).toBe(true)
+  })
+
   it('explains an empty roster rather than showing a blank page', async () => {
     signIn('student')
     vi.mocked(listClasses).mockResolvedValue([])

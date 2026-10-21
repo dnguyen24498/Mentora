@@ -86,13 +86,16 @@ a second monitor) and is **usable on a phone** without becoming a second design:
 every page is one mobile-first layout, so the large screen still gets the dense
 layout it had.
 
-`src/components/PageHeader.tsx` is the app bar the five full pages share — the
+`src/components/PageHeader.tsx` is the one app bar **every** full page shares — the
 shared nav, the page's name, an optional qualifier (a filename, a class) and
-identifier, the tenant field, and the page's own action or section tabs. The tenant
-field is a **prop**, not state inside the header: the page keeps the single
-`useInstitution()` hook, so a change in the bar flows to the page instead of into a
-private copy. On a phone the bar stacks (nav → title → tenant field); from `lg` up
-the pieces return to the one-row bar.
+identifier, the tenant field, and the page's own action or section tabs. The
+library used to centre its own header in a narrower column, so moving to it shifted
+the whole nav; the bar now covers the full width on every page and the nav starts
+at the same place everywhere (the library's description is page content, below the
+bar, not a second header row). The tenant field is a **prop**, not state inside the
+header: the page keeps the single `useInstitution()` hook, so a change in the bar
+flows to the page instead of into a private copy. On a phone the bar stacks (nav →
+title → tenant field); from `lg` up the pieces return to the one-row bar.
 
 The rules live in `src/components/ui.tsx` as plain class-string tokens
 (`TOUCH_TARGET`, `PAGE_PADDING`, `PANEL_PADDING`, `INPUT_CLASS`,
@@ -117,7 +120,10 @@ The rules live in `src/components/ui.tsx` as plain class-string tokens
   `minmax(0, 1fr)`, whose floor is 0, so the value ellipsises instead. A column
   declaration that only exists behind a variant (`md:grid-cols-2`) does *not*
   count. `src/responsive.test.ts` is a source scan for exactly this, because jsdom
-  has no layout engine.
+  has no layout engine. `src/appbar.test.ts` does the same for the **one app bar**
+  rule: only `PageHeader` may mount `SiteNav`, and only the public sign-in page may
+  grow its own `<header>`, because a page that bypasses the bar shifts the whole
+  navigation.
 - The teaching canvas draws at the screen's **device pixel ratio**, so a stroke on
   a phone is sharp instead of an upscaled CSS-pixel bitmap. Strokes are stored in
   CSS pixels either way, so the scale only affects the paint.
@@ -189,8 +195,8 @@ refresh works in single-origin mode too.
 
 ## What it does
 
-- Takes an **Institution ID** (sent as the `X-Institution-Id` tenant header,
-  persisted in `localStorage`).
+- Takes an **Institution ID** from the shared bar (sent as the `X-Institution-Id`
+  tenant header, persisted in `localStorage`).
 - Lists the tenant's courses (`GET /courses`) and can create one (`POST /courses`).
 - Lists the selected course's already-uploaded presentations
   (`GET /courses/{id}/materials`) with size, version and job status, and lets you
