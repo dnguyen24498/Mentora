@@ -62,6 +62,11 @@ class Settings:
     admin_bootstrap: bool = True
     #: How long an issued session token stays valid (short-lived, least privilege).
     session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS
+    #: The speech provider (``MENTORA_TTS_PROVIDER``). The default is the
+    #: deterministic neutral mock; ``omnivoice`` is an opt-in **prototype** that
+    #: calls a local OmniVoice sidecar (``MENTORA_OMNIVOICE_URL``). DEC-TECH-007
+    #: is OPEN, so neither is a decided provider.
+    tts_provider: str = "neutral-deterministic"
 
     @classmethod
     def from_env(cls, base_dir: Path | str | None = None) -> "Settings":
@@ -79,4 +84,6 @@ class Settings:
             session_ttl_seconds=int(
                 os.environ.get("MENTORA_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)
             ),
+            tts_provider=os.environ.get("MENTORA_TTS_PROVIDER", "neutral-deterministic").strip()
+            or "neutral-deterministic",
         )

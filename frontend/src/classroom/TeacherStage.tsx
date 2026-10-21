@@ -314,6 +314,8 @@ export default function TeacherStage({
             Voice: {describeNarration(narration.status, isPlaying)}
             {narration.provider === 'neutral-deterministic' &&
               ' · neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is OPEN)'}
+            {narration.provider === 'omnivoice' &&
+              ' · OmniVoice local prototype (not a decided provider; DEC-TECH-007 is OPEN)'}
           </span>
           {narration.status === 'blocked' && (
             <button type="button" onClick={narration.enable} className={BUTTON_SECONDARY}>

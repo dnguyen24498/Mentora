@@ -31,7 +31,9 @@ from app.speech.telemetry import SpeechTelemetry
 
 #: The one provider V0 runs with: dependency-free, deterministic, local.
 PROVIDER_DETERMINISTIC = "neutral-deterministic"
-SPEECH_PROVIDERS: tuple[str, ...] = (PROVIDER_DETERMINISTIC,)
+#: Opt-in prototype (DEC-TECH-007 is OPEN): a local OmniVoice sidecar over HTTP.
+PROVIDER_OMNIVOICE = "omnivoice"
+SPEECH_PROVIDERS: tuple[str, ...] = (PROVIDER_DETERMINISTIC, PROVIDER_OMNIVOICE)
 DEFAULT_SPEECH_PROVIDER = PROVIDER_DETERMINISTIC
 
 
@@ -57,6 +59,10 @@ def create_speech_provider(
 
     if name == PROVIDER_DETERMINISTIC:
         return DeterministicSpeechProvider(config)
+    if name == PROVIDER_OMNIVOICE:
+        from app.providers.omnivoice import OmniVoiceSpeechProvider
+
+        return OmniVoiceSpeechProvider(config=config)
     raise UnknownSpeechProviderError(name)
 
 
@@ -144,6 +150,7 @@ __all__ = [
     "IDENTITY_PROVIDERS",
     "PROVIDER_DETERMINISTIC",
     "PROVIDER_LOCAL_CREDENTIALS",
+    "PROVIDER_OMNIVOICE",
     "SPEECH_PROVIDERS",
     "LocalCredentialAuthenticator",
     "UnknownIdentityProviderError",

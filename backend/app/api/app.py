@@ -178,7 +178,7 @@ def create_app(
     # Timeline narration (V0-013). DEC-TECH-007 (TTS/OmniVoice) is OPEN, so the
     # speech service wires the provider-neutral port to its deterministic local
     # adapter; a decided provider is one registry entry in app/providers/factory.py.
-    speech_service = build_speech_service()
+    speech_service = build_speech_service(settings.tts_provider)
     timeline_service = TimelineService(classroom_service, speech_service)
 
     app = FastAPI(title="Mentora API", version="1.0.0")
