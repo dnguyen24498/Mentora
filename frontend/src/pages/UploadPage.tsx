@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ContentIrView from '../components/ContentIrView'
 import SiteNav from '../components/SiteNav'
 import { BUTTON_PRIMARY, BUTTON_SMALL, INPUT_CLASS, PANEL_PADDING } from '../components/ui'
-import { Link, classroomPath, learnPath, studioPath } from '../router'
+import { Link, classroomPath, studioPath } from '../router'
 import {
   ApiError,
   createCourse,
@@ -74,8 +74,8 @@ export default function UploadPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // The deck the shared nav links to. It is the one the teacher opened, or — on a
   // first visit, before anything has been opened — the newest deck in the course,
-  // so Studio and Learn are usable straight away instead of pointing at the
-  // library the teacher is already on.
+  // so Studio is usable straight away instead of pointing at the library the
+  // teacher is already on.
   const [navArtifactId, setNavArtifactId] = useState<string>(() => readSelectedArtifact())
   const [ir, setIr] = useState<ContentIR | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -86,8 +86,8 @@ export default function UploadPage() {
     writeSelectedCourse(courseId)
   }, [courseId])
 
-  // Remember the deck so the shared nav can reach its Studio and Learn pages
-  // from anywhere else.
+  // Remember the deck so the shared nav can reach its Studio page from anywhere
+  // else.
   useEffect(() => {
     if (!selectedId) return
     writeSelectedArtifact(selectedId)
@@ -484,13 +484,6 @@ export default function UploadPage() {
                   Open Teacher Studio
                 </Link>
               </div>
-              {/* The learning page: the slide plus the teaching canvas. */}
-              <Link
-                to={learnPath(selected.artifact_id)}
-                className="flex min-h-11 items-center justify-center rounded-lg border border-indigo-600 px-4 py-2.5 text-center text-sm font-semibold text-indigo-700 hover:bg-indigo-50 lg:min-h-0 lg:py-2"
-              >
-                Open learning page
-              </Link>
               <p className="text-[11px] text-slate-400">
                 <a
                   href={studioPath(selected.artifact_id)}

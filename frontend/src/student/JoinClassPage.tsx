@@ -21,7 +21,7 @@ import {
   TOUCH_TARGET,
   type Tone,
 } from '../components/ui'
-import { LIBRARY_PATH, Link, classroomPath, loginPath, navigate, studentPath } from '../router'
+import { LIBRARY_PATH, Link, classroomPath, loginPath, navigate } from '../router'
 
 const STATE_TONE: Record<string, Tone> = {
   SCHEDULED: 'info',
@@ -103,7 +103,7 @@ export default function JoinClassPage({ classId }: { classId: string }) {
       // Ask for the credential first: it is what proves the join is authorized,
       // and asking here means the student view never opens on a refusal.
       await issueBootstrapToken(classId)
-      navigate(studentPath(classId))
+      navigate(classroomPath(classId))
     } catch (cause) {
       setJoinError(describeApiError(cause))
     } finally {
@@ -212,7 +212,7 @@ export default function JoinClassPage({ classId }: { classId: string }) {
             )}
             {canJoin && running && (
               <p className="mt-2 text-[11px] text-slate-400">
-                Prefer the teacher's view?{' '}
+                Want to skip ahead?{' '}
                 <Link to={classroomPath(classId)} className={`text-indigo-700 hover:underline ${TOUCH_TARGET}`}>
                   Open the classroom
                 </Link>

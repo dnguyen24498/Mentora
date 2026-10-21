@@ -1,15 +1,13 @@
 import {
   Link,
   LIBRARY_PATH,
+  CLASSROOM_PATH,
   adminPath,
-  classroomPath,
-  learnPath,
   settingsPath,
   studioPath,
   loginPath,
-  STUDENT_PATH,
 } from '../router'
-import { readSelectedArtifact, readSelectedClass } from '../institution'
+import { readSelectedArtifact } from '../institution'
 import { TOUCH_TARGET } from './ui'
 import {
   clearSession,
@@ -24,17 +22,17 @@ import { logout } from '../api/client'
 /**
  * The app's page-to-page navigation (V0 frontend).
  *
- * Every page embeds it in its own header, so Library, Teacher Studio, Classroom
- * and Learning are reachable from each other without going back to the library
+ * Every page embeds it in its own header, so Library, Teacher Studio and the
+ * Classroom hub are reachable from each other without going back to the library
  * first. It is deliberately dependency-free and small, like the router.
  *
- * Studio, Classroom and Learn are scoped by an id (a deck or a class). The id is
- * only known once the teacher has opened something — the current page passes
- * the one it holds, otherwise the last one opened is remembered
- * (`institution.ts`). With no id yet, the entry still goes somewhere real: the
- * Library for a deck (where the deck is chosen) and Admin → Classes for a class
- * (where it is chosen and started). A disabled label looked like a broken page;
- * the chooser is the honest destination and needs no id.
+ * Studio is scoped by a deck id. The id is only known once the teacher has
+ * opened something — the current page passes the one it holds, otherwise the
+ * last one opened is remembered (`institution.ts`). With no id yet, the entry
+ * still goes somewhere real: the Library, where the deck is chosen. A disabled
+ * label looked like a broken page; the chooser is the honest destination and
+ * needs no id. The Classroom entry is the hub at `/classroom`; the person picks
+ * the class there, so the nav never has to guess the last one.
  *
  * Two things were added for identities (V0-021):
  *
@@ -80,9 +78,9 @@ export type SiteNavPage =
 export interface SiteNavProps {
   /** The page being viewed, so it can be marked `aria-current`. */
   current: SiteNavPage
-  /** The deck this page is about, if it has one (Studio, Learn). */
+  /** The deck this page is about, if it has one (Studio). */
   artifactId?: string | null
-  /** The class this page is about, if it has one (Classroom, Join, Student). */
+  /** The class this page is about, if it has one (Join, Student). */
   classId?: string | null
 }
 
@@ -124,30 +122,23 @@ function NavEntry({ to, label, current, hint }: NavEntryProps) {
   )
 }
 
-export default function SiteNav({ current, artifactId, classId }: SiteNavProps) {
+export default function SiteNav({ current, artifactId }: SiteNavProps) {
   const session = useSession()
   const signedIn = isSignedIn(session)
   const artifact = artifactId || readSelectedArtifact()
-  const klass = classId || readSelectedClass()
   const student = isStudent(session)
+  const inClassroom =
+    current === 'classroom' || current === 'student-home' || current === 'student'
 
   return (
     <nav aria-label="Pages" className="flex flex-wrap items-center gap-1.5 sm:gap-1">
       {student ? (
-        <>
-          <NavEntry
-            to={STUDENT_PATH}
-            label="My classes"
-            current={current === 'student-home'}
-            hint="The classes your teacher assigned you"
-          />
-          <NavEntry
-            to={klass ? `/student/${encodeURIComponent(klass)}` : STUDENT_PATH}
-            label="Attend"
-            current={current === 'student'}
-            hint="Choose one of your classes to attend"
-          />
-        </>
+        <NavEntry
+          to={CLASSROOM_PATH}
+          label="Classroom"
+          current={inClassroom}
+          hint="Your classes and the one running now"
+        />
       ) : (
         <>
           {hasScope(session, 'content:read') && (
@@ -170,28 +161,12 @@ export default function SiteNav({ current, artifactId, classId }: SiteNavProps) 
               }
             />
           )}
-          {hasScope(session, 'class:write') && (
+          {hasScope(session, 'class:read') && (
             <NavEntry
-              to={klass ? classroomPath(klass) : adminPath('classes')}
+              to={CLASSROOM_PATH}
               label="Classroom"
-              current={current === 'classroom'}
-              hint={
-                klass
-                  ? 'Open this class'
-                  : 'Choose or schedule a class in Admin → Classes'
-              }
-            />
-          )}
-          {hasScope(session, 'scene:read') && (
-            <NavEntry
-              to={artifact ? learnPath(artifact) : LIBRARY_PATH}
-              label="Learn"
-              current={current === 'learn'}
-              hint={
-                artifact
-                  ? 'Open the learning page for this deck'
-                  : 'Choose a deck in the Library to open its learning page'
-              }
+              current={inClassroom}
+              hint="All classes, and the one to start or open"
             />
           )}
           <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-slate-200" />

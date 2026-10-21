@@ -40,11 +40,15 @@ describe('parseRoute', () => {
     expect(parseRoute('/studio/a%20b')).toEqual({ name: 'studio', artifactId: 'a b' })
   })
 
+  it('maps /classroom to the classroom hub', () => {
+    expect(parseRoute('/classroom')).toEqual({ name: 'classroom-home' })
+    expect(parseRoute('/classroom/')).toEqual({ name: 'classroom-home' })
+  })
+
   it('falls back to not-found for anything else, including an empty studio id', () => {
     expect(parseRoute('/studio')).toEqual({ name: 'not-found', path: '/studio' })
     expect(parseRoute('/studio/')).toEqual({ name: 'not-found', path: '/studio' })
     expect(parseRoute('/studio/a/b')).toEqual({ name: 'not-found', path: '/studio/a/b' })
-    expect(parseRoute('/classroom')).toEqual({ name: 'not-found', path: '/classroom' })
     expect(parseRoute('/nope')).toEqual({ name: 'not-found', path: '/nope' })
   })
 

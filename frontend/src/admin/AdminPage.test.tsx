@@ -245,16 +245,13 @@ describe('AdminPage — courses and materials', () => {
     expect(await screen.findByText('chapter-8.pptx')).toBeTruthy()
     expect(screen.getByText('EXTRACTED')).toBeTruthy()
     expect(screen.getByLabelText('New course title')).toBeTruthy()
-    // The nav also carries a Studio/Learn entry (a chooser before an id exists),
-    // so assert the deck rows' own links are among them.
+    // The nav no longer carries a Learn entry (V0-026); the deck row keeps Studio,
+    // and the materials table is where the teacher acts on a deck.
     const studioHrefs = screen
       .getAllByRole('link', { name: 'Studio' })
       .map((link) => link.getAttribute('href'))
-    const learnHrefs = screen
-      .getAllByRole('link', { name: 'Learn' })
-      .map((link) => link.getAttribute('href'))
     expect(studioHrefs).toContain(`/studio/${ARTIFACT}`)
-    expect(learnHrefs).toContain(`/learn/${ARTIFACT}`)
+    expect(screen.queryByRole('link', { name: 'Learn' })).toBeNull()
     // There is no rename or delete: an artifact is immutable.
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /rename/i })).toBeNull()

@@ -10,8 +10,9 @@ import {
  * A dependency-free client-side router.
  *
  * Four real pages: the material library at `/`, the Teacher Studio at
- * `/studio/{artifactId}`, the Classroom at `/classroom/{classId}` and the
- * learning page at `/learn/{artifactId}`; plus two sectioned areas,
+ * `/studio/{artifactId}`, the Classroom hub at `/classroom` with one class at
+ * `/classroom/{classId}`, and the legacy deck rehearsal page at
+ * `/learn/{artifactId}`; plus two sectioned areas,
  * `/admin/{section}` (create/read management of the V0 entities) and
  * `/settings/{section}` (client preferences and read-only server facts), and —
  * V0-021 — the sign-in page at `/login`, a class's student join page at
@@ -50,6 +51,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 export type Route =
   | { name: 'library' }
   | { name: 'studio'; artifactId: string }
+  | { name: 'classroom-home' }
   | { name: 'classroom'; classId: string }
   | { name: 'learn'; artifactId: string }
   | { name: 'admin'; section: AdminSection }
@@ -143,6 +145,7 @@ export function parseRoute(pathname: string): Route {
     if (artifactId) return { name: 'studio', artifactId }
   }
 
+  if (trimmed === CLASSROOM_PATH) return { name: 'classroom-home' }
   if (trimmed.startsWith(`${CLASSROOM_PATH}/`)) {
     const classId = parseId(trimmed.slice(CLASSROOM_PATH.length + 1))
     if (classId) return { name: 'classroom', classId }

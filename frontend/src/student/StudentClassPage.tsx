@@ -16,7 +16,7 @@ import PageHeader from '../components/PageHeader'
 import { Badge, Banner, BUTTON_SECONDARY, EmptyState } from '../components/ui'
 import { usePinnedSlide } from '../classroom/usePinnedSlide'
 import { sceneOrderFor } from '../classroom/scenePosition'
-import { Link, joinPath, STUDENT_PATH } from '../router'
+import { CLASSROOM_PATH, Link, joinPath } from '../router'
 
 type FollowPhase = 'loading' | 'waiting' | 'live' | 'ended' | 'error'
 
@@ -262,8 +262,8 @@ export default function StudentClassPage({
               you do not need to refresh.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link to={STUDENT_PATH} className={BUTTON_SECONDARY}>
-                My classes
+              <Link to={CLASSROOM_PATH} className={BUTTON_SECONDARY}>
+                Classroom
               </Link>
               <Link to={joinPath(classId)} className={BUTTON_SECONDARY}>
                 Open the join page

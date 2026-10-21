@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import AdminPage from './admin/AdminPage'
+import ClassroomHomePage from './classroom/ClassroomHomePage'
 import ClassroomPage from './classroom/ClassroomPage'
 import LearnPage from './presentation/LearnPage'
 import SettingsPage from './settings/SettingsPage'
@@ -8,7 +9,6 @@ import UploadPage from './pages/UploadPage'
 import LoginPage from './auth/LoginPage'
 import JoinClassPage from './student/JoinClassPage'
 import StudentClassPage from './student/StudentClassPage'
-import StudentHomePage from './student/StudentHomePage'
 import StudentNotice from './auth/StudentNotice'
 import { isStudent, useSession } from './auth/session'
 import { LIBRARY_PATH, LOGIN_PATH, Link, loginPath, useRoute } from './router'
@@ -21,11 +21,16 @@ import { LIBRARY_PATH, LOGIN_PATH, Link, loginPath, useRoute } from './router'
  *   upload a `.pptx`, inspect the extracted Content IR, and open any class;
  * * `/studio/{artifactId}` — the Teacher Studio (`pages/StudioPage.tsx`): the
  *   full-width slide review of one uploaded deck, meant to be opened large;
- * * `/classroom/{classId}` — the Classroom (`classroom/ClassroomPage.tsx`): the
- *   authoritative runtime state of a running session (V0-011);
- * * `/learn/{artifactId}` — the Learning page (`presentation/LearnPage.tsx`):
- *   the slide plus the teaching canvas the teacher draws on, and the automatic
- *   text-only narration;
+ * * `/classroom` — the Classroom hub (`classroom/ClassroomHomePage.tsx`): every
+ *   class the signed-in person may see; a teacher starts one here and its
+ *   pinned slides play automatically, while a student joins a running class to
+ *   watch the same slides;
+ * * `/classroom/{classId}` — one class (`classroom/ClassroomPage.tsx` for a
+ *   teacher, `student/StudentClassPage.tsx` for a student): the authoritative
+ *   runtime state of the running session (V0-011);
+ * * `/learn/{artifactId}` — a legacy deck rehearsal page
+ *   (`presentation/LearnPage.tsx`), kept for direct links but no longer part of
+ *   the classroom navigation;
  * * `/admin/{section}` — the Admin area (`admin/AdminPage.tsx`): manage courses,
  *   classes and publications through the existing API;
  * * `/settings/{section}` — Settings (`settings/SettingsPage.tsx`): client
@@ -72,8 +77,21 @@ export default function App() {
 
   if (route.name === 'login') return <LoginPage />
   if (route.name === 'join') return <JoinClassPage classId={route.classId} />
-  if (route.name === 'student-home') {
-    return student ? <StudentHomePage /> : <NotFound path="/student" />
+  // The hub is one page for everyone; the server scopes a student's list to
+  // their roster, so the same page can show a teacher every class and a student
+  // only the classes they are on.
+  if (route.name === 'classroom-home' || route.name === 'student-home') {
+    return <ClassroomHomePage />
+  }
+  // One class URL for both sides: a teacher gets the presentation stage, a
+  // student gets the view-only follower (V0-025). The old `/student/{id}` stays
+  // as an alias for links already shared.
+  if (route.name === 'classroom') {
+    return student ? (
+      <StudentClassPage classId={route.classId} />
+    ) : (
+      <ClassroomPage classId={route.classId} />
+    )
   }
   if (route.name === 'student') return <StudentClassPage classId={route.classId} />
 
@@ -83,7 +101,6 @@ export default function App() {
     return <StudentNotice />
   }
   if (route.name === 'studio') return <StudioPage artifactId={route.artifactId} />
-  if (route.name === 'classroom') return <ClassroomPage classId={route.classId} />
   if (route.name === 'learn') return <LearnPage artifactId={route.artifactId} />
   if (route.name === 'admin') return <AdminPage section={route.section} />
   if (route.name === 'settings') return <SettingsPage section={route.section} />

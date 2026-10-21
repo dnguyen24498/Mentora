@@ -152,12 +152,11 @@ describe('App — routing between the pages', () => {
         `/studio/${ARTIFACT}`,
       ),
     )
-    expect(screen.getByRole('link', { name: 'Learn' }).getAttribute('href')).toBe(
-      `/learn/${ARTIFACT}`,
-    )
-    // A class is not chosen for the teacher: Classroom opens the class chooser.
+    // Learn link removed from navigation (V0-026 hub replaces it).
+    // A deck can still be opened directly at /learn/{artifactId} via deep link.
+    // The Classroom entry is the hub for everyone, so no id is needed.
     expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
-      '/admin/classes',
+      '/classroom',
     )
   })
 
@@ -296,7 +295,7 @@ describe('App — identities (V0-021, V0-023)', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'My classes' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Classroom' })).toBeTruthy()
     expect(listClasses).toHaveBeenCalled()
   })
 
@@ -306,8 +305,9 @@ describe('App — identities (V0-021, V0-023)', () => {
 
     render(<App />)
 
-    // `/student` is the participant's own surface; a teacher's list is Admin → Classes.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeTruthy()
+    // `/student` is now the Classroom hub for everyone; a teacher sees the tenant's
+    // class list, not a participant-only surface.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Classroom' })).toBeTruthy()
   })
 
   it('keeps a student out of the authoring pages, and offers their class instead', async () => {

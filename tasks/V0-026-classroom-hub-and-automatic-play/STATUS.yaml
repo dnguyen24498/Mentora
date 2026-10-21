@@ -1,0 +1,9 @@
+id: V0-026
+title: "Classroom hub and automatic play"
+week: W8
+status: DONE
+depends_on: ["V0-011", "V0-024", "V0-025"]
+started_at: "2026-10-21"
+completed_at: "2026-10-21"
+commit: ""
+blockers: []

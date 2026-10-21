@@ -1,15 +1,14 @@
-import { Link, learnPath } from '../router'
-import { readSelectedArtifact } from '../institution'
+import { CLASSROOM_PATH, Link } from '../router'
 import { TEACHING_WPM_MAX, TEACHING_WPM_MIN, useSettings } from './store'
 import { Banner, Panel, Row } from '../components/ui'
 
 /**
  * Teaching settings: how the automatic, **text-only** teaching behaves.
  *
- * What this feature is: the learning page reads the deck's authored teaching
- * script — the teacher's newest draft revision, else the package's lesson script,
- * else the slide's speaker notes, else the slide text — and plays it as a timed
- * narration, advancing slides and showing a transcript. What it is not: there is no
+ * What this feature is: a classroom uses the deck's authored words — the
+ * package's lesson script, the speaker notes, or the slide text — as the text a
+ * student reads beside the slide, and the classroom hub's automatic play uses
+ * this pace to decide how long a slide stays up. What it is not: there is no
  * model generating teaching text (no LLM provider exists in this codebase, and the
  * decision ledger does not name one) and there is no audio. The voice capability is
  * the provider-neutral speech domain from V0-012, whose technology decision
@@ -18,7 +17,6 @@ import { Banner, Panel, Row } from '../components/ui'
  */
 export default function TeachingSettings() {
   const [settings, updateSettings] = useSettings()
-  const artifact = readSelectedArtifact()
 
   return (
     <div className="mx-auto grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-2">
@@ -113,7 +111,9 @@ export default function TeachingSettings() {
             draft revision → lesson script → speaker notes → slide text
           </Row>
           <Row label="Transport">client-side; no per-class event stream yet (DEC-DATA-003 OPEN)</Row>
-          <Row label="Teaching at a time">the learning page waits on its own clock, while it is open</Row>
+          <Row label="Auto-play">
+            the teacher&apos;s classroom tab, while it is open; closing it stops the slides
+          </Row>
           <Row label="Starting a class on time">
             the Classes page, while it is open; the server has no scheduler (DEC-TECH-003 OPEN)
           </Row>
@@ -121,18 +121,16 @@ export default function TeachingSettings() {
         </dl>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-          {artifact ? (
-            <Link
-              to={learnPath(artifact)}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white lg:min-h-0"
-            >
-              Open the last deck and teach it
-            </Link>
-          ) : (
-            <p className="text-xs text-slate-400">
-              Open a deck in the library to try the automatic teaching.
-            </p>
-          )}
+          <Link
+            to={CLASSROOM_PATH}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white lg:min-h-0"
+          >
+            Open the Classroom
+          </Link>
+          <p className="text-xs text-slate-400">
+            Start a class there; its slides play automatically while the teacher&apos;s tab stays
+            open.
+          </p>
         </div>
       </Panel>
     </div>

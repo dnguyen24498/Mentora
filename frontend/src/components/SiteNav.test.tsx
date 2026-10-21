@@ -38,11 +38,12 @@ describe('SiteNav', () => {
     // No remembered deck/class: the entry is still a real link, to where one is
     // chosen — not a disabled label that looks like a broken page.
     expect(screen.getByRole('link', { name: 'Studio' }).getAttribute('href')).toBe('/')
+    // Classroom hub is the chooser for classes.
     expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
-      '/admin/classes',
+      '/classroom',
     )
-    expect(screen.getByRole('link', { name: 'Learn' }).getAttribute('href')).toBe('/')
-    for (const label of ['Studio', 'Classroom', 'Learn']) {
+    // Learn link removed from navigation (V0-026).
+    for (const label of ['Studio', 'Classroom']) {
       expect(screen.getByRole('link', { name: label }).getAttribute('aria-disabled')).toBeNull()
     }
   })
@@ -57,11 +58,9 @@ describe('SiteNav', () => {
       `/studio/${ARTIFACT}`,
     )
     expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
-      '/classroom/class-1',
+      '/classroom',
     )
-    expect(screen.getByRole('link', { name: 'Learn' }).getAttribute('href')).toBe(
-      `/learn/${ARTIFACT}`,
-    )
+    // Learn link removed from navigation (V0-026).
   })
 
   it('links the sectioned areas even with no deck or class', () => {
@@ -139,26 +138,27 @@ describe('SiteNav — identities', () => {
     expect(screen.getByRole('link', { name: 'Library' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Admin' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Settings' })).toBeTruthy()
-    // An administrator authors nothing and is not a participant, so the nav does
-    // not offer a page whose every request would answer 403.
-    for (const label of ['Studio', 'Classroom', 'Learn']) {
+    // An administrator can read the directory, and the hub is now open to anyone
+    // with class:read. The authoring surfaces remain out of scope.
+    for (const label of ['Studio', 'Learn']) {
       expect(screen.queryByRole('link', { name: label })).toBeNull()
       expect(screen.queryByText(label)).toBeNull()
     }
+    expect(screen.getByRole('link', { name: 'Classroom' })).toBeTruthy()
   })
 
-  it('offers a student their classes instead of the authoring entries', () => {
+  it('offers a student their classroom list instead of the authoring entries', () => {
     signInAs('student')
     writeSelectedClass('class-1')
 
     render(<SiteNav current="join" />)
 
-    expect(screen.getByRole('link', { name: 'My classes' }).getAttribute('href')).toBe('/student')
-    expect(screen.getByRole('link', { name: 'Attend' }).getAttribute('href')).toBe(
-      '/student/class-1',
+    // The classroom hub replaces the student's separate class list.
+    expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
+      '/classroom',
     )
     // The authoring surfaces are gone, not merely disabled.
-    for (const label of ['Studio', 'Classroom', 'Learn', 'Admin']) {
+    for (const label of ['Studio', 'Learn', 'Admin']) {
       expect(screen.queryByRole('link', { name: label })).toBeNull()
     }
   })
@@ -168,9 +168,9 @@ describe('SiteNav — identities', () => {
     render(<SiteNav current="student-home" />)
 
     // The list is the student's own roster and needs no remembered class id.
-    expect(screen.getByRole('link', { name: 'My classes' }).getAttribute('href')).toBe('/student')
-    // The class-scoped entry falls back to that list rather than being dead.
-    expect(screen.getByRole('link', { name: 'Attend' }).getAttribute('href')).toBe('/student')
+    expect(screen.getByRole('link', { name: 'Classroom' }).getAttribute('href')).toBe(
+      '/classroom',
+    )
   })
 
   it('does not link the page you are already on', () => {

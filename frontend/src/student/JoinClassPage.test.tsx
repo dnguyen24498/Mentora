@@ -102,7 +102,7 @@ describe('JoinClassPage', () => {
     expect(screen.queryByRole('button', { name: 'Join class' })).toBeNull()
   })
 
-  it('joins and goes to the student view', async () => {
+  it('joins and goes to the class in the classroom hub', async () => {
     const user = userEvent.setup()
     signInAsStudent()
     vi.mocked(issueBootstrapToken).mockResolvedValue(TOKEN)
@@ -111,7 +111,7 @@ describe('JoinClassPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Join class' }))
 
     await waitFor(() => expect(issueBootstrapToken).toHaveBeenCalledWith('class-1'))
-    await waitFor(() => expect(window.location.pathname).toBe('/student/class-1'))
+    await waitFor(() => expect(window.location.pathname).toBe('/classroom/class-1'))
   })
 
   it('reports a refusal with its precise reason', async () => {

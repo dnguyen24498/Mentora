@@ -10,6 +10,7 @@ import {
 import { Banner, BUTTON_SECONDARY, EmptyState } from '../components/ui'
 import { resolveSceneOrder } from './scenePosition'
 import { usePinnedSlide } from './usePinnedSlide'
+import { dwellForScene } from './playbackTiming'
 
 export interface TeacherStageProps {
   classId: string
@@ -24,6 +25,10 @@ export interface TeacherStageProps {
   onSnapshot: (snapshot: SessionSnapshot) => void
   /** Re-read the authoritative snapshot after a refusal or a lost race. */
   onResync: () => void
+  /** When true the stage automatically advances pinned slides. The tab must stay open. */
+  autoPlay?: boolean
+  /** The teacher's reading pace (words per minute) used to compute slide dwell. */
+  playbackWpm?: number
 }
 
 const RUNNING_STATES = new Set(['ACTIVE', 'DEGRADED'])
@@ -32,13 +37,13 @@ const FINISHED_STATES = new Set(['COMPLETED', 'FAILED', 'ENDING'])
 /**
  * The teacher's presentation surface (V0-025).
  *
- * The teacher advances the **pinned package's** slides. The command is an HTTP
- * `NAVIGATE_SCENE` over the existing aggregate; it is not the ordered per-class
- * event stream (`DEC-DATA-003` is OPEN, V1-002). Students follow the resulting
- * snapshot by a short poll, so this stage never claims a realtime stream it does
- * not have.
+ * When ``autoPlay`` is true and the class is running, the pinned slides advance
+ * automatically one after another. The pause / play button toggles the clock.
+ * The dwell time for each slide is computed from the slide's text and notes and
+ * the teacher's ``playbackWpm`` pace. The teacher can close the tab at any time;
+ * closing it stops the auto‑play; no background worker or media stream is started.
  *
- * A command is fenced with the `state_version` the page is showing. If another
+ * A command is fenced with the ``state_version`` the page is showing. If another
  * writer moved the class (or the class ended) the refusal is shown and the page
  * resynchronises rather than silently presenting the wrong slide.
  */
@@ -50,6 +55,8 @@ export default function TeacherStage({
   stateVersion,
   onSnapshot,
   onResync,
+  autoPlay,
+  playbackWpm = 160,
 }: TeacherStageProps) {
   const [listing, setListing] = useState<ClassSceneList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -90,6 +97,11 @@ export default function TeacherStage({
   const scene = index >= 0 ? scenes[index] : null
   const { url, error: slideError } = usePinnedSlide(classId, scene?.order ?? null)
 
+  // Auto-play state. The timer is derived from the current slide: one timer is
+  // armed at a time, and a new slide (or a pause) replaces it. Nothing runs in a
+  // worker or on the server, so closing the tab stops the presentation.
+  const [isPlaying, setIsPlaying] = useState(false)
+
   const goTo = useCallback(
     async (target: ClassScene | undefined) => {
       if (!target || !running || pending) return
@@ -102,9 +114,15 @@ export default function TeacherStage({
           command_id: newCommandId(),
         })
         if (outcome.snapshot) onSnapshot(outcome.snapshot)
-        else if (!outcome.result.accepted) onResync()
+        else if (!outcome.result.accepted) {
+          // A refused command means the class moved under this tab; stop playing
+          // rather than retrying a stale target, and let the page resynchronise.
+          setIsPlaying(false)
+          onResync()
+        }
       } catch (cause) {
         setError(describeApiError(cause))
+        setIsPlaying(false)
         onResync()
       } finally {
         setPending(false)
@@ -112,6 +130,38 @@ export default function TeacherStage({
     },
     [classId, onResync, onSnapshot, pending, running, stateVersion],
   )
+
+  const nextScene =
+    index >= 0 && index < scenes.length - 1 ? scenes[index + 1] : null
+
+  // Seed the play flag from `?autoplay=1` once the session is running. A pause
+  // made by the teacher survives later scene updates because this only depends
+  // on the flag and the running state.
+  useEffect(() => {
+    setIsPlaying(Boolean(autoPlay) && running)
+  }, [autoPlay, running])
+
+  // One timer per slide. When the slide changes (because the command succeeded),
+  // the cleanup clears the previous timer and the effect arms the next one.
+  useEffect(() => {
+    if (!isPlaying || !running || pending) return
+    // The scene list is still loading: leave the flag alone, the next render
+    // (with a scene) will arm the timer.
+    if (!scene) return
+    if (!nextScene) {
+      // The last slide has been reached: the lesson is fully presented, not looped.
+      setIsPlaying(false)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void goTo(nextScene)
+    }, dwellForScene(scene, playbackWpm ?? 160))
+    return () => window.clearTimeout(timer)
+  }, [isPlaying, running, pending, scene, nextScene, playbackWpm, goTo])
+
+  const toggleAutoPlay = useCallback(() => {
+    setIsPlaying((playing) => !playing)
+  }, [])
 
   if (sessionState === null) {
     return (
@@ -153,6 +203,16 @@ export default function TeacherStage({
         <span className="text-sm text-slate-600" data-testid="teacher-slide-counter">
           {index >= 0 ? `Slide ${index + 1} of ${scenes.length}` : 'No slide'}
         </span>
+        {autoPlay && (
+          <button
+            type="button"
+            onClick={toggleAutoPlay}
+            disabled={!running}
+            className={BUTTON_SECONDARY}
+          >
+            {isPlaying ? 'Pause' : 'Play'}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -182,22 +242,26 @@ export default function TeacherStage({
 
       {running ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void goTo(scenes[index - 1])}
-            disabled={pending || index <= 0}
-            className={BUTTON_SECONDARY}
-          >
-            ← Previous slide
-          </button>
-          <button
-            type="button"
-            onClick={() => void goTo(scenes[index + 1])}
-            disabled={pending || index < 0 || index >= scenes.length - 1}
-            className={BUTTON_SECONDARY}
-          >
-            Next slide →
-          </button>
+          {!autoPlay && (
+            <>
+              <button
+                type="button"
+                onClick={() => void goTo(scenes[index - 1])}
+                disabled={pending || index <= 0}
+                className={BUTTON_SECONDARY}
+              >
+                ← Previous slide
+              </button>
+              <button
+                type="button"
+                onClick={() => void goTo(scenes[index + 1])}
+                disabled={pending || index < 0 || index >= scenes.length - 1}
+                className={BUTTON_SECONDARY}
+              >
+                Next slide →
+              </button>
+            </>
+          )}
 
           <label className="block w-full min-w-0 max-w-full text-xs text-slate-500 sm:inline-block sm:w-auto sm:max-w-xs">
             <span className="sr-only">Slide</span>
@@ -231,14 +295,14 @@ export default function TeacherStage({
           drive.
         </p>
       )}
-
-      <p className="mt-2 text-[11px] text-slate-500">
-        Students follow this slide automatically. The page polls the authoritative snapshot about
-        every 1.5 seconds; the ordered per-class live stream is V1-002 (
-        <span className="font-mono">DEC-DATA-003</span> is OPEN).
-      </p>
     </section>
   )
+}
+
+/** The first line of a slide, for the teacher's slide picker. */
+function firstLine(scene: ClassScene): string {
+  const line = scene.text.find((value) => value.trim())
+  return line ? line.trim().slice(0, 40) : ''
 }
 
 /** A stable id for one command; the aggregate uses it for idempotency. */
@@ -247,10 +311,4 @@ function newCommandId(): string {
     return crypto.randomUUID()
   }
   return `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-/** The first line of a slide, for the teacher's slide picker. */
-function firstLine(scene: ClassScene): string {
-  const line = scene.text.find((value) => value.trim())
-  return line ? line.trim().slice(0, 40) : ''
 }

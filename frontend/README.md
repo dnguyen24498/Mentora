@@ -1,13 +1,12 @@
 # Frontend
 
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
-runtime page (with the teacher's presentation stage), the Learning page (slide +
-teaching canvas + automatic text-only narration, which can also be set to start
-at a chosen time), an Admin area (accounts, courses, classes, publications),
-Settings, and — V0-021/V0-022 — sign-in for the three account types
-(administrator, teacher, student), a class join page and a student's own class
-view that follows the teacher's slide (V0-025), as real
-pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
+hub and one running class (the teacher's auto-playing presentation stage, and the
+student's view-only follower), the legacy Learning page (slide + teaching canvas +
+automatic text-only narration, kept for direct links), an Admin area (accounts,
+courses, classes, publications), Settings, and — V0-021/V0-022 — sign-in for the
+three account types (administrator, teacher, student) and a class join page, as
+real pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 
 ## Pages and routing
 
@@ -15,14 +14,15 @@ pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | --- | --- | --- |
 | `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
-| `/classroom/{classId}` | Classroom — authoritative runtime state, plus the teacher's presentation stage (V0-011/V0-025) | `src/classroom/ClassroomPage.tsx` |
-| `/learn/{artifactId}` | Learning — the slide, the teaching canvas and text-only narration, on demand or at a chosen time | `src/presentation/LearnPage.tsx` |
+| `/classroom` | Classroom hub — every class the person may see; a teacher starts one, a student joins a running one (V0-026) | `src/classroom/ClassroomHomePage.tsx` |
+| `/classroom/{classId}` | One class — the teacher's auto-playing presentation stage, or the student's view-only follower (V0-025/V0-026) | `src/classroom/ClassroomPage.tsx`, `src/student/StudentClassPage.tsx` |
+| `/learn/{artifactId}` | Learning (legacy) — the slide, the teaching canvas and text-only narration, on demand or at a chosen time; kept for direct links, no longer in the nav | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, accounts, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility, security | `src/settings/SettingsPage.tsx` |
 | `/login` | Sign in — institution, address, **password**; the only public route (V0-023) | `src/auth/LoginPage.tsx` |
 | `/join/{classId}` | Join a class — who is asking, then the caller's own join credential | `src/student/JoinClassPage.tsx` |
-| `/student` | My classes — only the classes a teacher assigned this student (V0-024) | `src/student/StudentHomePage.tsx` |
-| `/student/{classId}` | The student's view of a running class — follows the teacher's slide, with no slide navigation (V0-025) | `src/student/StudentClassPage.tsx` |
+| `/student` | Alias of the Classroom hub (kept for old links) | `src/classroom/ClassroomHomePage.tsx` |
+| `/student/{classId}` | Alias of the student's view of a running class — follows the teacher's slide, with no slide navigation | `src/student/StudentClassPage.tsx` |
 | anything else | The app's own not-found view | `src/App.tsx` |
 
 `/admin` and `/settings` are their default sections (overview/general); an unknown
@@ -36,15 +36,20 @@ document title to the file name.
 ## Navigation between the pages
 
 `src/components/SiteNav.tsx` is embedded in every page header, so Library,
-Teacher Studio, Classroom, Learning, Admin and Settings are each reachable from
-the others. The Studio and Learn links need a deck and the Classroom link needs a
-class: the current page passes the id it holds, otherwise the last one opened is
-remembered in `localStorage` (`src/institution.ts`, like the tenant and the
-selected course). Before there is an id, the entry still links to the place that
-id is chosen — the Library for a deck, Admin → Classes for a class — rather than
-being a disabled label. The library also remembers the newest deck of the
-selected course on a first visit, so Studio and Learn are usable without opening
-one first. Admin and Settings are plain links, so they are always available.
+Teacher Studio, the Classroom hub, Admin and Settings are each reachable from
+the others. The Studio link needs a deck: the current page passes the id it
+holds, otherwise the last one opened is remembered in `localStorage`
+(`src/institution.ts`, like the tenant and the selected course). Before there is
+an id, it still links to the Library, where the deck is chosen, rather than being
+a disabled label. The Classroom link is the **hub** (`/classroom`): it needs no
+class id, because the hub lists the classes the person may see and the teacher
+starts one there. The library also remembers the newest deck of the selected
+course on a first visit, so Studio is usable without opening one first. Admin and
+Settings are plain links, so they are always available.
+
+The legacy Learning page (`/learn/{artifactId}`) is no longer in the nav — the
+classroom presents the pinned slides, auto-playing them from the hub — but the
+route is kept so a link already shared still opens something.
 
 With identities (V0-021) the nav also answers "who am I": it shows the signed-in
 principal and **Sign out**, or a **Sign in** link when no session exists. Since
@@ -53,13 +58,13 @@ every page is behind the sign-in, so a session is the only state the nav knows.
 V0-022 chooses the entries by **capability** rather
 than by role name, so a principal is offered exactly the pages the server would
 allow: an **institution administrator** (who authors nothing and attends nothing)
-sees Library, Admin and Settings; a **teacher** sees all of them; a **student**
-sees **My classes** (`/student`) and **Attend** instead — see "Identities and the
-student pages" below.
+sees Library, Classroom, Admin and Settings; a **teacher** sees all of them; a
+**student** sees **Classroom** (the same hub, scoped by the server to their
+roster) instead — see "Identities and the student pages" below.
 
-The library is the hub: selecting a deck offers **Open Teacher Studio** and
-**Open learning page**, and the **Classes** panel (`GET /classes`) links each
-scheduled class to its classroom (scheduling stays in the runtime API).
+The library is the hub for material: selecting a deck offers **Open Teacher
+Studio**, and the **Classes** panel (`GET /classes`) links each scheduled class
+to the classroom hub (scheduling stays in the runtime API).
 
 Routing is `src/router.tsx` — a ~70-line dependency-free `useRoute` / `navigate` /
 `Link` module (no router dependency: a handful of static pages do not justify one,
@@ -430,30 +435,28 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   and `isAdministrator` (read from `account:write`, never from the role name).
   **V0-023: no session is no capabilities** — `hasScope(null, …)` is `false` for every
   scope, because a sign-in is required and the shortcut is off by default.
-- **The nav is role-aware, chosen by capability.** A student sees **My classes**
-  (`/student`, always — it is their own roster) and **Attend** (`/student/{id}`)
-  instead of Studio/Classroom/Learn/Admin; an institution administrator sees
-  Library/Admin/Settings because the authoring surfaces would only answer `403`;
-  without a remembered class the class-scoped **Attend** entry falls back to the
-  class list rather than being a dead label. This is courtesy, not access control:
-  the server refuses a student's teacher verbs with `403 INSUFFICIENT_SCOPE`
-  regardless. With no session the nav offers only **Sign in**, because there is
-  nothing a caller without a session may do.
+- **The nav is role-aware, chosen by capability.** A student sees **Classroom**
+  (the same `/classroom` hub, which the server scopes to their roster) instead of
+  Studio/Admin; an institution administrator sees Library/Classroom/Admin/Settings
+  because the authoring surfaces would only answer `403`. This is courtesy, not
+  access control: the server refuses a student's teacher verbs with
+  `403 INSUFFICIENT_SCOPE` regardless. With no session the nav offers only
+  **Sign in**, because there is nothing a caller without a session may do.
 - **`src/auth/StudentNotice.tsx`** is where a student lands if they open a
   teacher's page: a real landing — the class they were last in, a field to open a
   class by the id in their join link, and Sign out — rather than a page whose every
   request would answer 403. (A class id is not a secret; *enrolment* is what
   authorizes a join, and the server checks it on every join.)
-- **`src/student/StudentHomePage.tsx`** (`/student`, V0-024) is a student's class
-  list, and it is **their roster**: `GET /classes` is scoped by role on the
-  server, so a student receives only the classes a teacher enrolled them in,
-  never the institution's schedule. A running class gets a **Join class** link to
-  `/join/{id}`; a scheduled one shows its time and says it is waiting for the
-  teacher, and the page re-reads the list on a 5 s timer while any class is still
-  scheduled, so the row becomes joinable when the teacher starts without a hidden
-  refresh. That is a client-local poll, not a live stream (`DEC-DATA-003` is
-  `OPEN`, V1-002). The empty state names the real route in: the teacher assigns
-  from the roster and shares the join link.
+- **`src/classroom/ClassroomHomePage.tsx`** (`/classroom`) is the one classroom
+  hub for everyone (V0-026). It lists whatever `GET /classes` returns: a teacher
+  (and an institution administrator) sees the tenant's schedule, a student sees
+  only the classes a teacher enrolled them in, because the server scopes the list
+  by role. A teacher **Start class** button starts the real V0-009 session and
+  opens `/classroom/{id}?autoplay=1`; a running class becomes **Join class** for a
+  student and **Open classroom** for a teacher. A scheduled student row says it is
+  waiting and the page re-reads the list on a 5 s timer while any class is
+  scheduled, so it becomes joinable when the teacher starts without a hidden
+  refresh. `/student` is kept as an alias of this hub.
 - **`src/student/JoinClassPage.tsx`** (`/join/{classId}`) establishes *who is
   asking* before anything else. Signed out, the route guard has already sent the
   browser to sign in, so the page's signed-out branch is only a defensive fallback.
@@ -498,6 +501,28 @@ remembered id is not this tenant's), so the Start / assign / join-link panel is 
 screen instead of an empty "Select a class". Starting is the teacher's verb and
 the only path to a joinable class; the classroom page links a teacher to this
 panel for the class they are viewing.
+
+## Classroom hub and automatic play (V0-026)
+
+`/classroom` is the single classroom page. It lists the classes the signed-in
+person may see (the server scopes `GET /classes` by role) and is the only place a
+class is started: a teacher presses **Start class**, which calls the real
+`POST /classes/{id}/start` and opens `/classroom/{id}?autoplay=1`. There is no
+separate "learning page" destination any more; `/learn/{artifactId}` is kept for
+direct links only and is not in the nav.
+
+On that URL the teacher's stage (`src/classroom/TeacherStage.tsx`) advances the
+**pinned** slides by itself. The dwell for each slide is
+`src/classroom/playbackTiming.ts::dwellForScene` — the slide's text and notes
+counted as words at the pace set in Settings (`teachingWpm`, 80–260 wpm), with a
+5 s floor and a 30 s ceiling — and it stops when the last slide is reached rather
+than looping. A **Pause / Play** button is offered, and the slide picker still
+works so the teacher can jump. This is **client-local**: the teacher's tab is the
+clock, closing it stops the slides, and no scheduler or worker is implied
+(`DEC-TECH-003` is `OPEN`). Students follow the same class at
+`/classroom/{id}` — the app serves them `StudentClassPage` — and move only when
+the authoritative snapshot's current lesson scene changes (the ~1.5 s poll;
+`DEC-DATA-003` is `OPEN`, V1-002). A student has no slide controls.
 
 ## Classroom (V0-011)
 
@@ -565,7 +590,14 @@ saves) with a mocked API client; `src/App.test.tsx` covers the routing between
 the pages including a deep link; `src/router.test.tsx` covers route parsing
 and the `Link`/`navigate` behaviour. `src/components/SiteNav.test.tsx` covers the
 shared navigation (every page from every page, the chooser an entry falls back to
-before an id is known, `aria-current`). `src/presentation/LearnPage.test.tsx` covers the
+before an id is known, `aria-current`). `src/classroom/ClassroomHomePage.test.tsx`
+covers the hub (a teacher starting a class lands on `?autoplay=1`, a student only
+sees the running class as joinable, an empty roster is explained, a start refusal
+is reported on the row); `src/classroom/TeacherStage.test.tsx` covers the
+auto-play clock (advance after the dwell, pause, stop at the last slide, and no
+movement without the flag) and `src/classroom/playbackTiming.test.ts` the pacing
+rule (words at the teacher's speed, the 5 s floor, the 30 s cap, notes counted).
+`src/presentation/LearnPage.test.tsx` covers the
 learning page: stored vs built package, slide navigation by button, selector and
 arrow keys, the teaching script, the canvas toolbar including its no-2D-canvas
 degradation, and the automatic teaching (play/pause/stop, the transcript, the

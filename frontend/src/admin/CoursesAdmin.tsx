@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, learnPath, studioPath } from '../router'
+import { Link, studioPath } from '../router'
 import {
   compileArtifact,
   createCourse,
@@ -323,12 +323,6 @@ export default function CoursesAdmin({ institutionId }: { institutionId: string 
                             className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 lg:px-1.5 lg:py-0.5"
                           >
                             Studio
-                          </Link>
-                          <Link
-                            to={learnPath(material.artifact_id)}
-                            className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 lg:px-1.5 lg:py-0.5"
-                          >
-                            Learn
                           </Link>
                           <button
                             type="button"

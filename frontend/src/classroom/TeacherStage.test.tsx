@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherStage from './TeacherStage'
 import {
   ApiError,
@@ -211,5 +211,95 @@ describe('TeacherStage', () => {
     expect(await screen.findByRole('img', { name: 'Slide 3' })).toBeTruthy()
     expect(screen.getByText(/class has ended/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /previous slide|next slide/i })).toBeNull()
+  })
+
+  describe('auto-play (V0-026)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Render a running stage and flush its scene list and blob fetches. */
+    async function renderStage(props: {
+      currentSceneId?: string
+      currentSectionIndex?: number
+      stateVersion?: number
+      autoPlay?: boolean
+    }) {
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId={props.currentSceneId ?? 'ppt/slides/slide1.xml'}
+          currentSectionIndex={props.currentSectionIndex ?? 0}
+          stateVersion={props.stateVersion ?? 1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+          autoPlay={props.autoPlay}
+          playbackWpm={160}
+        />,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+    }
+
+    it('advances the pinned slides by itself when opened with autoplay', async () => {
+      await renderStage({ autoPlay: true })
+      expect(screen.getByTestId('teacher-slide-counter').textContent).toBe('Slide 1 of 3')
+
+      // The dwell has a 5 s floor, so this is exactly one slide's time.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+
+      expect(navigateClassScene).toHaveBeenCalledTimes(1)
+      expect(navigateClassScene).toHaveBeenCalledWith(
+        'class-1',
+        expect.objectContaining({ order: 1, expected_state_version: 1 }),
+      )
+    })
+
+    it('pauses so no slide moves until Play is pressed again', async () => {
+      await renderStage({ autoPlay: true })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+      expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+
+      expect(navigateClassScene).not.toHaveBeenCalled()
+    })
+
+    it('stops at the last slide instead of looping the lesson', async () => {
+      await renderStage({
+        currentSceneId: 'ppt/slides/slide3.xml',
+        currentSectionIndex: 2,
+        stateVersion: 2,
+        autoPlay: true,
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+
+      expect(navigateClassScene).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+    })
+
+    it('does not move slides on its own without autoplay', async () => {
+      await renderStage({})
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+
+      expect(navigateClassScene).not.toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull()
+    })
   })
 })
