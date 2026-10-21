@@ -25,3 +25,14 @@ Audio cancellation names cancel-through generation; client stops/clears/discards
 - `DEC-RUNTIME-005`
 - `DEC-RUNTIME-006`
 - `DEC-TURN-007`
+
+## Implemented narration (V0-013)
+
+The teacher's stage narrates each pinned slide while auto-playing: pinned script →
+word-safe chunks → provider-neutral voice → one WAV per chunk, played in order as it
+arrives, and the slide advances when its narration has been heard. Speech failure
+shows the authored text and paces the slide by its length (`DEC-TURN-009`). A slide
+change, pause or end aborts the stream and cancels synthesis; Play restarts the
+current slide as a new generation. Students see the slide with no transcript by
+default (a collapsed accessibility disclosure keeps the text available) and do not
+hear audio until the SFU path (V1-005, `DEC-TECH-004` `OPEN`).

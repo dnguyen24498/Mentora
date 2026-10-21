@@ -8,11 +8,13 @@ import {
   endClass,
   loadClassScenes,
   navigateClassScene,
+  openNarrationStream,
   reopenClass,
   type ClassCommandResult,
   type ClassSceneList,
 } from '../api/client'
 import { makeSnapshot } from './state/testing'
+import type { AudioSink } from '../audio/useNarrationPlayer'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -22,9 +24,32 @@ vi.mock('../api/client', async (importOriginal) => {
     endClass: vi.fn(),
     loadClassScenes: vi.fn(),
     navigateClassScene: vi.fn(),
+    openNarrationStream: vi.fn(),
     reopenClass: vi.fn(),
   }
 })
+
+const WAV_B64 = btoa('RIFF....WAVEfmt ')
+
+function narrationResponse(status: 'COMPLETED' | 'FALLBACK'): Response {
+  const base = { class_id: 'class-1', scene_id: 'ppt/slides/slide1.xml', actor_epoch: 1, state_version: 1, generation: 7 }
+  const events: object[] = [
+    { ...base, sequence: 1, type: 'narration.started', provider: { name: 'neutral-deterministic' }, empty: false },
+  ]
+  if (status === 'COMPLETED') {
+    events.push(
+      { ...base, sequence: 2, type: 'audio', chunk_index: 0, content_type: 'audio/wav', duration_ms: 100, data: WAV_B64 },
+      { ...base, sequence: 3, type: 'audio', chunk_index: 1, content_type: 'audio/wav', duration_ms: 100, data: WAV_B64 },
+      { ...base, sequence: 4, type: 'narration.completed', status: 'COMPLETED', duration_ms: 200, fallback: false },
+    )
+  } else {
+    events.push(
+      { ...base, sequence: 2, type: 'segment.fallback', chunk_index: 0, text: 'Spoken words', reason: 'SYNTHESIS_FAILED' },
+      { ...base, sequence: 3, type: 'narration.completed', status: 'FALLBACK', duration_ms: 0, fallback: true },
+    )
+  }
+  return new Response(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
+}
 
 const LISTING: ClassSceneList = {
   class_id: 'class-1',
@@ -333,6 +358,8 @@ describe('TeacherStage', () => {
       currentSectionIndex?: number
       stateVersion?: number
       autoPlay?: boolean
+      voice?: boolean
+      createAudioSink?: () => AudioSink
     }) {
       render(
         <TeacherStage
@@ -345,6 +372,8 @@ describe('TeacherStage', () => {
           onResync={vi.fn()}
           autoPlay={props.autoPlay}
           playbackWpm={160}
+          voice={props.voice ?? false}
+          createAudioSink={props.createAudioSink}
         />,
       )
       await act(async () => {
@@ -395,6 +424,67 @@ describe('TeacherStage', () => {
 
       expect(navigateClassScene).not.toHaveBeenCalled()
       expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+    })
+
+    it('speaks the slide and advances when its narration has been heard', async () => {
+      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('COMPLETED'))
+      const played: Blob[] = []
+      await renderStage({
+        autoPlay: true,
+        voice: true,
+        createAudioSink: () => ({ play: async (blob) => void played.push(blob), stop: () => {} }),
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+
+      expect(openNarrationStream).toHaveBeenCalledWith(
+        'class-1',
+        0,
+        expect.objectContaining({ expectedStateVersion: 1 }),
+      )
+      expect(played).toHaveLength(2)
+      expect(played[0].type).toBe('audio/wav')
+      // Advanced by the narration, not by the 5 s text dwell.
+      expect(navigateClassScene).toHaveBeenCalledWith(
+        'class-1',
+        expect.objectContaining({ order: 1 }),
+      )
+    })
+
+    it('asks for a click when the browser blocks sound, and does not advance', async () => {
+      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('COMPLETED'))
+      const blocked = Object.assign(new Error('blocked'), { name: 'NotAllowedError' })
+      await renderStage({
+        autoPlay: true,
+        voice: true,
+        createAudioSink: () => ({ play: () => Promise.reject(blocked), stop: () => {} }),
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+
+      expect(screen.getByRole('button', { name: 'Enable sound' })).toBeTruthy()
+      expect(navigateClassScene).not.toHaveBeenCalled()
+    })
+
+    it('shows the script and paces by text when speech falls back', async () => {
+      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('FALLBACK'))
+      await renderStage({
+        autoPlay: true,
+        voice: true,
+        createAudioSink: () => ({ play: async () => {}, stop: () => {} }),
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByTestId('teacher-voice-fallback').textContent).toContain('Spoken words')
+      expect(navigateClassScene).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(navigateClassScene).toHaveBeenCalledTimes(1)
     })
 
     it('does not move slides on its own without autoplay', async () => {

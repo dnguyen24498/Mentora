@@ -1,9 +1,9 @@
 id: V0-013
 title: "Timeline narration captions and checkpoints"
 week: W6
-status: TODO
+status: DONE
 depends_on: ["V0-011", "V0-012"]
-started_at: null
-completed_at: null
+started_at: "2026-10-21"
+completed_at: "2026-10-21"
 commit: null
 blockers: []

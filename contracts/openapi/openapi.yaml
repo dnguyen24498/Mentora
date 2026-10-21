@@ -854,6 +854,40 @@ paths:
             issue_code NOT_STARTED), its pinned lesson plan is unusable (stable code
             CONFLICT, issue_code INCOMPATIBLE_CONTENT), or the caller's view is behind
             (stable code CONFLICT, issue_code STALE_STATE_VERSION)
+  /classes/{classId}/narration/{order}:
+    get:
+      operationId: streamClassNarration
+      description: >-
+        Stream one pinned scene's narration (V0-013); requires `class:write` (the
+        teacher's presenting tab — remote students hear the teacher through the SFU,
+        V1-005). The script is the pinned lesson plan's section `script`, else its
+        `fallback_script`, else the speaker notes, else the slide text
+        (DEC-CONTENT-005). It is cut into word-safe semantic chunks and each chunk is
+        synthesized by the provider-neutral voice (DEC-TECH-007 is OPEN; the shipped
+        adapter is the deterministic development mock). The body is
+        newline-delimited JSON, one event per line
+        (`contracts/events/narration-stream.schema.json`): `narration.started`,
+        per chunk `segment.started`/`caption`/`audio` (a base64 WAV)/`marker`/
+        `segment.completed`, and a terminal `narration.completed` (`COMPLETED`,
+        `FALLBACK` with the text in a `segment.fallback`, or `EMPTY`),
+        `narration.cancelled` or `error`. Closing the connection cancels synthesis.
+        A refusal happens before any synthesis and writes nothing.
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+        - {name: order, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: expected_state_version, in: query, required: false, schema: {type: integer, minimum: 0}}
+      responses:
+        '200':
+          description: The ordered narration events.
+          content:
+            application/x-ndjson:
+              schema: {$ref: '../events/narration-stream.schema.json'}
+        '403': {description: 'INSUFFICIENT_SCOPE — not a teacher'}
+        '404': {description: 'NOT_FOUND — unknown class or scene order'}
+        '409':
+          description: >-
+            CLASS_NOT_READY (issue_code NOT_STARTED, CLASS_ENDED, WRONG_STATE) or
+            CONFLICT (issue_code STALE_STATE_VERSION).
   /classes/{classId}/scenes:
     get:
       operationId: listClassScenes

@@ -13,6 +13,7 @@ import { Banner, BUTTON_SECONDARY, EmptyState } from '../components/ui'
 import { resolveSceneOrder } from './scenePosition'
 import { usePinnedSlide } from './usePinnedSlide'
 import { dwellForScene } from './playbackTiming'
+import { useNarrationPlayer, type AudioSink } from '../audio/useNarrationPlayer'
 
 export interface TeacherStageProps {
   classId: string
@@ -31,6 +32,14 @@ export interface TeacherStageProps {
   autoPlay?: boolean
   /** The teacher's reading pace (words per minute) used to compute slide dwell. */
   playbackWpm?: number
+  /**
+   * Speak each slide's pinned script while auto-playing (V0-013). Defaults to on;
+   * the slide then advances when its narration has been heard, and falls back to
+   * the text-paced dwell only when there is no audio (fallback, empty, error).
+   */
+  voice?: boolean
+  /** Injectable audio output (tests); the default is an `<audio>` element. */
+  createAudioSink?: () => AudioSink
 }
 
 const RUNNING_STATES = new Set(['ACTIVE', 'DEGRADED'])
@@ -59,6 +68,8 @@ export default function TeacherStage({
   onResync,
   autoPlay,
   playbackWpm = 160,
+  voice = true,
+  createAudioSink,
 }: TeacherStageProps) {
   const [listing, setListing] = useState<ClassSceneList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -199,6 +210,29 @@ export default function TeacherStage({
     setIsPlaying(Boolean(autoPlay) && running)
   }, [autoPlay, running])
 
+  // Voice: narrate the current slide while auto-playing. The slide advances when
+  // its narration has been heard; the last slide stops rather than looping.
+  const narrating = voice && isPlaying && running && !pending && scene !== null
+  const advanceAfterNarration = useCallback(() => {
+    if (nextScene) void goTo(nextScene)
+    else setIsPlaying(false)
+  }, [goTo, nextScene])
+  const narration = useNarrationPlayer({
+    classId,
+    order: scene?.order ?? null,
+    enabled: narrating,
+    expectedStateVersion: stateVersion,
+    onComplete: advanceAfterNarration,
+    createSink: createAudioSink,
+  })
+  // Without audio for this slide (voice off, text fallback, nothing authored, or
+  // a failure) the text-paced dwell keeps the lesson moving (DEC-TURN-009).
+  const paceByText =
+    !voice ||
+    narration.status === 'fallback' ||
+    narration.status === 'empty' ||
+    narration.status === 'error'
+
   // One timer per slide. When the slide changes (because the command succeeded),
   // the cleanup clears the previous timer and the effect arms the next one.
   useEffect(() => {
@@ -206,16 +240,17 @@ export default function TeacherStage({
     // The scene list is still loading: leave the flag alone, the next render
     // (with a scene) will arm the timer.
     if (!scene) return
-    if (!nextScene) {
+    if (!voice && !nextScene) {
       // The last slide has been reached: the lesson is fully presented, not looped.
       setIsPlaying(false)
       return
     }
+    if (!paceByText) return
     const timer = window.setTimeout(() => {
-      void goTo(nextScene)
+      advanceAfterNarration()
     }, dwellForScene(scene, playbackWpm ?? 160))
     return () => window.clearTimeout(timer)
-  }, [isPlaying, running, pending, scene, nextScene, playbackWpm, goTo])
+  }, [isPlaying, running, pending, scene, nextScene, playbackWpm, voice, paceByText, advanceAfterNarration])
 
   const toggleAutoPlay = useCallback(() => {
     setIsPlaying((playing) => !playing)
@@ -273,6 +308,28 @@ export default function TeacherStage({
         )}
       </div>
 
+      {voice && autoPlay && running && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600" data-testid="teacher-voice">
+          <span>
+            Voice: {describeNarration(narration.status, isPlaying)}
+            {narration.provider === 'neutral-deterministic' &&
+              ' · neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is OPEN)'}
+          </span>
+          {narration.status === 'blocked' && (
+            <button type="button" onClick={narration.enable} className={BUTTON_SECONDARY}>
+              Enable sound
+            </button>
+          )}
+        </div>
+      )}
+      {voice && narration.fallbackText && (
+        <div className="mt-3" data-testid="teacher-voice-fallback">
+          <Banner tone="neutral">
+            Speech is unavailable for this slide, so its script is shown instead:{' '}
+            {narration.fallbackText}
+          </Banner>
+        </div>
+      )}
       {error && (
         <div className="mt-3">
           <Banner tone="bad">{error}</Banner>
@@ -391,4 +448,25 @@ function newCommandId(): string {
     return crypto.randomUUID()
   }
   return `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+function describeNarration(status: string, playing: boolean): string {
+  if (!playing) return 'paused'
+  switch (status) {
+    case 'loading':
+      return 'preparing…'
+    case 'playing':
+      return 'speaking'
+    case 'blocked':
+      return 'the browser blocked sound until you allow it'
+    case 'completed':
+      return 'slide narrated'
+    case 'fallback':
+      return 'text fallback (speech unavailable)'
+    case 'empty':
+      return 'this slide has no script'
+    case 'error':
+      return 'unavailable; pacing by text'
+    default:
+      return 'idle'
+  }
 }

@@ -71,6 +71,8 @@ from app.classroom.catalog import BaselineRuntimeCatalog
 from app.classroom.repository import ClassRepository
 from app.classroom.router import build_class_router
 from app.classroom.service import ClassroomService
+from app.classroom.timeline.router import build_timeline_router
+from app.classroom.timeline.service import TimelineService
 from app.common.errors import AppError
 from app.compiler.extractors.pptx import PptxExtractor
 from app.compiler.package_builder.service import PackageBuildService
@@ -94,7 +96,7 @@ from app.publication.review import ReviewService
 from app.publication.router import build_publication_router, build_review_router
 from app.publication.service import PublicationService
 from app.publication.workflow import ReviewWorkflow
-from app.providers.factory import build_identity_service
+from app.providers.factory import build_identity_service, build_speech_service
 from app.storage.object_store import LocalObjectStore
 
 
@@ -173,7 +175,15 @@ def create_app(
         },
     )
 
+    # Timeline narration (V0-013). DEC-TECH-007 (TTS/OmniVoice) is OPEN, so the
+    # speech service wires the provider-neutral port to its deterministic local
+    # adapter; a decided provider is one registry entry in app/providers/factory.py.
+    speech_service = build_speech_service()
+    timeline_service = TimelineService(classroom_service, speech_service)
+
     app = FastAPI(title="Mentora API", version="1.0.0")
+    app.state.speech_service = speech_service
+    app.state.timeline_service = timeline_service
     app.state.settings = settings
     app.state.repository = repository
     app.state.upload_service = upload_service
@@ -238,6 +248,8 @@ def create_app(
     # pinning the exact runtime tuple once, serve the durable snapshot, serve the
     # pinned scene, and authorize joins against the class enrollment.
     app.include_router(build_class_router(classroom_service, security))
+    # Timeline narration (V0-013): the teacher's narrated presentation stream.
+    app.include_router(build_timeline_router(timeline_service, security))
 
     @app.get("/health")
     def health() -> dict[str, str]:

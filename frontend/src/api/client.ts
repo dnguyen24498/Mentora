@@ -1071,3 +1071,26 @@ export const loadClassScenes = (classId: string) =>
 /** One slide's render, from the pinned package. */
 export const classSceneUrl = (classId: string, order: number) =>
   fetchObjectUrl('', `/classes/${classId}/scenes/${order}`)
+
+/**
+ * Open the teacher's narration stream for one pinned scene (V0-013).
+ *
+ * `GET /classes/{id}/narration/{order}` answers newline-delimited JSON events
+ * (see `src/audio/narrationStream.ts`). It is fenced by the state version the
+ * stage shows, so a late request for a previous slide is refused before any
+ * speech is synthesized. Teacher-only (`class:write`).
+ */
+export function openNarrationStream(
+  classId: string,
+  order: number,
+  options: { expectedStateVersion?: number; signal?: AbortSignal } = {},
+): Promise<Response> {
+  const query =
+    options.expectedStateVersion === undefined
+      ? ''
+      : `?expected_state_version=${encodeURIComponent(String(options.expectedStateVersion))}`
+  return send(`/classes/${classId}/narration/${order}${query}`, '', {
+    signal: options.signal,
+    headers: { Accept: 'application/x-ndjson' },
+  })
+}

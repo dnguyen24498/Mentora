@@ -40,6 +40,10 @@ Synchronize scene narration, captions, and resumable segments.
 
 - Word-perfect highlighting requirement.
 - Student voice.
+- Shared teacher audio to remote students: that is the SFU path (`V1-005`;
+  `DEC-TECH-004` is `OPEN`). V0 narration plays on the presenting teacher's tab.
+- Any decided OmniVoice/TTS provider (`DEC-TECH-007` is `OPEN`). V0 uses the
+  provider-neutral port and its deterministic local adapter.
 
 ## Acceptance Criteria
 
@@ -53,10 +57,24 @@ Synchronize scene narration, captions, and resumable segments.
 
 ## Files/Areas Allowed to Change
 
+The original allowlist named `frontend/apps/classroom/`, `tests/integration/` and
+`tests/e2e/`, which do not exist in this repository (the shipped frontend is
+`frontend/src/`, and backend tests live under `backend/tests/`). Corrected to the
+actual layout:
+
 - `backend/app/classroom/timeline/`
-- `frontend/apps/classroom/`
-- `tests/integration/`
-- `tests/e2e/`
+- `backend/app/classroom/{service,router}.py` (pin the narration read; mount the route)
+- `backend/app/api/app.py` (construct the timeline service and include its router)
+- `backend/app/speech/` (only if a contract field is required; no provider decision)
+- `backend/app/providers/` (only the existing deterministic adapter; no vendor adapter)
+- `contracts/openapi/openapi.yaml`, `contracts/events/narration-stream.schema.json`
+- `backend/tests/classroom/timeline/`, `backend/tests/integration/`
+- `frontend/src/audio/`, `frontend/src/classroom/`, `frontend/src/student/`,
+  `frontend/src/api/client.ts`, `frontend/src/settings/`
+- `docs/state-machines/TIMELINE_STATE_MACHINE.md`,
+  `docs/architecture/12_TIMELINE_PRESENTATION_AND_RESUME.md`,
+  `docs/providers/TTS_VOICE_PROVIDER.md`, `AGENTS.md`,
+  `backend/README.md`, `frontend/README.md`
 
 ## Quality Gate
 

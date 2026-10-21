@@ -278,14 +278,13 @@ describe('StudentClassPage', () => {
     expect(loadClassScenes).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the slide’s own text and notes as text only', async () => {
+  it('does not show a transcript by default; the slide text is a collapsed disclosure', async () => {
     render(<StudentClassPage classId="class-1" />)
     await screen.findByRole('img', { name: 'Slide 1' })
 
-    expect(screen.getByText('Slide 1 body')).toBeTruthy()
-    expect(screen.getByText('Notes for slide 1')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: /in text/i })).toBeTruthy()
-    expect(screen.getByText(/no model wrote it/i)).toBeTruthy()
-    expect(screen.getByText(/not audio/i)).toBeTruthy()
+    const details = screen.getByTestId('student-slide-text') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(screen.queryByRole('heading', { name: /in text/i })).toBeNull()
+    expect(screen.getByTestId('student-voice-note').textContent).toMatch(/teacher.s device speaks/i)
   })
 })

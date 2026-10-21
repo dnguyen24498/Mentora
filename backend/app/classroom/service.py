@@ -76,6 +76,7 @@ from app.classroom.errors import (
     ISSUE_NOT_ENROLLED,
     ISSUE_NOT_STARTED,
     ISSUE_STALE_EPOCH,
+    ISSUE_STALE_STATE_VERSION,
     ISSUE_TOKEN_EXPIRED,
     ISSUE_TOKEN_REVOKED,
     ISSUE_TOKEN_UNKNOWN,
@@ -494,6 +495,66 @@ class ClassroomService:
             scene_count=len(scenes),
         )
         return plan, scenes
+
+    def pinned_lesson_plan(self, institution_id: str, class_id: str) -> Mapping[str, Any]:
+        """The lesson plan of the package this session pinned (V0-013).
+
+        The narration reads its script from here, never from the course's current
+        publication or the teacher's draft overlay: a running class must speak the
+        content it pinned (``DEC-CONTENT-005``). The plan is read through the
+        package manifest and re-checked against its recorded digest by
+        :class:`PinnedSceneSource`.
+        """
+
+        plan = self._pinned_plan(institution_id, class_id)
+        return self._scenes.lesson_plan(plan.package_id)
+
+    def require_presenting(
+        self,
+        institution_id: str,
+        class_id: str,
+        *,
+        expected_state_version: Optional[int] = None,
+    ) -> ClassroomSession:
+        """Require a running presentation at the caller's state version (V0-013).
+
+        The teacher's narration is a presentation read: it is only meaningful while
+        the session is ``ACTIVE``/``DEGRADED``. An ended class is ``CLASS_ENDED``
+        (the same lock students see), a class that never started is
+        ``NOT_STARTED``, and a stale ``expected_state_version`` is refused before
+        any audio is synthesized. A refusal writes nothing and starts no speech.
+        """
+
+        self._repository.get_class(institution_id, class_id)  # 404/403 first
+        session = self._repository.get_session(institution_id, class_id)
+        if session is None:
+            raise ClassStartError(
+                f"class {class_id!r} has not started",
+                issue_code=ISSUE_NOT_STARTED,
+            )
+        if session.state not in (CLASSROOM_STATE_ACTIVE, CLASSROOM_STATE_DEGRADED):
+            if session.state in (
+                CLASSROOM_STATE_COMPLETED,
+                CLASSROOM_STATE_FAILED,
+                CLASSROOM_STATE_ENDING,
+            ):
+                raise ClassStartError(
+                    f"class {class_id!r} is {session.state}; its lesson is locked",
+                    issue_code=ISSUE_CLASS_ENDED,
+                )
+            raise ClassStartError(
+                f"class {class_id!r} is {session.state}; it is not presenting",
+                issue_code=ISSUE_WRONG_STATE,
+            )
+        if (
+            expected_state_version is not None
+            and expected_state_version != session.state_version
+        ):
+            raise ClassCommandError(
+                "the caller's class view is behind; resynchronise before narrating",
+                issue_code=ISSUE_STALE_STATE_VERSION,
+            )
+        return session
 
     def _pinned_plan(self, institution_id: str, class_id: str) -> RuntimeSessionPlan:
         plan = self._repository.get_session_plan(institution_id, class_id)

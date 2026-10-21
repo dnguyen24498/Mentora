@@ -48,9 +48,10 @@ export interface StudentClassPageProps {
  *   event stream that would carry "the teacher moved to slide 4" is
  *   `DEC-DATA-003` (technology `OPEN`; live path V1-002). This page re-reads the
  *   authoritative snapshot about every 1.5 seconds and says so.
- * * **The narration is the deck's own authored text**, in text form. No model
- *   wrote it, and it is not audio: no LLM exists in this slice and the voice
- *   provider is `DEC-TECH-007` (`OPEN`).
+ * * **Narration is voice on the teacher's device** (V0-013), not a transcript
+ *   here. Remote students do not hear it until the SFU path (V1-005,
+ *   `DEC-TECH-004` `OPEN`); the slide's own text stays behind a collapsed
+ *   accessibility disclosure, never shown by default.
  *
  * What *is* authoritative is the content: every scene comes from the package the
  * session pinned at start (`DEC-CONTENT-005`), so a correction published during
@@ -360,32 +361,32 @@ export default function StudentClassPage({
             </div>
 
             <section className="border-t border-slate-700 bg-slate-800 px-3 py-3 sm:px-4">
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                This slide, in text
-              </h2>
-              {scene && (scene.text.length > 0 || scene.notes) ? (
-                <div className="mt-2 space-y-2 text-sm text-slate-200">
-                  <ul className="list-disc space-y-1 pl-5">
-                    {scene.text.map((line, position) => (
-                      <li key={`${position}-${line}`}>{line}</li>
-                    ))}
-                  </ul>
-                  {scene.notes && (
-                    <p className="rounded-lg bg-slate-900 px-3 py-2 text-slate-300">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-500">Notes · </span>
-                      {scene.notes}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <EmptyState>This slide has no text of its own.</EmptyState>
-              )}
-              <p className="mt-2 text-[11px] text-slate-400">
-                <strong>Text only</strong>, and this deck&apos;s own words — no model wrote it and it
-                is not audio. The slide shown is the one your teacher is presenting; this page does
-                not offer slide navigation.
+              <p className="text-[11px] text-slate-400" data-testid="student-voice-note">
+                Your teacher&apos;s device speaks the narration with the presentation; the slide
+                shown is the one being presented and this page does not offer slide navigation.
+                Shared classroom audio for remote students arrives with the media plane (V1-005).
                 {session && ` Signed in as ${describePrincipal(session)}.`}
               </p>
+              {scene && (scene.text.length > 0 || scene.notes) && (
+                <details className="mt-2 text-sm text-slate-200" data-testid="student-slide-text">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Show slide text (accessibility)
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <ul className="list-disc space-y-1 pl-5">
+                      {scene.text.map((line, position) => (
+                        <li key={`${position}-${line}`}>{line}</li>
+                      ))}
+                    </ul>
+                    {scene.notes && (
+                      <p className="rounded-lg bg-slate-900 px-3 py-2 text-slate-300">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Notes · </span>
+                        {scene.notes}
+                      </p>
+                    )}
+                  </div>
+                </details>
+              )}
             </section>
           </>
         )}
