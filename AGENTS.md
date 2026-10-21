@@ -35,7 +35,7 @@ Target V1 shape is a **modular monolith**; split into microservices only when sc
 
 ## Commands (frontend)
 
-- Run both servers at once: `./run.sh` (add `--install` to set up deps first). Frontend on `:8000`, backend on `:8001`; Ctrl+C stops both.
+- Run both servers at once: `./run.sh` (add `--install` to set up deps first; `-p/--port N` changes the frontend port from 8000). Frontend on `:8000`, backend on `:8001`; Ctrl+C stops both.
 - Frontend runs on **:8000** (Vite dev server); backend API runs on **:8001**. Vite proxies `/courses`, `/artifacts`, `/health` to the backend (`MENTORA_BACKEND_ORIGIN`, default `http://127.0.0.1:8001`), so the browser only talks to `:8000` (no CORS).
 - Backend: `cd backend && env -u PYTHONPATH .venv/bin/uvicorn app.api.app:create_app --factory --reload --port 8001`
 - Frontend: `cd frontend && npm install && npm run dev`

@@ -9,7 +9,7 @@
 # so the browser only ever talks to :8000 (no CORS).
 #
 # Usage:
-#   ./run.sh [-i|--install] [--backend-port N] [--frontend-port N] [--host H]
+#   ./run.sh [-i|--install] [-p|--port N] [--backend-port N] [--host H]
 #   ./run.sh [-k|--kill]
 #
 # Starting also stops any leftover instance of this checkout first, so a crashed
@@ -46,16 +46,17 @@ The Vite dev server proxies /courses, /artifacts and /health to the backend,
 so the browser only ever talks to :8000 (no CORS).
 
 Usage:
-  ./run.sh [-i|--install] [--backend-port N] [--frontend-port N] [--host H]
+  ./run.sh [-i|--install] [-p|--port N] [--backend-port N] [--host H]
   ./run.sh [-k|--kill]
 
 Options:
   -i, --install         install backend (pip) and frontend (npm) deps first
   -k, --kill            stop every backend/frontend instance of this checkout,
-                        plus whatever holds --backend-port / --frontend-port,
+                        plus whatever holds --backend-port / --port,
                         then exit (does not start anything)
       --backend-port N  backend port (default 8001)
-      --frontend-port N frontend port (default 8000)
+  -p, --port N          frontend port, the one you open (default 8000;
+                        --frontend-port N is the same option)
       --host H          frontend bind host, e.g. 0.0.0.0 (default: localhost)
 
 Env:
@@ -72,7 +73,7 @@ while [ $# -gt 0 ]; do
     -i|--install)      INSTALL=1 ;;
     -k|--kill)         KILL=1 ;;
     --backend-port)    BACKEND_PORT="${2:?missing value}"; shift ;;
-    --frontend-port)   FRONTEND_PORT="${2:?missing value}"; shift ;;
+    -p|--port|--frontend-port) FRONTEND_PORT="${2:?missing value}"; shift ;;
     --host)            FRONTEND_HOST="${2:?missing value}"; shift ;;
     -h|--help)         usage; exit 0 ;;
     *)                 usage >&2; fail "unknown option: $1" ;;
@@ -290,7 +291,7 @@ port_conflict() {
     warn "port $port ($label) is held by a process that is not part of this checkout:"
     local holder
     for holder in $(pids_on_port "$port"); do describe_pid "$holder"; done
-    fail "free port $port, or re-run with --kill / change the port with --$label-port."
+    fail "free port $port, or re-run with --kill / change the port with --$label-port (frontend: -p/--port)."
   fi
 }
 
