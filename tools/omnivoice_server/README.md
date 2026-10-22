@@ -24,7 +24,38 @@ slide script (pinned package)
 OmniVoice produces a whole waveform for each call, so the time to first audio
 is the time to generate the **first sentence**, not the whole slide.
 
-## 1. Run the sidecar on the Mac (M1)
+## 1. Run the whole stack with OmniVoice
+
+From the repository root:
+
+```bash
+./run.sh --omnivoice
+```
+
+On first use this creates `tools/omnivoice_server/.venv` (preferring Python
+3.12/3.11/3.10, because PyTorch can lag the newest CPython), installs OmniVoice
+and its PyTorch dependency there, starts the sidecar on `127.0.0.1:8765`, waits
+for `/health`, and then starts the backend with
+`MENTORA_TTS_PROVIDER=omnivoice` pointing at it. On a Linux host without an
+NVIDIA GPU it installs CPU-only PyTorch first to avoid the CUDA wheel set.
+
+Useful options/environment:
+
+```bash
+./run.sh --omnivoice --omnivoice-port 8765
+OMNIVOICE_PYTHON=/path/to/python ./run.sh --omnivoice   # existing OmniVoice env
+OMNIVOICE_PYTHON_BIN=python3.12 ./run.sh --omnivoice    # recreate with this base
+HF_ENDPOINT=https://hf-mirror.com ./run.sh --omnivoice  # slow Hugging Face
+OMNIVOICE_START_TIMEOUT=1800 ./run.sh --omnivoice       # first model download
+```
+
+`OMNIVOICE_INSTRUCT`, `OMNIVOICE_REF_AUDIO`, `OMNIVOICE_REF_TEXT`,
+`OMNIVOICE_PROMPT`, `OMNIVOICE_NUM_STEP`, `OMNIVOICE_SPEED` and
+`OMNIVOICE_DEVICE` are passed through unchanged. `Ctrl+C` stops the sidecar and
+both app servers. The default voice remains the deterministic mock; this flag is
+the opt-in prototype.
+
+### Run only the sidecar
 
 ```bash
 # In the environment where `pip install omnivoice` worked (with Apple-Silicon PyTorch)
@@ -59,7 +90,9 @@ voice between sentences, so the sidecar always uses one voice:
 | `OMNIVOICE_SPEED=1.0` | speaking rate |
 | `OMNIVOICE_DEVICE=mps` | override the device (auto: cuda → mps → cpu) |
 
-## 2. Point the backend at it
+## 2. Point the backend at it manually
+
+`./run.sh --omnivoice` already does this. If you started the sidecar separately, use:
 
 ```bash
 export MENTORA_TTS_PROVIDER=omnivoice
