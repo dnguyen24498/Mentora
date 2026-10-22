@@ -466,6 +466,45 @@ paths:
           description: 'Artifact belongs to another institution (stable code TENANT_ACCESS_DENIED)'
         '404':
           description: 'No package has been built for this artifact (stable code NOT_FOUND)'
+  /artifacts/{artifactId}/auto-publish:
+    post:
+      operationId: autoPublishArtifact
+      description: >-
+        The Library upload shortcut (V0-007/V0-008 composition). Builds the
+        package for the uploaded artifact, and when the review policy marks it
+        auto-allowed (state READY, no human-required scene) records the
+        signed-in teacher's approval and runs the atomic publication transition
+        as that teacher. A REVIEW_REQUIRED package is deliberately **not**
+        approved automatically: the response has `published: false`,
+        `requires_review: true` and leaves the package in Teacher Studio. A
+        blocking fidelity failure is refused by the builder with 409, exactly
+        as the separate review-package step is. The publication is idempotent on
+        content: replaying this request returns the same publication with
+        `created: false`. Requires content:write, review:write and
+        publication:write together, so a caller cannot compose an approval with
+        capabilities it does not hold.
+      parameters: [{in: path, name: artifactId, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: >-
+            The publication attempt: published and created, or unpublished with
+            the review state that stopped automation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AutoPublicationResult'}
+        '401':
+          description: 'No authenticated principal (stable code UNAUTHENTICATED)'
+        '403':
+          description: >-
+            Missing content:write/review:write/publication:write, or another
+            tenant's artifact (stable codes INSUFFICIENT_SCOPE,
+            TENANT_ACCESS_DENIED)
+        '404':
+          description: 'No such artifact in this institution (stable code NOT_FOUND)'
+        '409':
+          description: >-
+            Blocking fidelity failure, so no package was built (stable code
+            PUBLICATION_BLOCKED)
   /artifacts/{artifactId}/review-package/drafts:
     post:
       operationId: saveReviewDraft
@@ -1400,6 +1439,27 @@ components:
         decision: {oneOf: [{$ref: '#/components/schemas/ReviewDecision'}, {type: 'null'}]}
         draft: {oneOf: [{$ref: '#/components/schemas/ReviewDraft'}, {type: 'null'}]}
         draft_count: {type: integer, minimum: 0}
+    AutoPublicationResult:
+      description: >-
+        The result of the upload shortcut. `published: false` is not an upload
+        failure: the artifact and package exist, and `review_state` explains
+        why automation stopped. `requires_review: true` means the package is
+        human-required and must be approved in Teacher Studio. `created: false`
+        with `published: true` is an idempotent replay of the same content.
+      type: object
+      required: [artifact_id, version_id, package_id, content_package_version, state, published, created, requires_review, publication, review_state]
+      properties:
+        artifact_id: {type: string}
+        version_id: {type: string}
+        package_id: {type: string}
+        content_package_version: {type: string}
+        state: {type: string, enum: [READY, REVIEW_REQUIRED, BLOCKED]}
+        published: {type: boolean}
+        created: {type: boolean}
+        requires_review: {type: boolean}
+        publication:
+          oneOf: [{$ref: '#/components/schemas/Publication'}, {type: 'null'}]
+        review_state: {$ref: '#/components/schemas/ReviewState'}
     PublishRequest:
       description: Optional attribution for a publication (not an authorization control in V0).
       type: object

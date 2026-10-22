@@ -77,6 +77,8 @@ class ApiSecurity:
     principal: Callable[..., Principal]
     tenant: Callable[..., str]
     require: Callable[[Scope], Callable[..., Principal]]
+    #: Every one of ``scopes`` is required (an action that composes capabilities).
+    require_all: Callable[..., Callable[..., Principal]]
     #: True when the pre-auth development header is accepted (off by default, V0-023).
     development_shortcut: bool = False
     #: True when the one-shot first-administrator bootstrap is exposed (V0-023).
@@ -144,11 +146,38 @@ def build_api_security(
 
         return guard
 
+    def require_all(*scopes: Scope) -> Callable[..., Principal]:
+        """A dependency that requires every one of ``scopes``.
+
+        Composed actions (auto-publish *is* a review decision plus a publication)
+        must not be reachable with only one half of the capabilities. The refusal
+        names the first missing scope, so the client still gets a precise answer.
+        """
+
+        def guard(principal: Principal = Depends(principal)) -> Principal:
+            for scope in scopes:
+                if not principal.has(scope):
+                    if events is not None:
+                        events.record_scope_denied(
+                            institution_id=principal.institution_id,
+                            role=principal.role.value,
+                            scope=scope.value,
+                        )
+                    raise ScopeDeniedError(
+                        f"this action requires the {scope.value} capability",
+                        issue_code=ISSUE_SCOPE_REQUIRED,
+                        scope=scope.value,
+                    )
+            return principal
+
+        return guard
+
     return ApiSecurity(
         identity=identity,
         principal=principal,
         tenant=tenant,
         require=require,
+        require_all=require_all,
         development_shortcut=allow_dev_header,
         admin_bootstrap=allow_admin_bootstrap,
     )

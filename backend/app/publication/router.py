@@ -27,6 +27,10 @@ Publication (V0-008):
 * ``GET  /publications/{publicationId}`` — one publication by identity, including
   a superseded one (``DEC-CONTENT-005``: a session keeps its pinned version).
 * ``GET  /courses/{courseId}/publications`` — publication history of a course.
+* ``POST /artifacts/{artifactId}/auto-publish`` — the upload shortcut: build the
+  package, auto-approve it **only when the policy says auto-allowed**, and
+  publish it as the uploading teacher. A human-required package is returned
+  unpublished for Teacher Studio.
 
 Every route resolves a principal (``app/api/security.py``) and the tenant comes from
 it. Review and publication writes are **teacher** capabilities: a student token is
@@ -44,6 +48,7 @@ from pydantic import BaseModel, Field
 from app.api.security import ApiSecurity
 from app.common.errors import NotFoundError
 from app.identity.models import Principal, Scope
+from app.publication.auto import AutoPublicationService
 from app.publication.draft import SectionInput
 from app.publication.review import ReviewService
 from app.publication.service import PublicationService
@@ -189,12 +194,41 @@ class PublishRequest(BaseModel):
 
 def build_publication_router(
     service: PublicationService,
+    auto_service: AutoPublicationService,
     security: ApiSecurity,
 ) -> APIRouter:
     """Routes for the atomic publication transition and published-version retrieval."""
 
     router = APIRouter()
     require = security.require
+    require_all = security.require_all
+
+    @router.post("/artifacts/{artifact_id}/auto-publish")
+    def auto_publish_artifact(
+        artifact_id: str,
+        principal: Principal = Depends(
+            require_all(Scope.CONTENT_WRITE, Scope.REVIEW_WRITE, Scope.PUBLICATION_WRITE)
+        ),
+    ) -> dict:
+        """Publish an uploaded deck when the review policy says it is auto-allowed.
+
+        This is the Library's upload path: it builds the package, records the
+        uploading teacher's approval, and runs the atomic publication transition.
+        A package marked ``REVIEW_REQUIRED`` is **not** approved automatically —
+        the response says ``published: false`` and leaves it in Teacher Studio. A
+        blocking fidelity failure is refused by the package builder (``409``).
+        Idempotent on the content: a replay returns the same publication with
+        ``created: false``.
+        """
+
+        attribution = (
+            principal.email or principal.account_id or principal.institution_id
+        )
+        return auto_service.publish(
+            principal.institution_id,
+            artifact_id,
+            published_by=attribution,
+        ).to_dict()
 
     @router.post("/course-versions/{version_id}/publish")
     def publish_version(

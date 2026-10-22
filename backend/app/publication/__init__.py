@@ -7,7 +7,10 @@ The package owns three things:
 * the **review write path** — approve/reject, and draft lesson-order revisions;
 * the **publication transition** — ``APPROVED`` → ``SEALING`` → ``INDEXING`` →
   ``COMMITTING`` → ``PUBLISHED``, the pinned knowledge-index version, and the
-  transactional outbox.
+  transactional outbox;
+* the **upload shortcut** (``auto.py``) — build, auto-approve **only** an
+  auto-allowed package, then publish it as the uploading teacher. A
+  human-required package is returned unpublished for Teacher Studio.
 
 Neither the review nor the transition writes to a package. Content is immutable
 (``DEC-CONTENT-004`` / ``DEC-CONTENT-005``); a decision records *who accepted
@@ -16,6 +19,11 @@ which content version*, a draft is an appended *revision*, and a publication onl
 publication never had to be undone.
 """
 
+from app.publication.auto import (
+    AUTO_APPROVAL_REASON,
+    AutoPublicationResult,
+    AutoPublicationService,
+)
 from app.publication.draft import DraftDiff, DraftError, SectionInput, resolve_draft_sections
 from app.publication.errors import PublicationError
 from app.publication.index import BaselineIndexBuilder, IndexBuilder
@@ -74,6 +82,9 @@ from app.publication.telemetry import (
 from app.publication.workflow import ReviewState, ReviewWorkflow
 
 __all__ = [
+    "AUTO_APPROVAL_REASON",
+    "AutoPublicationResult",
+    "AutoPublicationService",
     "INDEX_STATUS_READY",
     "INDEX_STATUS_UNINDEXED",
     "INTEGRITY_MISMATCH",

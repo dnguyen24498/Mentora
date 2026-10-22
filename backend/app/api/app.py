@@ -90,6 +90,7 @@ from app.courses.repository import CourseRepository
 from app.courses.upload_service import UploadService
 from app.db.database import Database, init_db
 from app.identity.models import Principal, Scope
+from app.publication.auto import AutoPublicationService
 from app.publication.index import BaselineIndexBuilder
 from app.publication.repository import PublicationRepository, ReviewRepository
 from app.publication.review import ReviewService
@@ -159,6 +160,12 @@ def create_app(
         package_build_service,
         index_builder=BaselineIndexBuilder(),
     )
+    # The Library's upload shortcut: the same build -> review -> publish steps,
+    # composed for a package the policy marks auto-allowed. A human-required
+    # package is returned unpublished, so automation cannot approve it.
+    auto_publication_service = AutoPublicationService(
+        repository, review_service, review_workflow, publication_service
+    )
     # Class start (V0-009). The runtime catalog is replaceable infrastructure:
     # DEC-TECH-009 (cloud/provider/regions) is OPEN, so the home region comes from
     # configuration and the policy version names the LOCKED default policy set. The
@@ -195,6 +202,7 @@ def create_app(
     app.state.review_repository = review_repository
     app.state.review_workflow = review_workflow
     app.state.publication_service = publication_service
+    app.state.auto_publication_service = auto_publication_service
     app.state.classroom_service = classroom_service
 
     # Identity (V0-021). The credential *mechanism* is not a decided technology —
@@ -243,7 +251,9 @@ def create_app(
     app.include_router(build_review_router(review_service, review_workflow, security))
     # Atomic publication (V0-008): seal/index/commit an approved version and serve
     # published versions, including superseded ones.
-    app.include_router(build_publication_router(publication_service, security))
+    app.include_router(
+        build_publication_router(publication_service, auto_publication_service, security)
+    )
     # Class and runtime session plan (V0-009): schedule a class, start it by
     # pinning the exact runtime tuple once, serve the durable snapshot, serve the
     # pinned scene, and authorize joins against the class enrollment.

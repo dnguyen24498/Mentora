@@ -201,7 +201,13 @@ refresh works in single-origin mode too.
 - Lists the selected course's already-uploaded presentations
   (`GET /courses/{id}/materials`) with size, version and job status, and lets you
   **select one** to inspect it.
-- Uploads or drag-and-drops a `.pptx` (`POST /courses/{id}/materials`).
+- Uploads or drag-and-drops a `.pptx` (`POST /courses/{id}/materials`). After the
+  upload it calls `POST /artifacts/{id}/auto-publish`, so an ordinary deck is
+  **published automatically under the signed-in teacher** and is immediately
+  usable in a class. The server still applies the review policy: a package marked
+  `REVIEW_REQUIRED` comes back `published: false` and the page says to open
+  Teacher Studio, and a blocking fidelity failure is reported as an error. No
+  Admin → Publications step is needed for the auto-allowed case.
 - Selecting a file (or finishing an upload) shows its stored artifact metadata and
   runs structural extraction (`POST /artifacts/{id}/extract`), rendering the full
   content in the IR viewer (`src/components/ContentIrView.tsx`): every object per

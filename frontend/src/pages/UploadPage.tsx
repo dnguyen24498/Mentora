@@ -5,6 +5,7 @@ import { BUTTON_PRIMARY, BUTTON_SMALL, INPUT_CLASS, PANEL_PADDING } from '../com
 import { Link, classroomPath, studioPath } from '../router'
 import {
   ApiError,
+  autoPublishArtifact,
   createCourse,
   extractArtifact,
   listClasses,
@@ -241,12 +242,35 @@ export default function UploadPage() {
       const uploaded = await uploadMaterial(institution, courseId, file)
       await refreshMaterials(institution, courseId)
       setSelectedId(uploaded.artifact_id)
-      setNotice(
-        uploaded.created
-          ? `Uploaded ${uploaded.filename} as a new version.`
-          : `${uploaded.filename} is already stored (identical bytes) — showing the existing file.`,
-      )
+      const stored = uploaded.created
+        ? `Uploaded ${uploaded.filename} as a new version.`
+        : `${uploaded.filename} is already stored (identical bytes) — showing the existing file.`
+      setNotice(`${stored} Rendering the slides and publishing under your account…`)
       await runExtract(uploaded.artifact_id)
+
+      // A teacher no longer has to visit Teacher Studio and Admin → Publications
+      // just to make an ordinary deck teachable. The server still applies the
+      // review policy: only an auto-allowed package becomes visible here.
+      try {
+        const auto = await autoPublishArtifact(institution, uploaded.artifact_id)
+        if (auto.published && auto.publication) {
+          setNotice(
+            `${stored} Published automatically as version ${auto.publication.course_version}` +
+              (auto.created ? '.' : ' (it was already published).') +
+              ' It is ready to use in a class.',
+          )
+        } else if (auto.requires_review) {
+          setNotice(
+            `${stored} Saved, but it needs a teacher review before publication. ` +
+              'Open Teacher Studio to review it, then publish it from Admin → Publications.',
+          )
+        } else {
+          setNotice(`${stored} Saved, but it was not published automatically.`)
+        }
+      } catch (cause) {
+        setNotice(`${stored} Saved, but automatic publication did not complete.`)
+        fail(cause)
+      }
     } catch (cause) {
       fail(cause)
     } finally {

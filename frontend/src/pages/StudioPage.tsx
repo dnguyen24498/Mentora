@@ -136,7 +136,7 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
         setReviewState(await postReviewDecision(institution, artifactId, input))
         setReviewNotice(
           input.decision === 'APPROVE'
-            ? 'Approved. The course version is now APPROVED; sealing, indexing and publication are the next task (V0-008).'
+            ? 'Approved. The course version is now APPROVED; publish it from Admin → Publications (ordinary uploads are published automatically).'
             : 'Rejected. The course version is back in REVIEW_REQUIRED, with the reason recorded.',
         )
       } catch (cause) {

@@ -737,6 +737,31 @@ export const publishVersion = (institutionId: string, versionId: string, publish
     JSON_POST({ published_by: publishedBy ?? null }),
   )
 
+/**
+ * The upload shortcut: build the package, auto-approve it when the review policy
+ * says it is auto-allowed, and publish it as the signed-in teacher.
+ *
+ * `published: false` is not an upload failure — the deck is stored and reviewable;
+ * `requires_review` means a teacher must decide it in Teacher Studio.
+ */
+export interface AutoPublicationResult {
+  artifact_id: string
+  version_id: string
+  package_id: string
+  content_package_version: string
+  state: string
+  published: boolean
+  created: boolean
+  requires_review: boolean
+  publication: Publication | null
+  review_state: ReviewState
+}
+
+export const autoPublishArtifact = (institutionId: string, artifactId: string) =>
+  request<AutoPublicationResult>(`/artifacts/${artifactId}/auto-publish`, institutionId, {
+    method: 'POST',
+  })
+
 /** Extract, render every slide and run the fidelity gate, for one mode. */
 export const compileArtifact = (institutionId: string, artifactId: string, mode?: string) =>
   request<Record<string, unknown>>(
