@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,7 @@ from app.classroom.timeline import (
     build_narration,
     split_text,
 )
+from app.classroom.timeline.service import NarrationRead, TimelineService
 from app.classroom.timeline.stream import NarrationStreamer
 from app.providers.factory import build_speech_service
 from app.speech.errors import SpeechErrorCode
@@ -192,3 +194,36 @@ def test_closing_the_stream_cancels_the_worker():
     first = next(iterator)
     assert first["type"] == "narration.started"
     iterator.close()  # the client went away: no exception, worker stops
+
+
+def test_service_publishes_the_teacher_generation_to_the_relay():
+    class RecordingRelay:
+        def __init__(self):
+            self.events = []
+            self.finished = []
+
+        def publish(self, institution_id, class_id, event):
+            self.events.append((institution_id, class_id, event["type"]))
+
+        def finish(self, institution_id, class_id, generation):
+            self.finished.append((institution_id, class_id, generation))
+
+    relay = RecordingRelay()
+    speech = build_speech_service()
+    service = TimelineService(None, speech, relay=relay)  # type: ignore[arg-type]
+    script = build_narration(
+        scene=_scene(), lesson_plan={"sections": [{"scene_id": "s1", "safe_markers": [],
+                                                   "script": "Just words."}]}
+    )
+    read = NarrationRead(
+        session=SimpleNamespace(session_id="sess", actor_epoch=1, state_version=3),
+        plan=SimpleNamespace(),  # type: ignore[arg-type]
+        scene=_scene(),
+        script=script,
+    )
+    events = list(service.stream(read, institution_id="inst", class_id="c1"))
+
+    assert events[0]["type"] == "narration.started"
+    assert [kind for _, _, kind in relay.events] == [event["type"] for event in events]
+    generation = events[0]["generation"]
+    assert relay.finished == [("inst", "c1", generation)]

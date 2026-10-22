@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Narration Stream Event",
-  "description": "One NDJSON line of GET /classes/{classId}/narration/{order} (V0-013). Audio is per semantic chunk; markers are semantic (DEC-RUNTIME-006); a client discards any event whose actor_epoch/generation is not the current one (DEC-RUNTIME-007).",
+  "description": "One NDJSON line of GET /classes/{classId}/narration/{order} (teacher, V0-013) or GET /classes/{classId}/narration (student live relay, V1-005 bridge). Audio is per semantic chunk; markers are semantic (DEC-RUNTIME-006); a client discards any event whose actor_epoch/generation is not the current one (DEC-RUNTIME-007). The relay starts with the generation's narration.started, replays the current slide's buffered events to a late joiner, then carries live events to its terminal verdict; a completed generation is replayable for a short TTL and the teacher's next slide supersedes it. It is in-process, best-effort, and not the SFU media plane (DEC-TECH-004 is OPEN).",
   "type": "object",
   "required": ["schema_version", "type", "sequence", "class_id", "session_id", "scene_id", "actor_epoch", "state_version", "generation"],
   "properties": {

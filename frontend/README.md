@@ -486,16 +486,29 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   keeps its own chrome), but there is **no slide navigation** — no Previous/Next,
   no picker and no arrow keys. The teacher drives the class; this page reads the
   same authoritative `GET /classes/{id}/snapshot` and moves to the scene its
-  lesson position names (V0-025), and the current slide's text and notes are shown
-  as the narration. It waits for the teacher to start and joins by itself. When
+  lesson position names (V0-025), and the current slide is spoken by the teacher's
+  live relayed voice. It waits for the teacher to start and joins by itself. When
   the teacher ends the class it shows a locked **Ended** screen with no slide or
   text — the server refuses a student's snapshot/scene reads with `CLASS_ENDED`
   (V0-027) — and it keeps re-reading the class metadata, so a teacher's **Reopen
   class** joins the new actor epoch by itself. Three limits are stated
   rather than hidden: the update is a **short poll** (about every 1.5 s), not the
   ordered per-class stream (`DEC-DATA-003` is `OPEN`, live path V1-002); the
-  narration is **text only** — the deck's own words, not a model's and not audio
-  (`DEC-TECH-007` is `OPEN`); and every scene comes from the package the session
+  **voice is the teacher's live generation relayed over HTTP** (V1-005 bridge,
+  `GET /classes/{id}/narration`) rather than a per-student synthesis or a
+  transcript — the page shows the provider (the deterministic mock or the opt-in
+  OmniVoice prototype) and an **Enable sound** button when the browser blocks
+  autoplay. This is explicitly *not* the SFU media plane (`DEC-TECH-004` is
+  `OPEN`): the relay answers `204` while there is no current generation, copies
+  each WAV chunk the teacher's tab produced, and ends at that generation's verdict.
+  The current slide is the unit of replay: a student who joins mid-slide hears it
+  from the slide's start (the fast mock would otherwise finish synthesis before the
+  next attach and leave them in silence), and the teacher's next slide supersedes
+  it. The page sends `after_generation` so waiting for the next slide does not
+  replay the one it just heard, and `expected_scene_id` from the snapshot so the
+  audio cannot run under a different slide's image.
+  The slide's own text stays available only behind the collapsed accessibility
+  disclosure; and every scene comes from the package the session
   pinned at start (`GET /classes/{id}/scenes[/{order}]`, `DEC-CONTENT-005`), so a
   correction published mid-lesson cannot change the slide under a student. A
   scene whose file does not match the manifest digest

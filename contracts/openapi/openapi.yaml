@@ -893,13 +893,69 @@ paths:
             issue_code NOT_STARTED), its pinned lesson plan is unusable (stable code
             CONFLICT, issue_code INCOMPATIBLE_CONTENT), or the caller's view is behind
             (stable code CONFLICT, issue_code STALE_STATE_VERSION)
+  /classes/{classId}/narration:
+    get:
+      operationId: streamClassNarrationRelay
+      description: >-
+        Attach to the teacher's **live** narration as an enrolled participant
+        (V1-005 bridge; requires `scene:read`). It starts no synthesis and reads no
+        source document: it copies the generation the teacher's presenting tab is
+        already producing, so a student hears the same WAV chunks without a second
+        provider call. The response is newline-delimited JSON with the same events
+        as the teacher stream
+        (`contracts/events/narration-stream.schema.json`): the generation's
+        `narration.started` first, then the chunks already buffered for that slide,
+        then the chunks published while attached, ending at that generation's
+        terminal verdict. The current slide is the unit of replay: a late joiner
+        hears it from its start, and the teacher's next slide supersedes it. A
+        completed generation remains replayable for a short TTL, so a student who
+        attaches just after the teacher's fast local synthesis is not left in
+        silence. `204` means the teacher is paused, has not started narrating yet,
+        has moved to a slide whose narration has not begun, or the page passed
+        `after_generation` for the generation it already consumed; the client
+        retries. A student must be on the class roster and the class must be
+        running; an ended class is `409 CLASS_ENDED`. This is an in-process
+        development relay, not the SFU media plane (`DEC-TECH-004` is `OPEN`); it
+        is single-process and best-effort, and no audio is persisted.
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+        - name: after_generation
+          in: query
+          required: false
+          description: >-
+            The generation this page has already consumed; the relay answers 204
+            instead of replaying that same slide while waiting for the next one.
+          schema: {type: integer, minimum: 0}
+        - name: expected_scene_id
+          in: query
+          required: false
+          description: >-
+            The pinned scene the student's authoritative snapshot is showing. The
+            relay only attaches when the current generation belongs to that scene,
+            so a completed previous slide cannot be replayed under a new image.
+          schema: {type: string}
+      responses:
+        '200':
+          description: The current generation's buffered and live events.
+          content:
+            application/x-ndjson:
+              schema: {$ref: '../events/narration-stream.schema.json'}
+        '204':
+          description: >-
+            No narration to attach to right now (not speaking, different scene, or
+            already consumed); retry.
+        '403':
+          description: 'INSUFFICIENT_SCOPE — no scene:read, or NOT_ENROLLED for a student'
+        '404': {description: 'NOT_FOUND — unknown class'}
+        '409':
+          description: >-
+            CLASS_NOT_READY (issue_code NOT_STARTED, CLASS_ENDED, WRONG_STATE)
   /classes/{classId}/narration/{order}:
     get:
       operationId: streamClassNarration
       description: >-
         Stream one pinned scene's narration (V0-013); requires `class:write` (the
-        teacher's presenting tab — remote students hear the teacher through the SFU,
-        V1-005). The script is the pinned lesson plan's section `script`, else its
+        teacher's presenting tab). The script is the pinned lesson plan's section `script`, else its
         `fallback_script`, else the speaker notes, else the slide text
         (DEC-CONTENT-005). It is cut into word-safe semantic chunks and each chunk is
         synthesized by the provider-neutral voice (DEC-TECH-007 is OPEN; the shipped
@@ -910,7 +966,10 @@ paths:
         `segment.completed`, and a terminal `narration.completed` (`COMPLETED`,
         `FALLBACK` with the text in a `segment.fallback`, or `EMPTY`),
         `narration.cancelled` or `error`. Closing the connection cancels synthesis.
-        A refusal happens before any synthesis and writes nothing.
+        The events are also mirrored to the class relay so enrolled students hear
+        the same chunks without a second provider call (V1-005 bridge;
+        `DEC-TECH-004` is `OPEN`). A refusal happens before any synthesis and
+        writes nothing.
       parameters:
         - $ref: '#/components/parameters/ClassId'
         - {name: order, in: path, required: true, schema: {type: integer, minimum: 0}}

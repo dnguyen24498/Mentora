@@ -8,10 +8,12 @@ import {
   loadClass,
   loadClassScenes,
   loadSnapshot,
+  openNarrationRelay,
   type ClassSceneList,
   type ClassView,
 } from '../api/client'
 import { clearSession, writeSession } from '../auth/session'
+import type { AudioSink } from '../audio/useNarrationPlayer'
 import { makeSnapshot } from '../classroom/state/testing'
 import { INSTITUTION } from '../test/fixtures'
 
@@ -24,6 +26,7 @@ vi.mock('../api/client', async (importOriginal) => {
     loadClass: vi.fn(),
     loadClassScenes: vi.fn(),
     loadSnapshot: vi.fn(),
+    openNarrationRelay: vi.fn(),
   }
 })
 
@@ -98,6 +101,51 @@ function classIn(state: string): ClassView {
   return { ...ACTIVE, class: { ...ACTIVE.class, state } }
 }
 
+const WAV_B64 = btoa('RIFF....WAVEfmt ')
+
+/** A completed generation as the teacher's relay would hand it to a student. */
+function relayResponse(): Response {
+  const base = {
+    class_id: 'class-1',
+    session_id: 'session-1',
+    scene_id: 'ppt/slides/slide1.xml',
+    actor_epoch: 1,
+    state_version: 1,
+    generation: 77,
+  }
+  const events: object[] = [
+    {
+      ...base,
+      sequence: 1,
+      type: 'narration.started',
+      source: 'slide-text',
+      chunk_count: 1,
+      word_count: 1,
+      voice_id: 'neutral',
+      provider: { name: 'omnivoice', version: '0.1.0-prototype' },
+      empty: false,
+    },
+    {
+      ...base,
+      sequence: 2,
+      type: 'audio',
+      chunk_index: 0,
+      content_type: 'audio/wav',
+      duration_ms: 100,
+      data: WAV_B64,
+    },
+    {
+      ...base,
+      sequence: 3,
+      type: 'narration.completed',
+      status: 'COMPLETED',
+      duration_ms: 100,
+      fallback: false,
+    },
+  ]
+  return new Response(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
+}
+
 function signInAsStudent() {
   writeSession({
     token: 'tok-1',
@@ -133,6 +181,7 @@ describe('StudentClassPage', () => {
     vi.mocked(loadClassScenes).mockResolvedValue(LISTING)
     vi.mocked(loadSnapshot).mockResolvedValue(makeSnapshot())
     vi.mocked(classSceneUrl).mockImplementation(async (_classId, order) => `blob:slide-${order}`)
+    vi.mocked(openNarrationRelay).mockResolvedValue(new Response(null, { status: 204 }))
     window.history.replaceState({}, '', '/student/class-1')
   })
 
@@ -285,6 +334,71 @@ describe('StudentClassPage', () => {
     const details = screen.getByTestId('student-slide-text') as HTMLDetailsElement
     expect(details.open).toBe(false)
     expect(screen.queryByRole('heading', { name: /in text/i })).toBeNull()
-    expect(screen.getByTestId('student-voice-note').textContent).toMatch(/teacher.s device speaks/i)
+    expect(screen.getByTestId('student-voice-note').textContent).toMatch(/relayed to this page/i)
+  })
+
+  it('plays the teacher\'s live relayed voice and names the prototype provider', async () => {
+    vi.mocked(openNarrationRelay)
+      .mockResolvedValueOnce(relayResponse())
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    const played: Blob[] = []
+    const sink: AudioSink = {
+      play: async (blob) => {
+        played.push(blob)
+      },
+      stop: () => undefined,
+    }
+
+    render(
+      <StudentClassPage
+        classId="class-1"
+        narrationRetryMs={20}
+        createAudioSink={() => sink}
+      />,
+    )
+
+    await screen.findByRole('img', { name: 'Slide 1' })
+    await waitFor(() => expect(played).toHaveLength(1))
+    expect(played[0].type).toBe('audio/wav')
+    expect(screen.getByTestId('student-voice').textContent).toContain('OmniVoice')
+    expect(openNarrationRelay).toHaveBeenCalledWith(
+      'class-1',
+      expect.objectContaining({
+        signal: expect.anything(),
+        expectedSceneId: 'ppt/slides/slide1.xml',
+      }),
+    )
+    // After consuming the completed generation, the page waits with that exact
+    // generation so the same slide is not replayed in a loop.
+    await waitFor(() =>
+      expect(openNarrationRelay).toHaveBeenCalledWith(
+        'class-1',
+        expect.objectContaining({
+          afterGeneration: 77,
+          expectedSceneId: 'ppt/slides/slide1.xml',
+        }),
+      ),
+    )
+  })
+
+  it('asks for a click when the browser blocks the relayed voice', async () => {
+    vi.mocked(openNarrationRelay)
+      .mockResolvedValueOnce(relayResponse())
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    const blocked = Object.assign(new Error('blocked'), { name: 'NotAllowedError' })
+
+    render(
+      <StudentClassPage
+        classId="class-1"
+        narrationRetryMs={20}
+        createAudioSink={() => ({
+          play: () => Promise.reject(blocked),
+          stop: () => undefined,
+        })}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: 'Enable sound' })).toBeTruthy()
+    expect(screen.getByTestId('student-voice').textContent).toMatch(/blocked sound/i)
   })
 })

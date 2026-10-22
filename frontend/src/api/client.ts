@@ -1119,3 +1119,42 @@ export function openNarrationStream(
     headers: { Accept: 'application/x-ndjson' },
   })
 }
+
+/**
+ * Attach to the teacher's **live** narration (V1-005 bridge).
+ *
+ * `GET /classes/{id}/narration` starts no synthesis; it copies the current
+ * generation the teacher's tab produced. The relay replays the current slide's
+ * buffered chunks first, so a student who joins mid-slide still hears it from the
+ * start. A `204` means the teacher is paused, has not started speaking yet, or has
+ * moved to a slide whose narration has not begun; the caller retries. The response
+ * ends at that generation's terminal verdict, so a page calls this again to follow
+ * the next slide.
+ *
+ * `afterGeneration` tells the server that this page already consumed that exact
+ * generation, so waiting for the next slide does not replay the previous one.
+ * `expectedSceneId` pins the audio to the slide the student's snapshot is showing.
+ * This is the development HTTP relay, not the SFU media plane (`DEC-TECH-004` is
+ * `OPEN`).
+ */
+export function openNarrationRelay(
+  classId: string,
+  options: {
+    afterGeneration?: number
+    expectedSceneId?: string
+    signal?: AbortSignal
+  } = {},
+): Promise<Response> {
+  const query = new URLSearchParams()
+  if (options.afterGeneration !== undefined) {
+    query.set('after_generation', String(options.afterGeneration))
+  }
+  if (options.expectedSceneId) {
+    query.set('expected_scene_id', options.expectedSceneId)
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return send(`/classes/${classId}/narration${suffix}`, '', {
+    signal: options.signal,
+    headers: { Accept: 'application/x-ndjson' },
+  })
+}

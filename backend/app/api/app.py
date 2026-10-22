@@ -191,6 +191,10 @@ def create_app(
     app = FastAPI(title="Mentora API", version="1.0.0")
     app.state.speech_service = speech_service
     app.state.timeline_service = timeline_service
+    # The in-process live narration relay (V1-005 bridge): the teacher's stream is
+    # the producer, a student's page attaches to the same generation. Not the SFU;
+    # the shared media plane remains DEC-TECH-004 (OPEN).
+    app.state.narration_relay = timeline_service.relay
     app.state.settings = settings
     app.state.repository = repository
     app.state.upload_service = upload_service

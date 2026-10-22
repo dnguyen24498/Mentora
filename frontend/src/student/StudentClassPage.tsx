@@ -16,6 +16,7 @@ import PageHeader from '../components/PageHeader'
 import { Badge, Banner, BUTTON_SECONDARY, EmptyState } from '../components/ui'
 import { usePinnedSlide } from '../classroom/usePinnedSlide'
 import { sceneOrderFor } from '../classroom/scenePosition'
+import { useNarrationPlayer, type AudioSink } from '../audio/useNarrationPlayer'
 import { CLASSROOM_PATH, Link, joinPath } from '../router'
 
 type FollowPhase = 'loading' | 'waiting' | 'live' | 'ended' | 'error'
@@ -27,6 +28,13 @@ export interface StudentClassPageProps {
    * Injectable for tests; the product interval is 1.5 s.
    */
   followPollMs?: number
+  /**
+   * How long the voice relay waits before attaching again when the teacher is
+   * not speaking. Injectable for tests; the product interval is 750 ms.
+   */
+  narrationRetryMs?: number
+  /** Injectable audio sink for component tests. */
+  createAudioSink?: () => AudioSink
 }
 
 /**
@@ -48,9 +56,11 @@ export interface StudentClassPageProps {
  *   event stream that would carry "the teacher moved to slide 4" is
  *   `DEC-DATA-003` (technology `OPEN`; live path V1-002). This page re-reads the
  *   authoritative snapshot about every 1.5 seconds and says so.
- * * **Narration is voice on the teacher's device** (V0-013), not a transcript
- *   here. Remote students do not hear it until the SFU path (V1-005,
- *   `DEC-TECH-004` `OPEN`); the slide's own text stays behind a collapsed
+ * * **Narration is the teacher's live generation, relayed over HTTP** (V0-013's
+ *   synthesis + the V1-005 in-process bridge), not a per-student synthesis and
+ *   not a transcript. The canonical shared-audio path is still the SFU
+ *   (`DEC-TECH-004` `OPEN`), so this is a development relay: it is single-process
+ *   and best-effort, and says so. The slide's own text stays behind a collapsed
  *   accessibility disclosure, never shown by default.
  *
  * What *is* authoritative is the content: every scene comes from the package the
@@ -62,6 +72,8 @@ export interface StudentClassPageProps {
 export default function StudentClassPage({
   classId,
   followPollMs = 1500,
+  narrationRetryMs = 750,
+  createAudioSink,
 }: StudentClassPageProps) {
   const session = useSession()
   const [, setInstitution] = useInstitution()
@@ -80,6 +92,14 @@ export default function StudentClassPage({
   const scene: ClassScene | null =
     (order === null ? null : scenes.find((item) => item.order === order)) ?? scenes[0] ?? null
   const index = scene ? scenes.findIndex((item) => item.order === scene.order) : -1
+  const narration = useNarrationPlayer({
+    classId,
+    enabled: phase === 'live' && listing !== null,
+    mode: 'relay',
+    expectedSceneId: scene?.scene_id,
+    retryMs: narrationRetryMs,
+    createSink: createAudioSink,
+  })
   const { url: slideUrl, error: slideError } = usePinnedSlide(
     classId,
     listing && scene ? scene.order : null,
@@ -361,10 +381,47 @@ export default function StudentClassPage({
             </div>
 
             <section className="border-t border-slate-700 bg-slate-800 px-3 py-3 sm:px-4">
-              <p className="text-[11px] text-slate-400" data-testid="student-voice-note">
-                Your teacher&apos;s device speaks the narration with the presentation; the slide
-                shown is the one being presented and this page does not offer slide navigation.
-                Shared classroom audio for remote students arrives with the media plane (V1-005).
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-200"
+                data-testid="student-voice"
+              >
+                <span>Voice: {describeRelayNarration(narration.status)}</span>
+                {narration.provider === 'neutral-deterministic' && (
+                  <span className="text-[11px] text-slate-500">
+                    neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is
+                    OPEN)
+                  </span>
+                )}
+                {narration.provider === 'omnivoice' && (
+                  <span className="text-[11px] text-slate-500">
+                    OmniVoice local prototype (not a decided provider; DEC-TECH-007 is OPEN)
+                  </span>
+                )}
+                {narration.status === 'blocked' && (
+                  <button
+                    type="button"
+                    onClick={narration.enable}
+                    className={BUTTON_SECONDARY}
+                  >
+                    Enable sound
+                  </button>
+                )}
+              </div>
+              {(narration.error || narration.fallbackText) && (
+                <div className="mt-2">
+                  <Banner tone={narration.error ? 'bad' : 'neutral'}>
+                    {narration.error
+                      ? `The live voice is unavailable: ${narration.error}`
+                      : 'The live voice is unavailable for this slide; its text is in the accessibility disclosure below.'}
+                  </Banner>
+                </div>
+              )}
+              <p className="mt-1 text-[11px] text-slate-400" data-testid="student-voice-note">
+                Your teacher&apos;s narration is relayed to this page while the class runs. A
+                slide you join mid-way is replayed from its start; the teacher&apos;s next slide
+                replaces it. This is the development HTTP relay, not the SFU media plane (V1-005;
+                DEC-TECH-004 is OPEN). The slide shown is the one being presented and this page
+                does not offer slide navigation.
                 {session && ` Signed in as ${describePrincipal(session)}.`}
               </p>
               {scene && (scene.text.length > 0 || scene.notes) && (
@@ -423,6 +480,30 @@ export default function StudentClassPage({
       </footer>
     </div>
   )
+}
+
+/** The student-facing words for the relay's state. */
+function describeRelayNarration(status: string): string {
+  switch (status) {
+    case 'waiting':
+      return 'waiting for your teacher to speak'
+    case 'loading':
+      return 'connecting to your teacher'
+    case 'playing':
+      return 'live'
+    case 'blocked':
+      return 'the browser blocked sound until you allow it'
+    case 'completed':
+      return 'this slide has been narrated'
+    case 'fallback':
+      return 'speech is unavailable; the slide text is available below'
+    case 'empty':
+      return 'this slide has no narration'
+    case 'error':
+      return 'unavailable'
+    default:
+      return 'off'
+  }
 }
 
 /** A refusal that means the class has ended and its lesson is locked. */
