@@ -52,6 +52,16 @@ export class ClassroomSession {
     await this.load('manual')
   }
 
+  /**
+   * Quietly re-read the authoritative snapshot while following a background
+   * presentation (V0-028). Unlike `resync`, a poll does not put the store into
+   * `resyncing` or declare the client disconnected on a transient failure: the
+   * last authoritative position stays on screen and the next poll tries again.
+   */
+  async poll(): Promise<void> {
+    await this.load('poll', { quiet: true })
+  }
+
   /** Send a command; returns false when the transport cannot carry commands. */
   send(type: ClassroomCommandType): boolean {
     if (!this.transport.capabilities.commands) return false
@@ -74,17 +84,24 @@ export class ClassroomSession {
     }
   }
 
-  private async load(reason: string): Promise<void> {
+  private async load(reason: string, options: { quiet?: boolean } = {}): Promise<void> {
     if (this.loading || this.closed) return
     this.loading = true
-    this.store.setStatus('resyncing')
+    if (!options.quiet) this.store.setStatus('resyncing')
     try {
       const snapshot = await this.loadWithRetry()
+      // A quiet poll can overlap a navigation command's response. The command
+      // already applied that newer snapshot; a poll that started before it must
+      // not move the teacher's view backwards. A new actor epoch (reopen) always
+      // wins even though its state_version restarts at 1.
+      if (options.quiet && !this.isNewer(snapshot)) return
       this.store.applySnapshot(snapshot)
       this.telemetry.recordSnapshot(this.options.classId, snapshot)
-      if (reason !== 'connect') this.telemetry.recordResync(this.options.classId, reason, 'ok')
+      if (!options.quiet && reason !== 'connect') {
+        this.telemetry.recordResync(this.options.classId, reason, 'ok')
+      }
     } catch (cause) {
-      this.store.setStatus('disconnected')
+      if (!options.quiet) this.store.setStatus('disconnected')
       this.telemetry.recordLoadFailure(
         this.options.classId,
         reason,
@@ -93,6 +110,16 @@ export class ClassroomSession {
     } finally {
       this.loading = false
     }
+  }
+
+  /** Whether a quiet poll's snapshot is ahead of the state on screen. */
+  private isNewer(snapshot: SessionSnapshot): boolean {
+    const current = this.store.getState().events
+    const epoch = snapshot.document.actor_epoch
+    const version = snapshot.document.state_version
+    const currentEpoch = current.epoch ?? 0
+    const currentVersion = current.stateVersion ?? 0
+    return epoch > currentEpoch || (epoch === currentEpoch && version > currentVersion)
   }
 
   private async loadWithRetry(): Promise<SessionSnapshot> {

@@ -411,6 +411,28 @@ The stages `SEALING`, `INDEXING` and `COMMITTING` are **in-process only and neve
 
 A publication's identity is `(version_id, content_package_version)` and is unique per tenant: a retry after a lost response returns the *same* publication with `created: false`, and two concurrent requests for one version produce exactly one publication (the loser re-reads the winner), which is `DEC-RUNTIME-003` at the transition's boundary. A **correction is a new course version** with a new package and a new publication; publishing it marks the course's strictly older publications, and any other publication of the same version, `SUPERSEDED` with a `superseded_by` link — never deleted, because `DEC-CONTENT-005` pins all compatible versions and a session that started on the older one keeps reading it. A publication whose approval no longer covers the content that would go out (`STALE_APPROVAL`), that was never approved (`NOT_APPROVED`), or whose package or index cannot be established is refused *before* the transaction with `PUBLICATION_BLOCKED` plus a precise `issue_code` and writes nothing, leaving the version retryable. The outbox row is written but not dispatched: delivery technology is `OPEN` (`DEC-TECH-001`), so `dispatched_at` stays null until a later task adds a sender.
 
+## Upload shortcut
+
+`POST /artifacts/{artifactId}/auto-publish` composes the same stages for the
+Library upload flow, so an ordinary deck does not need three manual actions
+(build → approve → publish) before it can be taught. It is not a bypass of the
+policy:
+
+* the package is built through the normal review projection, so a blocking
+  fidelity failure is still refused before any decision exists;
+* only a package whose state is `READY` (auto-allowed, `requires_review=false`)
+  is approved automatically, with the uploading teacher's attribution, and then
+  published atomically as that teacher;
+* a `REVIEW_REQUIRED` package is returned **unpublished** with its review state,
+  so a human-required deck still needs a teacher's decision in Teacher Studio;
+* the action requires `content:write`, `review:write` and `publication:write`
+  together — an institution administrator cannot compose it — and replaying it
+  for the same content returns the existing publication with `created: false`.
+
+Attribution (`published_by`, the review decision's `reviewer`) is the signed-in
+teacher's account, falling back to the tenant for the pre-auth development
+shortcut. It is an audit attribution, not an authorization control.
+
 ## Locked Decisions Implemented
 
 - `DEC-CONTENT-005`
@@ -477,7 +499,7 @@ Snapshot contains all orthogonal state regions, versions, lesson/scene/step, que
 
 ## Implemented aggregate
 
-The Classroom Actor's deterministic core is implemented in `backend/app/classroom/aggregate.py` (`ClassroomAggregate`, `Command`, `Event`, `CommandResult`), driven by the service's command entry points (`ClassroomService.navigate_scene` / `record_checkpoint` / `end_class`) and persisted by `ClassRepository.commit_transition`. It is an **in-process** reducer — one aggregate instance per class, cached by the service with a per-class lock (`DEC-RUNTIME-001`), and the durable store stays the truth: every accepted transition appends a validated snapshot and updates the session counters in one transaction, guarded by a `WHERE state = ? AND state_version = ? AND actor_epoch = ?` clause, so a writer that lost a race reloads and re-handles instead of clobbering (`DEC-RUNTIME-007`). The commands are `START`, `NAVIGATE_SCENE`, `CHECKPOINT` and `END`; each accepted command emits one event (`classroom.session.started`, `classroom.scene.changed`, `classroom.checkpoint.recorded`, `classroom.session.ended`) and increments `state_version` and `event_sequence` together. Handling runs in the state machine's order: **command-id dedup first** (a replayed command returns its stored terminal verdict and writes nothing — `DEC-RUNTIME-003`), then epoch fencing, then state-version fencing, then the transition, then the post-transition invariant check (a non-active state has no valid floor or queued turn; an STT reservation implies a floor; at most one floor). `START` is the aggregate's own first command: `start_class` builds the session, runs `START`, and commits the snapshot the aggregate produced, so *all* classroom mutations pass through the one reducer. `END` transitions `ACTIVE/DEGRADED -> COMPLETED` (`ENDING` is in-process only, never persisted), records the final checkpoint and revokes the session's live join credentials, so a class end leaks no token. `restore` validates schema version and checksum before use, so a corrupted snapshot is refused rather than replayed (`DEC-DATA-004`); a restart therefore restores the pinned tuple and the scene position from the newest snapshot, and the next command continues from that version. Idempotency memory is in-process — durable cross-restart dedup and the ordered per-class event log/outbox are `DEC-DATA-003`'s open technology and V1-002's ("actor epoch event outbox and replay"), so `DEC-TECH-001`/`DEC-TECH-002` remain `OPEN` and no broker or actor framework is assumed. Tests: `backend/tests/classroom/test_aggregate.py` (the reducer: start, invalid transition, duplicate command, stale epoch/version fencing, snapshot round trip, corrupted snapshot) and `backend/tests/classroom/test_classroom_commands.py` (navigation/checkpoint/end persisting through the aggregate, restart restoring pinned tuple and scene position, a duplicate command writing one snapshot, and a stale command writing nothing).
+The Classroom Actor's deterministic core is implemented in `backend/app/classroom/aggregate.py` (`ClassroomAggregate`, `Command`, `Event`, `CommandResult`), driven by the service's command entry points (`ClassroomService.navigate_scene` / `record_checkpoint` / `end_class`) and persisted by `ClassRepository.commit_transition`. It is an **in-process** reducer — one aggregate instance per class, cached by the service with a per-class lock (`DEC-RUNTIME-001`), and the durable store stays the truth: every accepted transition appends a validated snapshot and updates the session counters in one transaction, guarded by a `WHERE state = ? AND state_version = ? AND actor_epoch = ?` clause, so a writer that lost a race reloads and re-handles instead of clobbering (`DEC-RUNTIME-007`). The commands are `START`, `NAVIGATE_SCENE`, `CHECKPOINT`, `END` and `REOPEN`; each accepted command emits one event (`classroom.session.started`, `classroom.scene.changed`, `classroom.checkpoint.recorded`, `classroom.session.ended`, `classroom.session.reopened`) and increments `state_version` and `event_sequence` together. Handling runs in the state machine's order: **command-id dedup first** (a replayed command returns its stored terminal verdict and writes nothing — `DEC-RUNTIME-003`), then epoch fencing, then state-version fencing, then the transition, then the post-transition invariant check (a non-active state has no valid floor or queued turn; an STT reservation implies a floor; at most one floor). `START` is the aggregate's own first command: `start_class` builds the session, runs `START`, and commits the snapshot the aggregate produced, so *all* classroom mutations pass through the one reducer. `END` transitions `ACTIVE/DEGRADED -> COMPLETED` (`ENDING` is in-process only, never persisted), records the final checkpoint and revokes the session's live join credentials, so a class end leaks no token. `REOPEN` transitions `COMPLETED -> ACTIVE` for the same class occurrence: it keeps the pinned tuple and roster, returns the lesson to its first position, and bumps `actor_epoch` before emitting `classroom.session.reopened`, so join credentials and fenced commands from before the end are stale (`DEC-RUNTIME-007`). While a class is `COMPLETED`, participant reads of the snapshot and pinned scenes are refused (`CLASS_ENDED`); staff review reads by capability. `restore` validates schema version and checksum before use, so a corrupted snapshot is refused rather than replayed (`DEC-DATA-004`); a restart therefore restores the pinned tuple and the scene position from the newest snapshot, and the next command continues from that version. Idempotency memory is in-process — durable cross-restart dedup and the ordered per-class event log/outbox are `DEC-DATA-003`'s open technology and V1-002's ("actor epoch event outbox and replay"), so `DEC-TECH-001`/`DEC-TECH-002` remain `OPEN` and no broker or actor framework is assumed. Tests: `backend/tests/classroom/test_aggregate.py` (the reducer: start, invalid transition, duplicate command, stale epoch/version fencing, snapshot round trip, corrupted snapshot) and `backend/tests/classroom/test_classroom_commands.py` (navigation/checkpoint/end persisting through the aggregate, restart restoring pinned tuple and scene position, a duplicate command writing one snapshot, and a stale command writing nothing).
 
 ## Locked Decisions Implemented
 
@@ -586,6 +608,84 @@ Audio cancellation names cancel-through generation; client stops/clears/discards
 - `DEC-RUNTIME-006`
 - `DEC-TURN-007`
 
+## Implemented narration (V0-013)
+
+The presentation pipeline narrates each pinned slide: pinned script → word-safe
+chunks → provider-neutral voice → one WAV per chunk, played in order as it arrives,
+and the slide advances when its narration has been heard. Speech failure shows the
+authored text and paces the slide by its length (`DEC-TURN-009`). A slide change,
+pause or end aborts the stream and cancels synthesis; resuming restarts the current
+slide as a new generation. The teacher-scoped
+`GET /classes/{classId}/narration/{order}` stream remains available as a manual
+preview, but it is no longer the normal producer: since V0-028 the class server's
+background presenter reads the same timeline.
+
+An enrolled student's page attaches to the current **live generation** through an
+in-process relay (`GET /classes/{classId}/narration`): it starts no synthesis and
+copies the same WAV chunks, so a class does not pay one provider call per learner.
+The relay is a V1-005 bridge, not the media plane — it is single-process and
+best-effort, returns `204` while there is no current generation (the page retries),
+ends at each generation's terminal verdict, and sends attached listeners a
+cancellation when the presenter pauses or moves. The current slide is the unit of
+replay: a late joiner receives the buffered chunks from that slide's start, so the
+fast local mock — which can synthesize a whole slide before the student's next
+attach — does not leave the class in silence, and the next slide supersedes it. A
+completed generation stays replayable for a short TTL; the page passes
+`after_generation` so waiting for the next slide does not replay the one it just
+heard, and `expected_scene_id` keeps the audio under the slide the authoritative
+snapshot shows. A student joining mid-slide is therefore aligned with the displayed
+slide but may be a few seconds behind the presenter's own playout.
+`DEC-TECH-004` remains `OPEN`; a multi-worker deployment needs the ordered/shared
+path that decision will choose, not this in-memory relay. Students see the slide
+with no transcript by default (a collapsed accessibility disclosure keeps the text
+available) and can enable sound if the browser blocks autoplay.
+
+## Background presentation (V0-028)
+
+A started class is presented by the **API process**, not by the teacher's browser
+tab. `backend/app/classroom/timeline/presenter.py` holds one runner per
+`(institution, class)`:
+
+- `POST /classes/{id}/start` and `POST /classes/{id}/reopen` schedule the runner
+  after the response, so it can never race the transaction that wrote the start or
+  reopen snapshot.
+- The runner reads only the session's **pinned** package (`DEC-CONTENT-005`),
+  synthesizes the current scene through the same `TimelineService` and publishes it
+  into the class relay, then waits for its playout. It advances the class through
+  the aggregate's normal `NAVIGATE_SCENE` command, fenced by
+  `expected_state_version` (`DEC-RUNTIME-007`); it never writes state directly.
+- Playout waits `max(first_audio_at + total_audio_ms, last_audio_at) + grace` for a
+  completed generation. An empty script, a speech fallback or a failed provider
+  uses a text dwell of 5–30 s at 160 wpm so the lesson keeps moving instead of
+  stopping in silence.
+- A teacher's pause is class-level: it cancels any **in-flight** provider
+  generation (listeners receive the relay's cancellation for it) and freezes the
+  position. Resume starts the current scene from its beginning — a semantic
+  segment, never a byte offset (`DEC-RUNTIME-005`). The HTTP relay may already have
+  delivered a fully synthesized slide to a browser, so audio already buffered there
+  can still drain; retroactively pausing a media stream is the SFU's job
+  (`DEC-TECH-004`/V1-005), not this bridge's.
+- A manual `POST /classes/{id}/navigate` is observed by the runner, which aborts the
+  old generation and starts the newly authoritative scene. A completed generation
+  that is still current remains replayable to a late listener.
+- At the last pinned slide the runner **holds** (`at_end`) rather than ending the
+  class or looping. Ending (`POST /classes/{id}/end`) stops it synchronously, so
+  no further scene is presented; reopening starts a fresh runner at the first slide
+  of the new epoch.
+- `GET /classes/{id}/presentation`, `POST .../presentation/pause` and
+  `POST .../presentation/resume` are the teacher's `class:write` control/status
+  surface. `resume` also recovers an `ACTIVE` class after an API restart: the
+  runner is in-process and not durable, so the teacher's page offers **Start
+  presentation** when `running` is false.
+
+This is explicitly a **development bridge**. `DEC-TECH-003` (durable
+workflow/scheduler) is `OPEN`, so the runner is single-process and lost on restart;
+`DEC-TECH-004`/V1-005 mean audio still travels over the HTTP relay, not the SFU.
+`MENTORA_BACKGROUND_PRESENTATION=0` disables it and the presentation routes report
+`available: false`. The teacher's page follows the authoritative snapshot by a
+quiet ~1.5 s poll and plays the relay without starting a second synthesis (V0-028).
+The client-local V0-026 autoplay pacing is no longer used.
+
 
 <!-- SOURCE: 13_MEDIA_SPEECH_AND_VOICE.md -->
 
@@ -691,6 +791,35 @@ Classroom displays content, captions, transcript, teacher state, queue, floor co
 
 The classroom client is implemented in `frontend/src/classroom/`. It is a **projection**, never a source of truth: the Classroom Actor owns authoritative state, and the client holds a derived view rebuilt from the authoritative snapshot (`GET /classes/{id}/snapshot`, the durable `runtime-snapshot@1` document) plus contiguous ordered events. The state is split into separate slices (`frontend/src/classroom/state/`): the **event reducer** (`reducer.ts` — the only slice derived from the actor's stream), the raw **snapshot**, **media** state and **ephemeral UI / accessibility preferences** in `store.ts`. The reducer is pure: it applies an event only when it is **contiguous for the current epoch** (`sequence === lastSequence + 1`), **ignores duplicates and stale events** (`sequence <= lastSequence` — `DEC-RUNTIME-003`), **discards an effect from a superseded epoch** (`DEC-RUNTIME-007`), and reports a **sequence gap** rather than applying out of order. A gap, a stale epoch or a failed load freezes the client (`status !== 'live'`), disables the command controls and requests a resync; the session (`session.ts`) answers a resync by re-reading the authoritative snapshot with bounded retry (`DEC-RELIABILITY-001`) and resetting the event cursor — it never guesses at the missing events. A refresh is a fresh mount, so it restores scene and state from the snapshot (`DEC-RUNTIME-004`, `DEC-DATA-004`). The transport is an interface with one V0 implementation (`transport.ts`) that reads the snapshot only: the ordered per-class event mechanism is `DEC-DATA-003` and its technology is `OPEN`, so the shell reports `liveEvents:false`/`commands:false` and says so instead of faking a stream (that live path is V1-002). Group student audio stays inactive (`DEC-TURN-001`). The client emits structured telemetry — identities, counts and outcomes only, never scene text, transcript or audio (`telemetry.ts`).
 
+## Background presentation in the client (V0-028)
+
+The **class server** is now the presentation clock
+(`backend/app/classroom/timeline/presenter.py`); the teacher's browser is a
+follower and control surface. This is a deliberate correction: with the V0-026
+client-local clock, closing the teacher's tab stopped the slides for every student.
+
+- `ClassroomPage.tsx` starts a quiet `poll()` of the authoritative snapshot (about
+  every 1.5 s) for a teacher. It is not a resync: no `resyncing` flicker and no
+  disconnect on one transient failure, because the last authoritative scene stays
+  on screen. The ordered stream is still `DEC-DATA-003` (`OPEN`, V1-002).
+- `TeacherStage.tsx` keeps the pinned slide, Previous/Next and picker (each an
+  ordinary fenced `NAVIGATE_SCENE`), shows the server's presentation status, and
+  offers Pause/Resume, **Start presentation** when no runner exists (an API
+  restart), and End/Reopen. A manual move is noticed by the runner, which restarts
+  its narration at the chosen scene.
+- The stage's voice is the presenter's relay (`mode: 'relay'`); it starts no second
+  synthesis. It says whether the provider is the deterministic mock or the opt-in
+  OmniVoice prototype, and offers **Enable sound** if the browser blocked autoplay.
+  A relayed text fallback is shown as the slide's script (`DEC-TURN-009`).
+- The `ClassroomHomePage.tsx` Start/Reopen actions now call the API and refresh the
+  class list instead of navigating to `/classroom/{id}?autoplay=1`. The classroom
+  no longer needs to stay open, and that URL flag is ignored. The client-local
+  `playbackTiming.ts` pacing was removed with the tab clock.
+- This remains a **development bridge**: the runner is in-process and lost on an
+  API restart (`DEC-TECH-003` `OPEN`), and audio is HTTP relay, not the SFU
+  (`DEC-TECH-004` `OPEN`, V1-005). The page says both rather than implying a
+  durable scheduler or a media plane.
+
 ## Implemented pages and navigation
 
 The app has four routed pages (`frontend/src/router.tsx`, dependency-free): the
@@ -747,19 +876,25 @@ sign in, so the page's signed-out branch is only a defensive fallback; signed in
 shows the class and asks the
 server for the caller's own join credential, reporting a refusal by its precise
 cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
-`StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
-slide fills the viewport (a real Fullscreen button as well as the layout, because
-a phone browser still shows its own chrome), one tap or one arrow key moves a
-slide, the controls keep their ≥44px tap area, and the current slide's own text
-and notes are shown as the narration. Two properties it does not overstate: the
-slide shown is the one *this student* is on, because the ordered per-class event
-stream that would carry "the teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`,
-live path V1-002); and the narration is **text only**, the deck's own words — no
-model wrote it and it is not audio (`DEC-TECH-007` is `OPEN`). What *is*
-authoritative is the content: every scene comes from the package the session
-pinned at start (`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`,
-so a correction published mid-lesson cannot change the slide under the student,
-and a tampered file is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown.
+`StudentClassPage.tsx` (`/student/{classId}`, also `/classroom/{classId}`) is the
+**fullscreen** view: the slide fills the viewport (a real Fullscreen button as well
+as the layout, because a phone browser still shows its own chrome), the controls
+keep their ≥44px tap area, and there is **no slide navigation** — the teacher
+advances the class and the page follows. It follows the authoritative snapshot by
+a quiet ~1.5 s poll; the ordered per-class event stream that would push "the
+teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`, live path V1-002). The
+narration is the class presenter's **live relayed voice** through
+`GET /classes/{id}/narration` (V0-028/V1-005 bridge): the page starts no synthesis,
+names the provider (the deterministic development mock or the opt-in OmniVoice
+prototype, `DEC-TECH-007` `OPEN`) and offers **Enable sound** when the browser
+blocks autoplay. The slide's own text stays behind a collapsed accessibility
+disclosure rather than being read as the lesson. What *is* authoritative is the
+content: every scene comes from the package the session pinned at start
+(`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`, so a correction
+published mid-lesson cannot change the slide under the student, and a tampered file
+is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown. When the class ends the
+server refuses a student's snapshot/scenes reads with `CLASS_ENDED`, and the page
+shows the locked ended screen until a teacher reopens it.
 
 Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster, and V0-022 changed how
 a student gets onto it: **the picker chooses from the students who exist** (a

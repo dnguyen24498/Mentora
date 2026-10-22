@@ -450,6 +450,32 @@ class ClassroomService:
         )
         return snapshot
 
+    def peek_snapshot(
+        self, institution_id: str, class_id: str
+    ) -> Optional[SessionSnapshot]:
+        """Read and validate the latest snapshot **without** recording a read.
+
+        This is the in-process background presenter's observation, not a client
+        read: it polls for the current position several times a second, so routing
+        it through :meth:`get_snapshot` would turn a single lesson into a stream of
+        snapshot-read telemetry. It returns ``None`` when the class has no session
+        yet, and validates the document exactly as the HTTP read does before the
+        presenter is allowed to act on it.
+        """
+
+        session = self._repository.get_session(institution_id, class_id)
+        if session is None:
+            return None
+        snapshot = self._repository.latest_snapshot(institution_id, session.session_id)
+        if snapshot is None:  # pragma: no cover - the start transaction writes one
+            return None
+        validate_snapshot(
+            snapshot.document,
+            schema_version=snapshot.schema_version,
+            checksum=snapshot.checksum,
+        )
+        return snapshot
+
     def pinned_scene(self, institution_id: str, class_id: str, order: int) -> PinnedScene:
         """The slide a running session is presenting, from the package it pinned.
 

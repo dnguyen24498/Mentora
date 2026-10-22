@@ -67,6 +67,14 @@ class Settings:
     #: calls a local OmniVoice sidecar (``MENTORA_OMNIVOICE_URL``). DEC-TECH-007
     #: is OPEN, so neither is a decided provider.
     tts_provider: str = "neutral-deterministic"
+    #: Whether a started class is presented by the **API process** rather than by
+    #: the teacher's browser tab (``MENTORA_BACKGROUND_PRESENTATION``, default on).
+    #: This is an in-process development bridge: ``DEC-TECH-003`` (durable workflow/
+    #: scheduler) is OPEN, so the presenter is not a durable scheduler and does not
+    #: survive an API restart. Set ``MENTORA_BACKGROUND_PRESENTATION=0`` to turn
+    #: automatic presentation off (tests do this so unrelated suites never race a
+    #: background runner); a teacher can still move slides manually.
+    background_presentation: bool = True
 
     @classmethod
     def from_env(cls, base_dir: Path | str | None = None) -> "Settings":
@@ -74,6 +82,9 @@ class Settings:
         # V0-023: locked by default. The shortcut is an explicit development opt-in.
         shortcut = os.environ.get("MENTORA_DEV_TENANT_HEADER", "0").strip().lower()
         bootstrap = os.environ.get("MENTORA_ADMIN_BOOTSTRAP", "1").strip().lower()
+        background = (
+            os.environ.get("MENTORA_BACKGROUND_PRESENTATION", "1").strip().lower()
+        )
         return cls(
             database_path=Path(os.environ.get("MENTORA_DB_PATH", base / "mentora.db")),
             object_root=Path(os.environ.get("MENTORA_OBJECT_ROOT", base / "objects")),
@@ -86,4 +97,5 @@ class Settings:
             ),
             tts_provider=os.environ.get("MENTORA_TTS_PROVIDER", "neutral-deterministic").strip()
             or "neutral-deterministic",
+            background_presentation=background not in {"0", "false", "no", "off"},
         )

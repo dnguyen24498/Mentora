@@ -41,13 +41,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.api.security import ApiSecurity
 from app.classroom.errors import ClassCommandError
 from app.classroom.service import ClassroomService
+from app.classroom.timeline.presenter import ClassroomPresenter, PresentationStatus
 from app.common.errors import ValidationError
 from app.identity.errors import (
     ISSUE_SESSION_REQUIRED,
@@ -90,9 +91,26 @@ def _student_id(principal: Principal) -> Optional[str]:
 def build_class_router(
     service: ClassroomService,
     security: ApiSecurity,
+    *,
+    presenter: Optional[ClassroomPresenter] = None,
 ) -> APIRouter:
     router = APIRouter()
     require = security.require
+
+    def presentation_status(
+        institution_id: str, class_id: str
+    ) -> dict[str, Any]:
+        """The background presenter's status, or an honest unavailable status."""
+
+        if presenter is None:
+            return PresentationStatus(
+                class_id=class_id,
+                available=False,
+                running=False,
+                paused=False,
+                at_end=False,
+            ).to_dict()
+        return presenter.status(institution_id, class_id).to_dict()
 
     @router.post("/classes", status_code=201)
     def schedule_class(
@@ -153,7 +171,9 @@ def build_class_router(
 
     @router.post("/classes/{class_id}/start")
     def start_class(
-        class_id: str, principal: Principal = Depends(require(Scope.CLASS_WRITE))
+        class_id: str,
+        background: BackgroundTasks,
+        principal: Principal = Depends(require(Scope.CLASS_WRITE)),
     ) -> dict:
         """Resolve and pin the exact version tuple, then go ``ACTIVE``.
 
@@ -162,9 +182,17 @@ def build_class_router(
         version was never published, the knowledge-index pin does not match the
         content, the package is damaged or unsupported, or the class is not
         ``SCHEDULED``. Nothing is written on a refusal.
+
+        A successful start also asks the API process to present the class in the
+        background, so closing the teacher's tab does not stop the lesson. That is
+        an in-process development bridge (``DEC-TECH-003`` is ``OPEN``), scheduled
+        after the response so the start snapshot is never raced by the first slide.
         """
 
-        return service.start_class(principal.institution_id, class_id).to_dict()
+        result = service.start_class(principal.institution_id, class_id)
+        if presenter is not None:
+            background.add_task(presenter.start, principal.institution_id, class_id)
+        return result.to_dict()
 
     @router.get("/classes/{class_id}/snapshot")
     def get_snapshot(
@@ -183,6 +211,59 @@ def build_class_router(
             principal.institution_id, class_id, student_id=_student_id(principal)
         )
         return service.get_snapshot(principal.institution_id, class_id).to_dict()
+
+    @router.get("/classes/{class_id}/presentation")
+    def get_presentation(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_WRITE))
+    ) -> dict[str, Any]:
+        """The class's background-presentation status (teacher control surface).
+
+        The presentation is driven by the API process, not by a browser tab, so
+        the teacher's page reads this to know whether it is running, paused, at
+        the last slide, or gone after an API restart. It is a development bridge:
+        the runner is in-process and is not the durable scheduler/workflow
+        ``DEC-TECH-003`` leaves OPEN.
+        """
+
+        service.class_view(principal.institution_id, class_id)  # 404/403 first
+        return presentation_status(principal.institution_id, class_id)
+
+    @router.post("/classes/{class_id}/presentation/pause")
+    def pause_presentation(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_WRITE))
+    ) -> dict[str, Any]:
+        """Pause the background presentation (idempotent).
+
+        Any in-flight provider generation is cancelled, so attached listeners
+        receive the relay's cancellation for it. Audio a browser has already
+        buffered may still drain — this HTTP relay is not the media plane, so it
+        cannot retroactively pause a delivered slide (``DEC-TECH-004`` is OPEN).
+        Resuming starts the current scene from its beginning — a semantic segment,
+        never a byte offset (``DEC-RUNTIME-005``). A refusal writes nothing.
+        """
+
+        service.class_view(principal.institution_id, class_id)  # 404/403 first
+        if presenter is None:
+            return presentation_status(principal.institution_id, class_id)
+        return presenter.pause(principal.institution_id, class_id).to_dict()
+
+    @router.post("/classes/{class_id}/presentation/resume")
+    def resume_presentation(
+        class_id: str, principal: Principal = Depends(require(Scope.CLASS_WRITE))
+    ) -> dict[str, Any]:
+        """Resume — or start again after an API restart — the presentation.
+
+        The runner is in-process, so an API restart leaves an ``ACTIVE`` class
+        unpresented until a teacher asks again. This route is that recovery path;
+        for a running runner it only clears the pause flag. It does not move the
+        class: the runner reads the authoritative snapshot and starts the slide
+        the session is already on. A refusal writes nothing.
+        """
+
+        service.class_view(principal.institution_id, class_id)  # 404/403 first
+        if presenter is None:
+            return presentation_status(principal.institution_id, class_id)
+        return presenter.resume(principal.institution_id, class_id).to_dict()
 
     @router.post("/classes/{class_id}/navigate")
     def navigate_class(
@@ -251,11 +332,17 @@ def build_class_router(
                 "the class cannot be ended now",
                 issue_code=outcome.result.issue_code or "INVALID_TRANSITION",
             )
+        # Stop the background runner before answering: the class is over, so no
+        # further scene is presented and any in-flight generation is cancelled.
+        # Idempotent when no runner exists.
+        if presenter is not None:
+            presenter.stop(principal.institution_id, class_id)
         return outcome.to_dict()
 
     @router.post("/classes/{class_id}/reopen")
     def reopen_class(
         class_id: str,
+        background: BackgroundTasks,
         body: Optional[LifecycleRequest] = None,
         principal: Principal = Depends(require(Scope.CLASS_WRITE)),
     ) -> dict[str, Any]:
@@ -284,6 +371,10 @@ def build_class_router(
                 "the class cannot be reopened now",
                 issue_code=outcome.result.issue_code or "INVALID_TRANSITION",
             )
+        if presenter is not None:
+            # A reopened occurrence is a new epoch and starts again from the first
+            # slide; a fresh runner reads that position from the new snapshot.
+            background.add_task(presenter.start, principal.institution_id, class_id)
         return outcome.to_dict()
 
     @router.get("/classes/{class_id}/scenes")

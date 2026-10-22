@@ -18,7 +18,11 @@ from app.storage.object_store import LocalObjectStore
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
-    s = Settings(database_path=tmp_path / "mentora.db", object_root=tmp_path / "objects")
+    s = Settings(
+        database_path=tmp_path / "mentora.db",
+        object_root=tmp_path / "objects",
+        background_presentation=False,
+    )
     init_db(s.database_path)
     return s
 
@@ -43,6 +47,7 @@ def dev_settings(tmp_path) -> Settings:
         database_path=tmp_path / "mentora.db",
         object_root=tmp_path / "objects",
         dev_tenant_header=True,
+        background_presentation=False,
     )
     init_db(s.database_path)
     return s

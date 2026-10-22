@@ -62,6 +62,46 @@ describe('classroom session', () => {
     session.disconnect()
   })
 
+  it('never lets a stale quiet poll move the teacher view backwards', async () => {
+    const transport = new ScriptedTransport({
+      snapshot: makeSnapshot({ sequence: 2, stateVersion: 2 }),
+    })
+    const store = new ClassroomStore()
+    const session = new ClassroomSession(store, transport, new ClassroomTelemetry(), {
+      classId: 'class-1',
+      retries: 0,
+    })
+    await session.connect()
+    expect(store.getState().events.stateVersion).toBe(2)
+
+    // A poll that was already in flight when a navigation returned version 3
+    // must not overwrite it with version 2.
+    transport.current = makeSnapshot({
+      sequence: 2,
+      stateVersion: 2,
+      sceneId: 'ppt/slides/slide3.xml',
+      sectionIndex: 2,
+    })
+    store.applySnapshot(
+      makeSnapshot({ sequence: 3, stateVersion: 3, sceneId: 'ppt/slides/slide2.xml', sectionIndex: 1 }),
+    )
+    await session.poll()
+    expect(store.getState().events.stateVersion).toBe(3)
+    expect(store.getState().events.scene.sceneId).toBe('ppt/slides/slide2.xml')
+
+    // A poll that is genuinely newer still applies.
+    transport.current = makeSnapshot({
+      sequence: 4,
+      stateVersion: 4,
+      sceneId: 'ppt/slides/slide4.xml',
+      sectionIndex: 3,
+    })
+    await session.poll()
+    expect(store.getState().events.stateVersion).toBe(4)
+    expect(store.getState().events.scene.sceneId).toBe('ppt/slides/slide4.xml')
+    session.disconnect()
+  })
+
   it('becomes disconnected after bounded load retries fail', async () => {
     const transport = new ScriptedTransport({ snapshot: makeSnapshot() })
     transport.failNext = 3

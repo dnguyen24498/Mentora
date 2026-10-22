@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherStage from './TeacherStage'
@@ -7,11 +7,15 @@ import {
   classSceneUrl,
   endClass,
   loadClassScenes,
+  loadPresentation,
   navigateClassScene,
-  openNarrationStream,
+  openNarrationRelay,
+  pausePresentation,
   reopenClass,
+  resumePresentation,
   type ClassCommandResult,
   type ClassSceneList,
+  type PresentationStatus,
 } from '../api/client'
 import { makeSnapshot } from './state/testing'
 import type { AudioSink } from '../audio/useNarrationPlayer'
@@ -23,29 +27,81 @@ vi.mock('../api/client', async (importOriginal) => {
     classSceneUrl: vi.fn(),
     endClass: vi.fn(),
     loadClassScenes: vi.fn(),
+    loadPresentation: vi.fn(),
     navigateClassScene: vi.fn(),
-    openNarrationStream: vi.fn(),
+    openNarrationRelay: vi.fn(),
+    pausePresentation: vi.fn(),
     reopenClass: vi.fn(),
+    resumePresentation: vi.fn(),
   }
 })
 
 const WAV_B64 = btoa('RIFF....WAVEfmt ')
 
 function narrationResponse(status: 'COMPLETED' | 'FALLBACK'): Response {
-  const base = { class_id: 'class-1', scene_id: 'ppt/slides/slide1.xml', actor_epoch: 1, state_version: 1, generation: 7 }
+  const base = {
+    class_id: 'class-1',
+    scene_id: 'ppt/slides/slide1.xml',
+    actor_epoch: 1,
+    state_version: 1,
+    generation: 7,
+  }
   const events: object[] = [
-    { ...base, sequence: 1, type: 'narration.started', provider: { name: 'neutral-deterministic' }, empty: false },
+    {
+      ...base,
+      sequence: 1,
+      type: 'narration.started',
+      provider: { name: 'neutral-deterministic' },
+      empty: false,
+    },
   ]
   if (status === 'COMPLETED') {
     events.push(
-      { ...base, sequence: 2, type: 'audio', chunk_index: 0, content_type: 'audio/wav', duration_ms: 100, data: WAV_B64 },
-      { ...base, sequence: 3, type: 'audio', chunk_index: 1, content_type: 'audio/wav', duration_ms: 100, data: WAV_B64 },
-      { ...base, sequence: 4, type: 'narration.completed', status: 'COMPLETED', duration_ms: 200, fallback: false },
+      {
+        ...base,
+        sequence: 2,
+        type: 'audio',
+        chunk_index: 0,
+        content_type: 'audio/wav',
+        duration_ms: 100,
+        data: WAV_B64,
+      },
+      {
+        ...base,
+        sequence: 3,
+        type: 'audio',
+        chunk_index: 1,
+        content_type: 'audio/wav',
+        duration_ms: 100,
+        data: WAV_B64,
+      },
+      {
+        ...base,
+        sequence: 4,
+        type: 'narration.completed',
+        status: 'COMPLETED',
+        duration_ms: 200,
+        fallback: false,
+      },
     )
   } else {
     events.push(
-      { ...base, sequence: 2, type: 'segment.fallback', chunk_index: 0, text: 'Spoken words', reason: 'SYNTHESIS_FAILED' },
-      { ...base, sequence: 3, type: 'narration.completed', status: 'FALLBACK', duration_ms: 0, fallback: true },
+      {
+        ...base,
+        sequence: 2,
+        type: 'segment.fallback',
+        chunk_index: 0,
+        text: 'Spoken words',
+        reason: 'SYNTHESIS_FAILED',
+      },
+      {
+        ...base,
+        sequence: 3,
+        type: 'narration.completed',
+        status: 'FALLBACK',
+        duration_ms: 0,
+        fallback: true,
+      },
     )
   }
   return new Response(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
@@ -88,6 +144,20 @@ const LISTING: ClassSceneList = {
       step_count: 1,
     },
   ],
+}
+
+const PRESENTING: PresentationStatus = {
+  class_id: 'class-1',
+  available: true,
+  running: true,
+  paused: false,
+  at_end: false,
+  scene_order: 0,
+  scene_id: 'ppt/slides/slide1.xml',
+  actor_epoch: 1,
+  state_version: 1,
+  issue_code: null,
+  message: null,
 }
 
 function movedToSlideThree(): ClassCommandResult {
@@ -136,6 +206,7 @@ describe('TeacherStage', () => {
     vi.clearAllMocks()
     vi.mocked(loadClassScenes).mockResolvedValue(LISTING)
     vi.mocked(classSceneUrl).mockImplementation(async (_classId, order) => `blob:slide-${order}`)
+    vi.mocked(loadPresentation).mockResolvedValue(PRESENTING)
     vi.mocked(navigateClassScene).mockResolvedValue(movedToSlideThree())
   })
 
@@ -158,6 +229,7 @@ describe('TeacherStage', () => {
     const slide = await screen.findByRole('img', { name: 'Slide 2' })
     expect(slide.getAttribute('src')).toBe('blob:slide-1')
     expect(screen.getByTestId('teacher-slide-counter').textContent).toBe('Slide 2 of 3')
+    expect(await screen.findByText('Auto-presenting')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: /next slide/i }))
 
@@ -243,6 +315,7 @@ describe('TeacherStage', () => {
     expect(screen.getByText(/has not started/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /slide/i })).toBeNull()
     expect(loadClassScenes).not.toHaveBeenCalled()
+    expect(loadPresentation).not.toHaveBeenCalled()
   })
 
   it('keeps the last slide visible after the class ends, without controls', async () => {
@@ -344,158 +417,189 @@ describe('TeacherStage', () => {
     )
   })
 
-  describe('auto-play (V0-026)', () => {
-    beforeEach(() => {
-      vi.useFakeTimers()
-    })
+  describe('background presentation (V0-028)', () => {
     afterEach(() => {
       vi.useRealTimers()
     })
 
-    /** Render a running stage and flush its scene list and blob fetches. */
-    async function renderStage(props: {
-      currentSceneId?: string
-      currentSectionIndex?: number
-      stateVersion?: number
-      autoPlay?: boolean
-      voice?: boolean
-      createAudioSink?: () => AudioSink
-    }) {
+    it('follows the class server instead of moving the slides itself', async () => {
+      vi.useFakeTimers()
       render(
         <TeacherStage
           classId="class-1"
           sessionState="ACTIVE"
-          currentSceneId={props.currentSceneId ?? 'ppt/slides/slide1.xml'}
-          currentSectionIndex={props.currentSectionIndex ?? 0}
-          stateVersion={props.stateVersion ?? 1}
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
           onSnapshot={vi.fn()}
           onResync={vi.fn()}
-          autoPlay={props.autoPlay}
-          playbackWpm={160}
-          voice={props.voice ?? false}
-          createAudioSink={props.createAudioSink}
         />,
       )
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-    }
-
-    it('advances the pinned slides by itself when opened with autoplay', async () => {
-      await renderStage({ autoPlay: true })
-      expect(screen.getByTestId('teacher-slide-counter').textContent).toBe('Slide 1 of 3')
-
-      // The dwell has a 5 s floor, so this is exactly one slide's time.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+        await vi.advanceTimersByTimeAsync(60_000)
       })
 
-      expect(navigateClassScene).toHaveBeenCalledTimes(1)
-      expect(navigateClassScene).toHaveBeenCalledWith(
-        'class-1',
-        expect.objectContaining({ order: 1, expected_state_version: 1 }),
+      expect(navigateClassScene).not.toHaveBeenCalled()
+      expect(screen.getByTestId('presentation-status').textContent).toBe('Auto-presenting')
+    })
+
+    it('pauses and resumes the class-level presentation', async () => {
+      const user = userEvent.setup()
+      vi.mocked(pausePresentation).mockResolvedValue({
+        ...PRESENTING,
+        paused: true,
+      })
+      vi.mocked(resumePresentation).mockResolvedValue(PRESENTING)
+
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+        />,
       )
+      await screen.findByTestId('presentation-status')
+
+      await user.click(await screen.findByRole('button', { name: 'Pause' }))
+      expect(pausePresentation).toHaveBeenCalledWith('class-1')
+      expect(await screen.findByText('Paused')).toBeTruthy()
+
+      await user.click(screen.getByRole('button', { name: 'Resume' }))
+      expect(resumePresentation).toHaveBeenCalledWith('class-1')
+      expect(await screen.findByText('Auto-presenting')).toBeTruthy()
     })
 
-    it('pauses so no slide moves until Play is pressed again', async () => {
-      await renderStage({ autoPlay: true })
-
-      fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
-      expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000)
+    it('offers to start the presenter again after an API restart', async () => {
+      const user = userEvent.setup()
+      vi.mocked(loadPresentation).mockResolvedValue({
+        ...PRESENTING,
+        running: false,
+        scene_order: null,
       })
+      vi.mocked(resumePresentation).mockResolvedValue(PRESENTING)
 
-      expect(navigateClassScene).not.toHaveBeenCalled()
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+        />,
+      )
+
+      expect(await screen.findByText('Not presenting')).toBeTruthy()
+      await user.click(screen.getByRole('button', { name: 'Start presentation' }))
+      expect(resumePresentation).toHaveBeenCalledWith('class-1')
+      expect(await screen.findByText('Auto-presenting')).toBeTruthy()
     })
 
-    it('stops at the last slide instead of looping the lesson', async () => {
-      await renderStage({
-        currentSceneId: 'ppt/slides/slide3.xml',
-        currentSectionIndex: 2,
-        stateVersion: 2,
-        autoPlay: true,
+    it('holds at the last slide and stops offering Pause', async () => {
+      vi.mocked(loadPresentation).mockResolvedValue({
+        ...PRESENTING,
+        scene_order: 2,
+        at_end: true,
       })
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000)
-      })
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide3.xml"
+          currentSectionIndex={2}
+          stateVersion={3}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+        />,
+      )
 
-      expect(navigateClassScene).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+      expect(await screen.findByText('At the last slide')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull()
     })
 
-    it('speaks the slide and advances when its narration has been heard', async () => {
-      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('COMPLETED'))
+    it('plays the server relay without starting another synthesis', async () => {
+      vi.mocked(openNarrationRelay)
+        .mockResolvedValueOnce(narrationResponse('COMPLETED'))
+        .mockResolvedValue(new Response(null, { status: 204 }))
       const played: Blob[] = []
-      await renderStage({
-        autoPlay: true,
-        voice: true,
-        createAudioSink: () => ({ play: async (blob) => void played.push(blob), stop: () => {} }),
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
+      const sink = (): AudioSink => ({
+        play: async (blob) => void played.push(blob),
+        stop: () => {},
       })
 
-      expect(openNarrationStream).toHaveBeenCalledWith(
-        'class-1',
-        0,
-        expect.objectContaining({ expectedStateVersion: 1 }),
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+          createAudioSink={sink}
+        />,
       )
-      expect(played).toHaveLength(2)
+
+      await waitFor(() => expect(played).toHaveLength(2))
       expect(played[0].type).toBe('audio/wav')
-      // Advanced by the narration, not by the 5 s text dwell.
-      expect(navigateClassScene).toHaveBeenCalledWith(
+      expect(openNarrationRelay).toHaveBeenCalledWith(
         'class-1',
-        expect.objectContaining({ order: 1 }),
+        expect.objectContaining({ expectedSceneId: 'ppt/slides/slide1.xml' }),
       )
-    })
-
-    it('asks for a click when the browser blocks sound, and does not advance', async () => {
-      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('COMPLETED'))
-      const blocked = Object.assign(new Error('blocked'), { name: 'NotAllowedError' })
-      await renderStage({
-        autoPlay: true,
-        voice: true,
-        createAudioSink: () => ({ play: () => Promise.reject(blocked), stop: () => {} }),
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000)
-      })
-
-      expect(screen.getByRole('button', { name: 'Enable sound' })).toBeTruthy()
+      // The teacher's page never asks the API to synthesize a second generation.
       expect(navigateClassScene).not.toHaveBeenCalled()
     })
 
-    it('shows the script and paces by text when speech falls back', async () => {
-      vi.mocked(openNarrationStream).mockResolvedValue(narrationResponse('FALLBACK'))
-      await renderStage({
-        autoPlay: true,
-        voice: true,
-        createAudioSink: () => ({ play: async () => {}, stop: () => {} }),
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
+    it('asks for a click when the browser blocks relayed sound', async () => {
+      vi.mocked(openNarrationRelay)
+        .mockResolvedValueOnce(narrationResponse('COMPLETED'))
+        .mockResolvedValue(new Response(null, { status: 204 }))
+      const blocked = Object.assign(new Error('blocked'), { name: 'NotAllowedError' })
+
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+          createAudioSink={() => ({ play: () => Promise.reject(blocked), stop: () => {} })}
+        />,
+      )
+
+      expect(await screen.findByRole('button', { name: 'Enable sound' })).toBeTruthy()
+      expect(navigateClassScene).not.toHaveBeenCalled()
+    })
+
+    it('shows the relayed script when speech falls back', async () => {
+      vi.mocked(openNarrationRelay)
+        .mockResolvedValueOnce(narrationResponse('FALLBACK'))
+        .mockResolvedValue(new Response(null, { status: 204 }))
+
+      render(
+        <TeacherStage
+          classId="class-1"
+          sessionState="ACTIVE"
+          currentSceneId="ppt/slides/slide1.xml"
+          currentSectionIndex={0}
+          stateVersion={1}
+          onSnapshot={vi.fn()}
+          onResync={vi.fn()}
+          createAudioSink={() => ({ play: async () => {}, stop: () => {} })}
+        />,
+      )
+
+      expect(await screen.findByTestId('teacher-voice-fallback')).toBeTruthy()
       expect(screen.getByTestId('teacher-voice-fallback').textContent).toContain('Spoken words')
       expect(navigateClassScene).not.toHaveBeenCalled()
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
-      })
-      expect(navigateClassScene).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not move slides on its own without autoplay', async () => {
-      await renderStage({})
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000)
-      })
-
-      expect(navigateClassScene).not.toHaveBeenCalled()
-      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull()
     })
   })
 })

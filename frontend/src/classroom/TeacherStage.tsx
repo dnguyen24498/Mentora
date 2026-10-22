@@ -3,16 +3,19 @@ import {
   describeApiError,
   endClass,
   loadClassScenes,
+  loadPresentation,
   navigateClassScene,
+  pausePresentation,
   reopenClass,
+  resumePresentation,
   type ClassScene,
   type ClassSceneList,
+  type PresentationStatus,
   type SessionSnapshot,
 } from '../api/client'
 import { Banner, BUTTON_SECONDARY, EmptyState } from '../components/ui'
 import { resolveSceneOrder } from './scenePosition'
 import { usePinnedSlide } from './usePinnedSlide'
-import { dwellForScene } from './playbackTiming'
 import { useNarrationPlayer, type AudioSink } from '../audio/useNarrationPlayer'
 
 export interface TeacherStageProps {
@@ -28,14 +31,10 @@ export interface TeacherStageProps {
   onSnapshot: (snapshot: SessionSnapshot) => void
   /** Re-read the authoritative snapshot after a refusal or a lost race. */
   onResync: () => void
-  /** When true the stage automatically advances pinned slides. The tab must stay open. */
-  autoPlay?: boolean
-  /** The teacher's reading pace (words per minute) used to compute slide dwell. */
-  playbackWpm?: number
   /**
-   * Speak each slide's pinned script while auto-playing (V0-013). Defaults to on;
-   * the slide then advances when its narration has been heard, and falls back to
-   * the text-paced dwell only when there is no audio (fallback, empty, error).
+   * Hear the class presenter's narration on this page too (V0-028). Defaults to
+   * on; the page attaches to the relay the server runner publishes, never to a
+   * second synthesis of its own.
    */
   voice?: boolean
   /** Injectable audio output (tests); the default is an `<audio>` element. */
@@ -46,17 +45,18 @@ const RUNNING_STATES = new Set(['ACTIVE', 'DEGRADED'])
 const FINISHED_STATES = new Set(['COMPLETED', 'FAILED', 'ENDING'])
 
 /**
- * The teacher's presentation surface (V0-025).
+ * The teacher's presentation surface (V0-025, V0-028).
  *
- * When ``autoPlay`` is true and the class is running, the pinned slides advance
- * automatically one after another. The pause / play button toggles the clock.
- * The dwell time for each slide is computed from the slide's text and notes and
- * the teacher's ``playbackWpm`` pace. The teacher can close the tab at any time;
- * closing it stops the auto‑play; no background worker or media stream is started.
+ * Since V0-028 the **class server** is the presentation clock: a started class
+ * synthesizes and advances its pinned slides in the API process, so closing this
+ * tab does not stop the lesson. This stage therefore follows the authoritative
+ * snapshot (the page polls it quietly) and offers teacher controls over that
+ * runner — Pause/Resume, manual previous/next/picker, and End/Reopen.
  *
- * A command is fenced with the ``state_version`` the page is showing. If another
- * writer moved the class (or the class ended) the refusal is shown and the page
- * resynchronises rather than silently presenting the wrong slide.
+ * A manual move is an ordinary fenced `NAVIGATE_SCENE`; the background runner
+ * notices the new position and restarts its narration there. A command is fenced
+ * with the `state_version` the page is showing, so a stale view is refused and the
+ * page resynchronises rather than silently presenting the wrong slide.
  */
 export default function TeacherStage({
   classId,
@@ -66,8 +66,6 @@ export default function TeacherStage({
   stateVersion,
   onSnapshot,
   onResync,
-  autoPlay,
-  playbackWpm = 160,
   voice = true,
   createAudioSink,
 }: TeacherStageProps) {
@@ -75,6 +73,10 @@ export default function TeacherStage({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [pending, setPending] = useState(false)
+  const [presentation, setPresentation] = useState<PresentationStatus | null>(null)
+  const [presentationError, setPresentationError] = useState<string | null>(null)
+  const [presentationRevision, setPresentationRevision] = useState(0)
+  const [control, setControl] = useState<'pause' | 'resume' | null>(null)
 
   const running = sessionState !== null && RUNNING_STATES.has(sessionState)
   const finished = sessionState !== null && FINISHED_STATES.has(sessionState)
@@ -103,17 +105,50 @@ export default function TeacherStage({
     }
   }, [classId, shouldLoad])
 
+  // Read the runner's status (and re-read it after a control, or every few
+  // seconds) so Pause/Resume is truthful after a reload and after an API restart.
+  // A status failure does not hide the slides: the page remains a review surface.
+  useEffect(() => {
+    if (!shouldLoad) {
+      setPresentation(null)
+      setPresentationError(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const next = await loadPresentation(classId)
+        if (!cancelled) {
+          setPresentation(next)
+          setPresentationError(null)
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setPresentation(null)
+          setPresentationError(describeApiError(cause))
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [classId, presentationRevision, shouldLoad])
+
+  useEffect(() => {
+    if (!running || !shouldLoad) return
+    const timer = window.setInterval(
+      () => setPresentationRevision((value) => value + 1),
+      3000,
+    )
+    return () => window.clearInterval(timer)
+  }, [running, shouldLoad])
+
   const scenes = listing?.scenes ?? []
   const currentOrder =
     resolveSceneOrder(scenes, currentSceneId, currentSectionIndex) ?? scenes[0]?.order ?? null
   const index = currentOrder === null ? -1 : scenes.findIndex((scene) => scene.order === currentOrder)
   const scene = index >= 0 ? scenes[index] : null
   const { url, error: slideError } = usePinnedSlide(classId, scene?.order ?? null)
-
-  // Auto-play state. The timer is derived from the current slide: one timer is
-  // armed at a time, and a new slide (or a pause) replaces it. Nothing runs in a
-  // worker or on the server, so closing the tab stops the presentation.
-  const [isPlaying, setIsPlaying] = useState(false)
 
   const goTo = useCallback(
     async (target: ClassScene | undefined) => {
@@ -128,14 +163,13 @@ export default function TeacherStage({
         })
         if (outcome.snapshot) onSnapshot(outcome.snapshot)
         else if (!outcome.result.accepted) {
-          // A refused command means the class moved under this tab; stop playing
-          // rather than retrying a stale target, and let the page resynchronise.
-          setIsPlaying(false)
+          // A refused command means the class moved under this tab; ask the page
+          // to re-read the authoritative snapshot rather than retrying a stale
+          // target. The server runner restarts at the corrected position.
           onResync()
         }
       } catch (cause) {
         setError(describeApiError(cause))
-        setIsPlaying(false)
         onResync()
       } finally {
         setPending(false)
@@ -143,9 +177,6 @@ export default function TeacherStage({
     },
     [classId, onResync, onSnapshot, pending, running, stateVersion],
   )
-
-  const nextScene =
-    index >= 0 && index < scenes.length - 1 ? scenes[index + 1] : null
 
   // End and reopen are lifecycle commands, not slide moves: they are fenced by
   // the same state version and applied through the same snapshot the page holds.
@@ -171,11 +202,11 @@ export default function TeacherStage({
       })
       if (outcome.snapshot) onSnapshot(outcome.snapshot)
       else if (outcome.result.duplicate) onResync()
+      setPresentationRevision((value) => value + 1)
     } catch (cause) {
       setError(describeApiError(cause))
       onResync()
     } finally {
-      setIsPlaying(false)
       setLifecycle(null)
     }
   }, [classId, lifecycle, onResync, onSnapshot, pending, running, stateVersion])
@@ -191,7 +222,7 @@ export default function TeacherStage({
       })
       if (outcome.snapshot) {
         onSnapshot(outcome.snapshot)
-        setIsPlaying(Boolean(autoPlay))
+        setPresentationRevision((value) => value + 1)
       } else if (outcome.result.duplicate) {
         onResync()
       }
@@ -201,60 +232,52 @@ export default function TeacherStage({
     } finally {
       setLifecycle(null)
     }
-  }, [autoPlay, classId, lifecycle, onResync, onSnapshot, pending, sessionState, stateVersion])
+  }, [classId, lifecycle, onResync, onSnapshot, pending, sessionState, stateVersion])
 
-  // Seed the play flag from `?autoplay=1` once the session is running. A pause
-  // made by the teacher survives later scene updates because this only depends
-  // on the flag and the running state.
-  useEffect(() => {
-    setIsPlaying(Boolean(autoPlay) && running)
-  }, [autoPlay, running])
+  const canControl =
+    Boolean(presentation?.available) && running && Boolean(presentation?.running) && !presentation?.at_end
+  const canStart =
+    Boolean(presentation?.available) && running && presentation?.running === false
 
-  // Voice: narrate the current slide while auto-playing. The slide advances when
-  // its narration has been heard; the last slide stops rather than looping.
-  const narrating = voice && isPlaying && running && !pending && scene !== null
-  const advanceAfterNarration = useCallback(() => {
-    if (nextScene) void goTo(nextScene)
-    else setIsPlaying(false)
-  }, [goTo, nextScene])
+  const togglePresentation = useCallback(async () => {
+    if (!presentation?.available || !running || control !== null) return
+    const action = presentation.paused || !presentation.running ? 'resume' : 'pause'
+    setControl(action)
+    setError(null)
+    try {
+      const next =
+        action === 'pause'
+          ? await pausePresentation(classId)
+          : await resumePresentation(classId)
+      setPresentation(next)
+      setPresentationError(null)
+      if (!next.running) onResync()
+    } catch (cause) {
+      setError(describeApiError(cause))
+      // The runner may have ended between the read and the click; re-read the
+      // authoritative status and snapshot rather than guessing.
+      setPresentationRevision((value) => value + 1)
+      onResync()
+    } finally {
+      setControl(null)
+    }
+  }, [classId, control, onResync, presentation, running])
+
+  // Hear the server runner's generation on this page. This is relay mode: it
+  // starts no synthesis, so an open teacher tab costs no extra provider work.
   const narration = useNarrationPlayer({
     classId,
-    order: scene?.order ?? null,
-    enabled: narrating,
-    expectedStateVersion: stateVersion,
-    onComplete: advanceAfterNarration,
+    enabled:
+      voice &&
+      running &&
+      scene !== null &&
+      Boolean(presentation?.available) &&
+      !presentation?.paused,
+    mode: 'relay',
+    expectedSceneId: scene?.scene_id,
     createSink: createAudioSink,
+    retryMs: 750,
   })
-  // Without audio for this slide (voice off, text fallback, nothing authored, or
-  // a failure) the text-paced dwell keeps the lesson moving (DEC-TURN-009).
-  const paceByText =
-    !voice ||
-    narration.status === 'fallback' ||
-    narration.status === 'empty' ||
-    narration.status === 'error'
-
-  // One timer per slide. When the slide changes (because the command succeeded),
-  // the cleanup clears the previous timer and the effect arms the next one.
-  useEffect(() => {
-    if (!isPlaying || !running || pending) return
-    // The scene list is still loading: leave the flag alone, the next render
-    // (with a scene) will arm the timer.
-    if (!scene) return
-    if (!voice && !nextScene) {
-      // The last slide has been reached: the lesson is fully presented, not looped.
-      setIsPlaying(false)
-      return
-    }
-    if (!paceByText) return
-    const timer = window.setTimeout(() => {
-      advanceAfterNarration()
-    }, dwellForScene(scene, playbackWpm ?? 160))
-    return () => window.clearTimeout(timer)
-  }, [isPlaying, running, pending, scene, nextScene, playbackWpm, voice, paceByText, advanceAfterNarration])
-
-  const toggleAutoPlay = useCallback(() => {
-    setIsPlaying((playing) => !playing)
-  }, [])
 
   if (sessionState === null) {
     return (
@@ -264,8 +287,8 @@ export default function TeacherStage({
       >
         <h2 className="text-base font-semibold text-slate-800">Presenting</h2>
         <p className="mt-2 text-sm text-slate-600">
-          This class has not started. Start it from class management; the running session then
-          pins its slides and students can join.
+          This class has not started. Start it from class management; once running, the class
+          server presents its pinned slides automatically and students can join.
         </p>
       </section>
     )
@@ -279,8 +302,8 @@ export default function TeacherStage({
       >
         <h2 className="text-base font-semibold text-slate-800">Presenting</h2>
         <p className="mt-2 text-sm text-slate-600">
-          This class is <span className="font-mono">{sessionState}</span>. Slides are presented
-          while the session is running.
+          This class is <span className="font-mono">{sessionState}</span>. The class server presents
+          the pinned slides while the session is running.
         </p>
       </section>
     )
@@ -296,22 +319,38 @@ export default function TeacherStage({
         <span className="text-sm text-slate-600" data-testid="teacher-slide-counter">
           {index >= 0 ? `Slide ${index + 1} of ${scenes.length}` : 'No slide'}
         </span>
-        {autoPlay && (
+        <span className="text-xs text-slate-500" data-testid="presentation-status">
+          {describePresentation(presentation, presentationError, running)}
+        </span>
+        {canControl && (
           <button
             type="button"
-            onClick={toggleAutoPlay}
-            disabled={!running}
+            onClick={() => void togglePresentation()}
+            disabled={control !== null}
             className={BUTTON_SECONDARY}
           >
-            {isPlaying ? 'Pause' : 'Play'}
+            {control === 'pause' ? 'Pausing…' : presentation?.paused ? 'Resume' : 'Pause'}
+          </button>
+        )}
+        {canStart && (
+          <button
+            type="button"
+            onClick={() => void togglePresentation()}
+            disabled={control !== null}
+            className={BUTTON_SECONDARY}
+          >
+            {control === 'resume' ? 'Starting…' : 'Start presentation'}
           </button>
         )}
       </div>
 
-      {voice && autoPlay && running && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600" data-testid="teacher-voice">
+      {presentation?.available && running && (
+        <div
+          className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600"
+          data-testid="teacher-voice"
+        >
           <span>
-            Voice: {describeNarration(narration.status, isPlaying)}
+            Voice: {describeNarration(narration.status, Boolean(presentation.paused))}
             {narration.provider === 'neutral-deterministic' &&
               ' · neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is OPEN)'}
             {narration.provider === 'omnivoice' &&
@@ -359,26 +398,22 @@ export default function TeacherStage({
 
       {running ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {!autoPlay && (
-            <>
-              <button
-                type="button"
-                onClick={() => void goTo(scenes[index - 1])}
-                disabled={pending || index <= 0}
-                className={BUTTON_SECONDARY}
-              >
-                ← Previous slide
-              </button>
-              <button
-                type="button"
-                onClick={() => void goTo(scenes[index + 1])}
-                disabled={pending || index < 0 || index >= scenes.length - 1}
-                className={BUTTON_SECONDARY}
-              >
-                Next slide →
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => void goTo(scenes[index - 1])}
+            disabled={pending || index <= 0}
+            className={BUTTON_SECONDARY}
+          >
+            ← Previous slide
+          </button>
+          <button
+            type="button"
+            onClick={() => void goTo(scenes[index + 1])}
+            disabled={pending || index < 0 || index >= scenes.length - 1}
+            className={BUTTON_SECONDARY}
+          >
+            Next slide →
+          </button>
 
           <label className="block w-full min-w-0 max-w-full text-xs text-slate-500 sm:inline-block sm:w-auto sm:max-w-xs">
             <span className="sr-only">Slide</span>
@@ -419,8 +454,8 @@ export default function TeacherStage({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <p role="status" className="min-w-0 flex-1 text-sm text-slate-600">
             {sessionState === 'COMPLETED'
-              ? 'This class has ended. Its lesson is locked for students until you reopen it.'
-              : 'This class has ended. There is no live presentation to drive.'}
+              ? 'This class has ended. The class server stopped presenting, and students are locked out until you reopen it.'
+              : 'This class has ended. There is no background presentation to drive.'}
           </p>
           {sessionState === 'COMPLETED' && (
             <button
@@ -451,8 +486,24 @@ function newCommandId(): string {
   }
   return `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
-function describeNarration(status: string, playing: boolean): string {
-  if (!playing) return 'paused'
+
+function describePresentation(
+  status: PresentationStatus | null,
+  error: string | null,
+  running: boolean,
+): string {
+  if (!running) return 'Presentation stopped'
+  if (error) return 'Presentation status unavailable'
+  if (!status) return 'Connecting to the class presenter…'
+  if (!status.available) return 'Background presentation is disabled'
+  if (status.paused) return 'Paused'
+  if (!status.running) return 'Not presenting'
+  if (status.at_end) return 'At the last slide'
+  return 'Auto-presenting'
+}
+
+function describeNarration(status: string, paused: boolean): string {
+  if (paused) return 'paused with the class'
   switch (status) {
     case 'loading':
       return 'preparing…'
@@ -467,8 +518,8 @@ function describeNarration(status: string, playing: boolean): string {
     case 'empty':
       return 'this slide has no script'
     case 'error':
-      return 'unavailable; pacing by text'
+      return 'unavailable'
     default:
-      return 'idle'
+      return 'waiting for the class presenter'
   }
 }

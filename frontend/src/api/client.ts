@@ -677,6 +677,47 @@ export const startClass = (institutionId: string, classId: string) =>
     method: 'POST',
   })
 
+/**
+ * The API process's background presentation of a started class (V0-028).
+ *
+ * The class server synthesizes and advances the pinned slides, so the teacher's
+ * tab is not the clock and closing it does not stop the lesson. `available` is
+ * false when the deployment runs with `MENTORA_BACKGROUND_PRESENTATION=0`.
+ * `running` true with `at_end` true means the runner is holding at the last
+ * slide, waiting for a manual navigation or the end of the class. This is an
+ * in-process development bridge (`DEC-TECH-003` is `OPEN`), not a durable
+ * scheduler; after an API restart a teacher can start it again with
+ * `resumePresentation`.
+ */
+export interface PresentationStatus {
+  class_id: string
+  available: boolean
+  running: boolean
+  paused: boolean
+  at_end: boolean
+  scene_order: number | null
+  scene_id: string | null
+  actor_epoch: number | null
+  state_version: number | null
+  issue_code: string | null
+  message: string | null
+}
+
+export const loadPresentation = (classId: string) =>
+  request<PresentationStatus>(`/classes/${classId}/presentation`, '')
+
+/** Pause the class-level background presentation (teacher control). */
+export const pausePresentation = (classId: string) =>
+  request<PresentationStatus>(`/classes/${classId}/presentation/pause`, '', {
+    method: 'POST',
+  })
+
+/** Resume — or restart after an API restart — the background presentation. */
+export const resumePresentation = (classId: string) =>
+  request<PresentationStatus>(`/classes/${classId}/presentation/resume`, '', {
+    method: 'POST',
+  })
+
 export interface PublicationIntegrity {
   state: 'VERIFIED' | 'MISMATCH' | 'MISSING'
   package_id: string

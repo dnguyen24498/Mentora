@@ -1,8 +1,9 @@
 # Frontend
 
 Material library (`.pptx` upload), the Teacher Studio review page, the Classroom
-hub and one running class (the teacher's auto-playing presentation stage, and the
-student's view-only follower), the legacy Learning page (slide + teaching canvas +
+hub and one running class (the teacher's presentation stage following the class
+server's background presenter, and the student's view-only follower), the legacy
+Learning page (slide + teaching canvas +
 automatic text-only narration, kept for direct links), an Admin area (accounts,
 courses, classes, publications), Settings, and — V0-021/V0-022 — sign-in for the
 three account types (administrator, teacher, student) and a class join page, as
@@ -15,7 +16,7 @@ real pages of one Vite app. React + TypeScript + Tailwind, built with Vite.
 | `/` | Material library — courses, upload, extracted Content IR, classes | `src/pages/UploadPage.tsx` |
 | `/studio/{artifactId}` | Teacher Studio — full-width slide review of one deck | `src/pages/StudioPage.tsx` |
 | `/classroom` | Classroom hub — every class the person may see; a teacher starts one, a student joins a running one (V0-026) | `src/classroom/ClassroomHomePage.tsx` |
-| `/classroom/{classId}` | One class — the teacher's auto-playing presentation stage, or the student's view-only follower (V0-025/V0-026) | `src/classroom/ClassroomPage.tsx`, `src/student/StudentClassPage.tsx` |
+| `/classroom/{classId}` | One class — the teacher's presentation stage (following the server presenter), or the student's view-only follower (V0-025/V0-026/V0-028) | `src/classroom/ClassroomPage.tsx`, `src/student/StudentClassPage.tsx` |
 | `/learn/{artifactId}` | Learning (legacy) — the slide, the teaching canvas and text-only narration, on demand or at a chosen time; kept for direct links, no longer in the nav | `src/presentation/LearnPage.tsx` |
 | `/admin/{section}` | Admin — overview, accounts, courses, classes, publications | `src/admin/AdminPage.tsx` |
 | `/settings/{section}` | Settings — general, rendering, teaching, accessibility, security | `src/settings/SettingsPage.tsx` |
@@ -48,8 +49,8 @@ course on a first visit, so Studio is usable without opening one first. Admin an
 Settings are plain links, so they are always available.
 
 The legacy Learning page (`/learn/{artifactId}`) is no longer in the nav — the
-classroom presents the pinned slides, auto-playing them from the hub — but the
-route is kept so a link already shared still opens something.
+class server presents the pinned slides in the background after a class starts —
+but the route is kept so a link already shared still opens something.
 
 With identities (V0-021) the nav also answers "who am I": it shows the signed-in
 principal and **Sign out**, or a **Sign in** link when no session exists. Since
@@ -463,9 +464,11 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   hub for everyone (V0-026). It lists whatever `GET /classes` returns: a teacher
   (and an institution administrator) sees the tenant's schedule, a student sees
   only the classes a teacher enrolled them in, because the server scopes the list
-  by role. A teacher **Start class** button starts the real V0-009 session and
-  opens `/classroom/{id}?autoplay=1`; a running class becomes **Join class** for a
-  student and **Open classroom** for a teacher. A scheduled student row says it is
+  by role. A teacher **Start class** button starts the real V0-009 session; since
+  V0-028 the class server presents in the background, so the hub refreshes its
+  list instead of opening a page that would have to stay open. A running class
+  becomes **Join class** for a student and **Open classroom** for a teacher. A
+  scheduled student row says it is
   waiting and the page re-reads the list on a 5 s timer while any class is
   scheduled, so it becomes joinable when the teacher starts without a hidden
   refresh. `/student` is kept as an alias of this hub.
@@ -486,21 +489,23 @@ no longer accepts the session (expired, revoked, unknown, disabled) clears it in
   keeps its own chrome), but there is **no slide navigation** — no Previous/Next,
   no picker and no arrow keys. The teacher drives the class; this page reads the
   same authoritative `GET /classes/{id}/snapshot` and moves to the scene its
-  lesson position names (V0-025), and the current slide is spoken by the teacher's
-  live relayed voice. It waits for the teacher to start and joins by itself. When
+  lesson position names (V0-025), and the current slide is spoken by the class
+  presenter's live relayed voice (V0-028 — the teacher's tab does not have to be
+  open). It waits for the teacher to start and joins by itself. When
   the teacher ends the class it shows a locked **Ended** screen with no slide or
   text — the server refuses a student's snapshot/scene reads with `CLASS_ENDED`
   (V0-027) — and it keeps re-reading the class metadata, so a teacher's **Reopen
   class** joins the new actor epoch by itself. Three limits are stated
   rather than hidden: the update is a **short poll** (about every 1.5 s), not the
   ordered per-class stream (`DEC-DATA-003` is `OPEN`, live path V1-002); the
-  **voice is the teacher's live generation relayed over HTTP** (V1-005 bridge,
-  `GET /classes/{id}/narration`) rather than a per-student synthesis or a
+  **voice is the class presenter's live generation relayed over HTTP** (V1-005
+  bridge, `GET /classes/{id}/narration`) rather than a per-student synthesis or a
   transcript — the page shows the provider (the deterministic mock or the opt-in
   OmniVoice prototype) and an **Enable sound** button when the browser blocks
   autoplay. This is explicitly *not* the SFU media plane (`DEC-TECH-004` is
   `OPEN`): the relay answers `204` while there is no current generation, copies
-  each WAV chunk the teacher's tab produced, and ends at that generation's verdict.
+  each WAV chunk the server presenter produced, and ends at that generation's
+  verdict.
   The current slide is the unit of replay: a student who joins mid-slide hears it
   from the slide's start (the fast mock would otherwise finish synthesis before the
   next attach and leave them in silence), and the teacher's next slide supersedes
@@ -530,38 +535,53 @@ screen instead of an empty "Select a class". Starting is the teacher's verb and
 the only path to a joinable class; the classroom page links a teacher to this
 panel for the class they are viewing.
 
-## Classroom hub and automatic play (V0-026)
+## Classroom hub and background presentation (V0-026, V0-028)
 
 `/classroom` is the single classroom page. It lists the classes the signed-in
 person may see (the server scopes `GET /classes` by role) and is the only place a
 class is started: a teacher presses **Start class**, which calls the real
-`POST /classes/{id}/start` and opens `/classroom/{id}?autoplay=1`. There is no
-separate "learning page" destination any more; `/learn/{artifactId}` is kept for
-direct links only and is not in the nav.
+`POST /classes/{id}/start` and refreshes the list. There is no separate "learning
+page" destination any more; `/learn/{artifactId}` is kept for direct links only
+and is not in the nav.
+
+Since **V0-028**, starting a class asks the **API process** to present it: the
+server synthesizes each pinned slide through the same provider-neutral timeline,
+publishes it to the class narration relay, waits for its playout, and moves the
+aggregate to the next pinned slide. Closing the teacher's tab therefore does not
+stop the lesson, and the teacher does not need to open a presentation page at all.
+This is an **in-process development bridge**, not the durable scheduler/workflow
+`DEC-TECH-003` leaves `OPEN`: an API restart loses the runner (the classroom stage
+offers **Start presentation** to restart it at the authoritative position), and
+audio distribution remains the HTTP relay rather than the SFU (`DEC-TECH-004` is
+`OPEN`, V1-005). The deployment can disable it entirely with
+`MENTORA_BACKGROUND_PRESENTATION=0`.
 
 A class whose session is `COMPLETED` reads **Ended** (the domain state is kept;
 only the label changes). Its lesson is locked for students: the row still shows
 the class and the reason, but offers no Join or lesson link, and the student
 viewer draws no slide or text. A teacher sees **Reopen class**, which calls
-`POST /classes/{id}/reopen` and opens the same class at `?autoplay=1`; the same
-roster and the same pinned package are kept, the lesson returns to its first
-slide, and a **new actor epoch** is started, so every pre-end join credential is
-stale (V0-027, `DEC-CONTENT-005`, `DEC-RUNTIME-007`). Ending is an explicit
-teacher action — auto-play reaching the last slide stops, it does not end the
-class — because a durable scheduler is `DEC-TECH-003` (`OPEN`).
+`POST /classes/{id}/reopen`; the same roster and the same pinned package are kept,
+the lesson returns to its first slide, and a **new actor epoch** is started, so
+every pre-end join credential is stale (V0-027, `DEC-CONTENT-005`,
+`DEC-RUNTIME-007`). Ending is an explicit teacher action: the presenter stops at
+the last slide and holds there, it does not end the class by itself.
 
-On that URL the teacher's stage (`src/classroom/TeacherStage.tsx`) advances the
-**pinned** slides by itself. The dwell for each slide is
-`src/classroom/playbackTiming.ts::dwellForScene` — the slide's text and notes
-counted as words at the pace set in Settings (`teachingWpm`, 80–260 wpm), with a
-5 s floor and a 30 s ceiling — and it stops when the last slide is reached rather
-than looping. A **Pause / Play** button is offered, and the slide picker still
-works so the teacher can jump. This is **client-local**: the teacher's tab is the
-clock, closing it stops the slides, and no scheduler or worker is implied
-(`DEC-TECH-003` is `OPEN`). Students follow the same class at
-`/classroom/{id}` — the app serves them `StudentClassPage` — and move only when
-the authoritative snapshot's current lesson scene changes (the ~1.5 s poll;
-`DEC-DATA-003` is `OPEN`, V1-002). A student has no slide controls.
+`src/classroom/TeacherStage.tsx` is now a **follower and control surface**, not the
+clock. It reads the authoritative snapshot through the page's quiet ~1.5 s poll,
+shows the current pinned slide and slide picker, and sends ordinary fenced
+`NAVIGATE_SCENE` commands for Previous/Next/picker. The background runner notices
+a manual move and restarts its narration at that slide. The stage reads
+`GET /classes/{id}/presentation` to show whether the runner is **Auto-presenting**,
+**Paused**, **Not presenting** (after an API restart) or **At the last slide**, and
+offers **Pause/Resume** (or **Start presentation**) plus **End class**/**Reopen
+class**. Those controls call the server routes; they never move only the teacher's
+local view. The stage also plays the presenter's relay so the teacher hears what
+the class hears; it starts no synthesis of its own.
+
+Students follow the same class at `/classroom/{id}` — the app serves them
+`StudentClassPage` — and move only when the authoritative snapshot's current
+lesson scene changes (the ~1.5 s poll; `DEC-DATA-003` is `OPEN`, V1-002). A
+student has no slide controls.
 
 ## Classroom (V0-011)
 
@@ -630,12 +650,13 @@ the pages including a deep link; `src/router.test.tsx` covers route parsing
 and the `Link`/`navigate` behaviour. `src/components/SiteNav.test.tsx` covers the
 shared navigation (every page from every page, the chooser an entry falls back to
 before an id is known, `aria-current`). `src/classroom/ClassroomHomePage.test.tsx`
-covers the hub (a teacher starting a class lands on `?autoplay=1`, a student only
-sees the running class as joinable, an empty roster is explained, a start refusal
-is reported on the row); `src/classroom/TeacherStage.test.tsx` covers the
-auto-play clock (advance after the dwell, pause, stop at the last slide, and no
-movement without the flag) and `src/classroom/playbackTiming.test.ts` the pacing
-rule (words at the teacher's speed, the 5 s floor, the 30 s cap, notes counted).
+covers the hub (a teacher starting a class refreshes the list rather than opening
+a page, a student only sees the running class as joinable, an empty roster is
+explained, a start refusal is reported on the row); `src/classroom/TeacherStage.test.tsx`
+covers the follow/control surface (the server's status, Pause/Resume, restarting
+after an API restart, holding at the last slide, relay playback and the blocked
+sound / text-fallback paths) and asserts the page never advances the slides on its
+own.
 `src/presentation/LearnPage.test.tsx` covers the
 learning page: stored vs built package, slide navigation by button, selector and
 arrow keys, the teaching script, the canvas toolbar including its no-2D-canvas
@@ -685,9 +706,9 @@ recovers, accessibility smoke), with the event stream driven by an injected
 transport so no server is needed. For V0-025, `src/classroom/TeacherStage.test.tsx`
 covers the teacher's slide stage (the pinned slide, next/picker commands fenced by
 `state_version`, a stale refusal triggering resync, no slides before start, the
-last slide after the end), with V0-027 adding **End class** (confirmed, applies
-the completed snapshot) and **Reopen class** (applies the new first-slide
-snapshot). `src/classroom/ClassroomPage.teacher.test.tsx` proves the page exposes
+last slide after the end, and the V0-028 background controls), with V0-027 adding
+**End class** (confirmed, applies the completed snapshot) and **Reopen class**
+(applies the new first-slide snapshot). `src/classroom/ClassroomPage.teacher.test.tsx` proves the page exposes
 it only to a teacher and applies the returned snapshot, and
 `src/classroom/scenePosition.test.ts` covers the snapshot scene-id/section-index
 mapping. `src/classroom/ClassroomHomePage.test.tsx` covers the hub's ended row

@@ -25,6 +25,8 @@ export interface ClassroomSessionApi {
   capabilities: ClassroomTransportCapabilities
   send: (type: ClassroomCommandType) => void
   resync: () => void
+  /** Quietly re-read the snapshot (the teacher follows the background presenter). */
+  poll: () => void
   /** Apply a snapshot the server returned (e.g. a navigation command's result). */
   applySnapshot: (snapshot: SessionSnapshot) => void
   toggleFocusScene: () => void
@@ -88,6 +90,10 @@ export function useClassroomSession({
     void sessionRef.current?.resync()
   }, [])
 
+  const poll = useCallback(() => {
+    void sessionRef.current?.poll()
+  }, [])
+
   const applySnapshot = useCallback(
     (snapshot: SessionSnapshot) => {
       store.applySnapshot(snapshot)
@@ -106,5 +112,5 @@ export function useClassroomSession({
     [store],
   )
 
-  return { state, capabilities, send, resync, applySnapshot, toggleFocusScene, updatePreferences }
+  return { state, capabilities, send, resync, poll, applySnapshot, toggleFocusScene, updatePreferences }
 }

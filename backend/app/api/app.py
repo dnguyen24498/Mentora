@@ -57,6 +57,7 @@ so a locked deployment can still create its first account.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -71,6 +72,7 @@ from app.classroom.catalog import BaselineRuntimeCatalog
 from app.classroom.repository import ClassRepository
 from app.classroom.router import build_class_router
 from app.classroom.service import ClassroomService
+from app.classroom.timeline.presenter import ClassroomPresenter
 from app.classroom.timeline.router import build_timeline_router
 from app.classroom.timeline.service import TimelineService
 from app.common.errors import AppError
@@ -99,6 +101,20 @@ from app.publication.service import PublicationService
 from app.publication.workflow import ReviewWorkflow
 from app.providers.factory import build_identity_service, build_speech_service
 from app.storage.object_store import LocalObjectStore
+
+
+def _presentation_lifespan(presenter: Optional[ClassroomPresenter]):
+    """Close the in-process background runners when the API shuts down."""
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            if presenter is not None:
+                presenter.close()
+
+    return lifespan
 
 
 def create_app(
@@ -188,9 +204,21 @@ def create_app(
     speech_service = build_speech_service(settings.tts_provider)
     timeline_service = TimelineService(classroom_service, speech_service)
 
-    app = FastAPI(title="Mentora API", version="1.0.0")
+    # Background presentation: a started class is presented by the API process,
+    # not by the teacher's tab. This is an in-process development bridge — the
+    # durable scheduler/workflow is DEC-TECH-003 (OPEN) and the shared audio plane
+    # is DEC-TECH-004 (OPEN)/V1-005 — so it is configuration-switched and does not
+    # survive an API restart.
+    presenter = (
+        ClassroomPresenter(classroom_service, timeline_service)
+        if settings.background_presentation
+        else None
+    )
+
+    app = FastAPI(title="Mentora API", version="1.0.0", lifespan=_presentation_lifespan(presenter))
     app.state.speech_service = speech_service
     app.state.timeline_service = timeline_service
+    app.state.classroom_presenter = presenter
     # The in-process live narration relay (V1-005 bridge): the teacher's stream is
     # the producer, a student's page attaches to the same generation. Not the SFU;
     # the shared media plane remains DEC-TECH-004 (OPEN).
@@ -261,7 +289,7 @@ def create_app(
     # Class and runtime session plan (V0-009): schedule a class, start it by
     # pinning the exact runtime tuple once, serve the durable snapshot, serve the
     # pinned scene, and authorize joins against the class enrollment.
-    app.include_router(build_class_router(classroom_service, security))
+    app.include_router(build_class_router(classroom_service, security, presenter=presenter))
     # Timeline narration (V0-013): the teacher's narrated presentation stream.
     app.include_router(build_timeline_router(timeline_service, security))
 

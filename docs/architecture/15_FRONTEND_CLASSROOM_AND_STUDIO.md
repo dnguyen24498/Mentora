@@ -24,6 +24,35 @@ Classroom displays content, captions, transcript, teacher state, queue, floor co
 
 The classroom client is implemented in `frontend/src/classroom/`. It is a **projection**, never a source of truth: the Classroom Actor owns authoritative state, and the client holds a derived view rebuilt from the authoritative snapshot (`GET /classes/{id}/snapshot`, the durable `runtime-snapshot@1` document) plus contiguous ordered events. The state is split into separate slices (`frontend/src/classroom/state/`): the **event reducer** (`reducer.ts` — the only slice derived from the actor's stream), the raw **snapshot**, **media** state and **ephemeral UI / accessibility preferences** in `store.ts`. The reducer is pure: it applies an event only when it is **contiguous for the current epoch** (`sequence === lastSequence + 1`), **ignores duplicates and stale events** (`sequence <= lastSequence` — `DEC-RUNTIME-003`), **discards an effect from a superseded epoch** (`DEC-RUNTIME-007`), and reports a **sequence gap** rather than applying out of order. A gap, a stale epoch or a failed load freezes the client (`status !== 'live'`), disables the command controls and requests a resync; the session (`session.ts`) answers a resync by re-reading the authoritative snapshot with bounded retry (`DEC-RELIABILITY-001`) and resetting the event cursor — it never guesses at the missing events. A refresh is a fresh mount, so it restores scene and state from the snapshot (`DEC-RUNTIME-004`, `DEC-DATA-004`). The transport is an interface with one V0 implementation (`transport.ts`) that reads the snapshot only: the ordered per-class event mechanism is `DEC-DATA-003` and its technology is `OPEN`, so the shell reports `liveEvents:false`/`commands:false` and says so instead of faking a stream (that live path is V1-002). Group student audio stays inactive (`DEC-TURN-001`). The client emits structured telemetry — identities, counts and outcomes only, never scene text, transcript or audio (`telemetry.ts`).
 
+## Background presentation in the client (V0-028)
+
+The **class server** is now the presentation clock
+(`backend/app/classroom/timeline/presenter.py`); the teacher's browser is a
+follower and control surface. This is a deliberate correction: with the V0-026
+client-local clock, closing the teacher's tab stopped the slides for every student.
+
+- `ClassroomPage.tsx` starts a quiet `poll()` of the authoritative snapshot (about
+  every 1.5 s) for a teacher. It is not a resync: no `resyncing` flicker and no
+  disconnect on one transient failure, because the last authoritative scene stays
+  on screen. The ordered stream is still `DEC-DATA-003` (`OPEN`, V1-002).
+- `TeacherStage.tsx` keeps the pinned slide, Previous/Next and picker (each an
+  ordinary fenced `NAVIGATE_SCENE`), shows the server's presentation status, and
+  offers Pause/Resume, **Start presentation** when no runner exists (an API
+  restart), and End/Reopen. A manual move is noticed by the runner, which restarts
+  its narration at the chosen scene.
+- The stage's voice is the presenter's relay (`mode: 'relay'`); it starts no second
+  synthesis. It says whether the provider is the deterministic mock or the opt-in
+  OmniVoice prototype, and offers **Enable sound** if the browser blocked autoplay.
+  A relayed text fallback is shown as the slide's script (`DEC-TURN-009`).
+- The `ClassroomHomePage.tsx` Start/Reopen actions now call the API and refresh the
+  class list instead of navigating to `/classroom/{id}?autoplay=1`. The classroom
+  no longer needs to stay open, and that URL flag is ignored. The client-local
+  `playbackTiming.ts` pacing was removed with the tab clock.
+- This remains a **development bridge**: the runner is in-process and lost on an
+  API restart (`DEC-TECH-003` `OPEN`), and audio is HTTP relay, not the SFU
+  (`DEC-TECH-004` `OPEN`, V1-005). The page says both rather than implying a
+  durable scheduler or a media plane.
+
 ## Implemented pages and navigation
 
 The app has four routed pages (`frontend/src/router.tsx`, dependency-free): the
@@ -80,19 +109,25 @@ sign in, so the page's signed-out branch is only a defensive fallback; signed in
 shows the class and asks the
 server for the caller's own join credential, reporting a refusal by its precise
 cause (`NOT_ENROLLED`, `CLASS_NOT_READY`/`NOT_STARTED`, `NOT_FOUND`).
-`StudentClassPage.tsx` (`/student/{classId}`) is the **fullscreen** view: the
-slide fills the viewport (a real Fullscreen button as well as the layout, because
-a phone browser still shows its own chrome), one tap or one arrow key moves a
-slide, the controls keep their ≥44px tap area, and the current slide's own text
-and notes are shown as the narration. Two properties it does not overstate: the
-slide shown is the one *this student* is on, because the ordered per-class event
-stream that would carry "the teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`,
-live path V1-002); and the narration is **text only**, the deck's own words — no
-model wrote it and it is not audio (`DEC-TECH-007` is `OPEN`). What *is*
-authoritative is the content: every scene comes from the package the session
-pinned at start (`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`,
-so a correction published mid-lesson cannot change the slide under the student,
-and a tampered file is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown.
+`StudentClassPage.tsx` (`/student/{classId}`, also `/classroom/{classId}`) is the
+**fullscreen** view: the slide fills the viewport (a real Fullscreen button as well
+as the layout, because a phone browser still shows its own chrome), the controls
+keep their ≥44px tap area, and there is **no slide navigation** — the teacher
+advances the class and the page follows. It follows the authoritative snapshot by
+a quiet ~1.5 s poll; the ordered per-class event stream that would push "the
+teacher moved to slide 4" is `DEC-DATA-003` (`OPEN`, live path V1-002). The
+narration is the class presenter's **live relayed voice** through
+`GET /classes/{id}/narration` (V0-028/V1-005 bridge): the page starts no synthesis,
+names the provider (the deterministic development mock or the opt-in OmniVoice
+prototype, `DEC-TECH-007` `OPEN`) and offers **Enable sound** when the browser
+blocks autoplay. The slide's own text stays behind a collapsed accessibility
+disclosure rather than being read as the lesson. What *is* authoritative is the
+content: every scene comes from the package the session pinned at start
+(`DEC-CONTENT-005`) through `GET /classes/{id}/scenes[/{order}]`, so a correction
+published mid-lesson cannot change the slide under the student, and a tampered file
+is refused (`SCENE_CHECKSUM_MISMATCH`) rather than shown. When the class ends the
+server refuses a student's snapshot/scenes reads with `CLASS_ENDED`, and the page
+shows the locked ended screen until a teacher reopens it.
 
 Teacher-side, `admin/ClassesAdmin.tsx` uses the real roster, and V0-022 changed how
 a student gets onto it: **the picker chooses from the students who exist** (a

@@ -726,6 +726,14 @@ paths:
         pinned plan, and a later publication cannot move it (DEC-CONTENT-005).
         Idempotent: a replay returns the same session with `created: false`
         (DEC-RUNTIME-003).
+
+        A successful start also asks the **API process** to present the class in
+        the background (V0-028), so closing the teacher's tab does not stop the
+        lesson. The runner is an in-process development bridge, not the durable
+        scheduler/workflow `DEC-TECH-003` leaves OPEN, and it is scheduled after
+        the response so it can never race the start snapshot. A deployment can
+        disable it with `MENTORA_BACKGROUND_PRESENTATION=0`; the presentation
+        routes then report `available: false`.
       parameters: [$ref: '#/components/parameters/ClassId']
       responses:
         '200':
@@ -777,6 +785,75 @@ paths:
             locked until a teacher reopens it. Staff review reads by capability.
         '502':
           description: 'Stored snapshot fails validation (stable code STORAGE_FAILURE, issue_code SNAPSHOT_INVALID)'
+  /classes/{classId}/presentation:
+    get:
+      operationId: getClassPresentation
+      description: >-
+        The teacher control/status surface for the class's **background
+        presentation** (V0-028). Since V0-028 the API process, not the teacher's
+        browser tab, synthesizes the current pinned slide, publishes it to the
+        class narration relay and advances the aggregate after its playout. This
+        read is how the teacher's page learns whether that runner is `running`,
+        `paused`, holding `at_end`, or gone after an API restart. `available` is
+        false when the deployment was started with
+        `MENTORA_BACKGROUND_PRESENTATION=0`.
+
+        The runner is an in-process development bridge: `DEC-TECH-003` (durable
+        workflow/scheduler) is OPEN, so it is not durable and a restart loses it
+        (a teacher starts it again with `POST .../presentation/resume`), and
+        `DEC-TECH-004`/V1-005 mean audio still travels over the HTTP relay, not
+        the SFU. Requires `class:write`; it starts no speech and writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The presenter's current status (a synchronous status is always returned)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PresentationStatus'}
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+  /classes/{classId}/presentation/pause:
+    post:
+      operationId: pauseClassPresentation
+      description: >-
+        Pause the class-level background presentation; requires `class:write`.
+        Idempotent. Any in-flight provider generation is cancelled, so attached
+        listeners receive the relay's cancellation for it; audio a browser has
+        already buffered may still drain, because this HTTP relay is not the media
+        plane (DEC-TECH-004 is OPEN). The class position is not changed. Resuming
+        starts the current scene from its beginning — a semantic segment, never a
+        byte offset (DEC-RUNTIME-005). A refusal writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The presenter status after the pause
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PresentationStatus'}
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
+  /classes/{classId}/presentation/resume:
+    post:
+      operationId: resumeClassPresentation
+      description: >-
+        Resume — or start again after an API restart — the class-level background
+        presentation; requires `class:write`. For a running runner it clears the
+        pause flag; when no runner exists it starts one at the authoritative
+        current position, which is the recovery path for an `ACTIVE` class whose
+        in-process runner was lost. It does not move the class by itself. A
+        refusal writes nothing.
+      parameters: [$ref: '#/components/parameters/ClassId']
+      responses:
+        '200':
+          description: The presenter status after the resume/start
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PresentationStatus'}
+        '403':
+          description: 'The principal lacks class:write (stable code INSUFFICIENT_SCOPE), or the class is another institution''s (stable code TENANT_ACCESS_DENIED)'
+        '404': {description: 'Unknown class (stable code NOT_FOUND)'}
   /classes/{classId}/navigate:
     post:
       operationId: navigateClass
@@ -833,8 +910,10 @@ paths:
         is locked for students — the snapshot and the pinned scenes answer `409`
         `CLASS_ENDED` — until a teacher reopens it; staff may still review it. A
         command is idempotent by `command_id` and fenced by
-        `expected_state_version` (DEC-RUNTIME-003/DEC-RUNTIME-007). A refusal
-        writes nothing.
+        `expected_state_version` (DEC-RUNTIME-003/DEC-RUNTIME-007). Ending also
+        stops the in-process background presenter before the response, so no
+        further scene is presented and an in-flight generation is cancelled
+        (V0-028). A refusal writes nothing.
       parameters: [$ref: '#/components/parameters/ClassId']
       requestBody:
         required: false
@@ -866,8 +945,9 @@ paths:
         (DEC-CONTENT-005), and the lesson returns to its first position so the class
         can be taught again. A new actor epoch is started, so every join credential
         and fenced command issued before the end is stale (DEC-RUNTIME-007). The
-        response carries the new snapshot; a teacher's stage can apply it. A refusal
-        writes nothing.
+        response carries the new snapshot; a teacher's stage can apply it. A
+        successful reopen also asks the API process to start a fresh background
+        presenter at the first slide (V0-028). A refusal writes nothing.
       parameters: [$ref: '#/components/parameters/ClassId']
       requestBody:
         required: false
@@ -1774,6 +1854,39 @@ components:
           description: >-
             Optional idempotency key (DEC-RUNTIME-003). A replay returns the stored
             verdict with `duplicate: true` and no new snapshot.
+    PresentationStatus:
+      description: >-
+        The state of the class's in-process background presenter (V0-028). It is
+        a control surface, not a durable schedule: `available` false means the
+        deployment opted out, `running` false with an ACTIVE class means no runner
+        is alive (an API restart), and `at_end` means the runner is holding on the
+        last pinned slide. `scene_order`/`scene_id`/`state_version` are the position
+        the runner last observed; they may trail the snapshot by a poll.
+      type: object
+      required:
+        - class_id
+        - available
+        - running
+        - paused
+        - at_end
+        - scene_order
+        - scene_id
+        - actor_epoch
+        - state_version
+        - issue_code
+        - message
+      properties:
+        class_id: {type: string}
+        available: {type: boolean}
+        running: {type: boolean}
+        paused: {type: boolean}
+        at_end: {type: boolean}
+        scene_order: {type: [integer, 'null']}
+        scene_id: {type: [string, 'null']}
+        actor_epoch: {type: [integer, 'null']}
+        state_version: {type: [integer, 'null']}
+        issue_code: {type: [string, 'null']}
+        message: {type: [string, 'null']}
     ClassCommandEvent:
       description: 'One ordered effect of an accepted command (DEC-DATA-003''s unit).'
       type: object

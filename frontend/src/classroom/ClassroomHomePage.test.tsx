@@ -73,7 +73,7 @@ describe('ClassroomHomePage (V0-026)', () => {
     window.history.replaceState({}, '', '/classroom')
   })
 
-  it('starts a scheduled class and opens it in auto-play', async () => {
+  it('starts a scheduled class in the background and refreshes the list', async () => {
     signIn('teacher')
     vi.mocked(listClasses).mockResolvedValue([
       klass({ class_id: 'class-soon', title: 'Later today' }),
@@ -102,11 +102,10 @@ describe('ClassroomHomePage (V0-026)', () => {
     await user.click(screen.getByRole('button', { name: 'Start class' }))
 
     await waitFor(() => expect(startClass).toHaveBeenCalledWith(INSTITUTION, 'class-soon'))
-    await waitFor(() =>
-      expect(`${window.location.pathname}${window.location.search}`).toBe(
-        '/classroom/class-soon?autoplay=1',
-      ),
-    )
+    // The server runs the presentation; starting refreshes the hub instead of
+    // navigating to a page that would have to stay open.
+    await waitFor(() => expect(listClasses).toHaveBeenCalledTimes(2))
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/classroom')
   })
 
   it('offers a teacher the running class in the hub', async () => {
@@ -223,11 +222,8 @@ describe('ClassroomHomePage (V0-026)', () => {
     await user.click(screen.getByRole('button', { name: 'Reopen class' }))
 
     await waitFor(() => expect(reopenClass).toHaveBeenCalledWith('class-done'))
-    await waitFor(() =>
-      expect(`${window.location.pathname}${window.location.search}`).toBe(
-        '/classroom/class-done?autoplay=1',
-      ),
-    )
+    await waitFor(() => expect(listClasses).toHaveBeenCalledTimes(2))
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/classroom')
   })
 
   it('locks an ended class for a student: Ended, no lesson link, no slide', async () => {

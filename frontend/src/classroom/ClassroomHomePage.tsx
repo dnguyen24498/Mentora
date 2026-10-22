@@ -20,12 +20,12 @@ import {
   Panel,
   Row,
 } from '../components/ui'
-import { CLASSROOM_PATH, Link, adminPath, classroomPath, navigate } from '../router'
+import { CLASSROOM_PATH, Link, adminPath, classroomPath } from '../router'
 import { describeSchedule, useNow } from '../time'
 import { STATE_TONE, stateLabel } from './classState'
 
 /**
- * The one classroom hub — `/classroom` (V0-026).
+ * The one classroom hub — `/classroom` (V0-026, V0-028).
  *
  * The list is whatever the server says this person may see: a teacher (and an
  * institution administrator) gets the tenant's classes, a student gets only the
@@ -33,17 +33,19 @@ import { STATE_TONE, stateLabel } from './classState'
  * same page therefore serves both sides of a lesson without a second "My
  * classes" destination.
  *
- * A teacher starts a scheduled class here. The button starts the real V0-009
- * session and opens `/classroom/{id}?autoplay=1`; the presentation stage then
- * advances the pinned slides by itself while that tab stays open. A student's
- * card becomes **Join class** only when the server says the class is running;
- * the viewer has no slide controls, so watching is the whole job.
+ * A teacher starts a scheduled class here. Since V0-028 the **class server** runs
+ * the presentation in the background, so starting refreshes this list rather than
+ * forcing a page that must stay open: closing the teacher's tab does not stop the
+ * lesson. A student's card becomes **Join class** only when the server says the
+ * class is running; the viewer has no slide controls, so watching is the whole
+ * job.
  *
- * The automatic movement is deliberately client-local: a server-side scheduler
- * or timeline is `DEC-TECH-003`/V0-013 and remains `OPEN`. If the teacher closes
- * the tab, the slides stop. The page says so instead of implying a background
- * worker or a media stream; students follow the authoritative snapshot by a
- * short poll (`DEC-DATA-003` is `OPEN`, V1-002).
+ * The background runner is an in-process development bridge, not the durable
+ * scheduler/workflow `DEC-TECH-003` leaves `OPEN`: it stops if the API restarts
+ * (a teacher can start it again from the classroom) and audio distribution is
+ * still the HTTP relay, not the SFU (`DEC-TECH-004` is `OPEN`, V1-005). Students
+ * follow the authoritative snapshot by a short poll (`DEC-DATA-003` is `OPEN`,
+ * V1-002).
  */
 export default function ClassroomHomePage() {
   const session = useSession()
@@ -103,11 +105,10 @@ export default function ClassroomHomePage() {
     setActionError(null)
     try {
       await startClass(session?.principal.institution_id ?? '', item.class_id)
-      // The stage opens in auto-play mode. The start response itself is not the
-      // presentation state: the page reads the authoritative snapshot, and the
-      // stage moves the class through the same navigate command a teacher would
-      // press by hand.
-      navigate(`${classroomPath(item.class_id)}?autoplay=1`)
+      // The class server now presents in the background. Refresh the list so the
+      // row flips to running; the teacher does not have to open (or keep open) a
+      // presentation page for the lesson to continue.
+      await load()
     } catch (cause) {
       setActionError({ classId: item.class_id, message: describeApiError(cause) })
     } finally {
@@ -120,9 +121,9 @@ export default function ClassroomHomePage() {
     setActionError(null)
     try {
       await reopenClass(item.class_id)
-      // Reopening keeps the class id, its roster and its pinned content; the
-      // stage opens at the first slide and plays it when the URL asks for it.
-      navigate(`${classroomPath(item.class_id)}?autoplay=1`)
+      // Reopening keeps the class id, its roster and its pinned content, and the
+      // server starts presenting again from the first slide. The list is enough.
+      await load()
     } catch (cause) {
       setActionError({ classId: item.class_id, message: describeApiError(cause) })
     } finally {
@@ -155,9 +156,10 @@ export default function ClassroomHomePage() {
             </>
           ) : (
             <>
-              Start a class to open it and play its pinned slides automatically. The presentation
-              runs while the teacher&apos;s classroom tab stays open; students open the same class
-              and watch.
+              Start a class here; the class server presents its pinned slides automatically in the
+              background, so students keep watching even when no teacher tab is open. The presenter
+              is a single-process development bridge: if the API restarts, open the classroom and
+              start the presentation again.
             </>
           )}{' '}
           Students follow the authoritative class state by a short poll, not a media stream.
@@ -261,7 +263,7 @@ export default function ClassroomHomePage() {
                       {starting === item.class_id ? 'Starting…' : 'Start class'}
                     </button>
                     <span className="text-xs text-slate-500">
-                      Starts the class and plays its pinned slides automatically.
+                      Starts the class; the server presents its pinned slides in the background.
                     </span>
                   </div>
                 )}
