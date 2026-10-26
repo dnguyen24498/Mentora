@@ -337,26 +337,32 @@ export default function StudentClassPage({
               </div>
             )}
 
-            <div ref={stage} className="flex flex-1 items-center justify-center bg-black p-0">
+            <div ref={stage} className="relative flex flex-1 items-center justify-center bg-slate-950 p-2 sm:p-4">
               {slideUrl ? (
-                <img
-                  src={slideUrl}
-                  alt={scene ? `Slide ${index + 1}` : 'Class slide'}
-                  className="h-auto max-h-[85vh] w-full max-w-full object-contain"
-                />
+                <div className="relative overflow-hidden rounded-xl bg-black shadow-2xl ring-1 ring-white/10">
+                  <img
+                    src={slideUrl}
+                    alt={scene ? `Slide ${index + 1}` : 'Class slide'}
+                    className="h-auto max-h-[82vh] w-full max-w-full object-contain"
+                  />
+                </div>
               ) : (
-                <div className="p-6">
+                <div className="p-8 text-center">
                   <EmptyState>{slideError ? 'This slide cannot be shown.' : 'Loading the slide…'}</EmptyState>
                 </div>
               )}
             </div>
 
-            <div className="border-t border-slate-700 bg-slate-900 px-3 py-2 sm:px-4">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="border-t border-slate-800 bg-slate-900/95 px-4 py-3 sm:px-6 shadow-xs backdrop-blur-md">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
                 <span
                   role="status"
                   aria-live="polite"
-                  className="text-sm text-slate-200"
+                  className="text-sm font-semibold text-slate-100"
                   data-testid="student-slide-counter"
                 >
                   Following your teacher · Slide {index + 1} / {scenes.length}
@@ -374,26 +380,33 @@ export default function StudentClassPage({
                   Fullscreen
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-[11px] text-slate-400">
                 The slide moves when your teacher moves theirs. This page follows the class state
                 by a short poll, not a pushed live stream (V1-002).
               </p>
             </div>
 
-            <section className="border-t border-slate-700 bg-slate-800 px-3 py-3 sm:px-4">
+            <section className="border-t border-slate-800 bg-slate-900 px-4 py-3.5 sm:px-6">
               <div
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-200"
+                className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-sm text-slate-200"
                 data-testid="student-voice"
               >
-                <span>Voice: {describeRelayNarration(narration.status)}</span>
+                {/* Audio visualizer */}
+                <div className="flex items-center gap-0.5 h-4 px-1" aria-hidden="true">
+                  <span className="w-1 bg-indigo-400 rounded-full animate-wave-1" />
+                  <span className="w-1 bg-indigo-400 rounded-full animate-wave-2" />
+                  <span className="w-1 bg-indigo-400 rounded-full animate-wave-3" />
+                  <span className="w-1 bg-indigo-400 rounded-full animate-wave-4" />
+                </div>
+                <span className="font-medium">Voice: {describeRelayNarration(narration.status)}</span>
                 {narration.provider === 'neutral-deterministic' && (
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[11px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
                     neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is
                     OPEN)
                   </span>
                 )}
                 {narration.provider === 'omnivoice' && (
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[11px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
                     OmniVoice local prototype (not a decided provider; DEC-TECH-007 is OPEN)
                   </span>
                 )}

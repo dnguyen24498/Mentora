@@ -175,7 +175,7 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
   const loading = phase === 'loading' || phase === 'building'
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas bg-academic-grid text-slate-900">
       <PageHeader
         nav="studio"
         title="Teacher Studio"
@@ -198,26 +198,34 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
 
       <main className={PAGE_PADDING}>
         {phase === 'loading' && (
-          <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Loading the reviewed package…
-          </p>
+          <div role="status" className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-6 text-sm text-slate-600 shadow-sm backdrop-blur-sm">
+            <svg className="animate-spin h-5 w-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Loading the reviewed package…</span>
+          </div>
         )}
 
         {phase === 'building' && (
-          <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Rendering every slide and validating the package — this takes a few seconds for a real deck.
-          </p>
+          <div role="status" className="flex items-center gap-3 rounded-xl border border-indigo-200/80 bg-indigo-50/70 p-6 text-sm text-indigo-900 shadow-sm backdrop-blur-sm">
+            <svg className="animate-spin h-5 w-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Rendering every slide and validating the package — this takes a few seconds for a real deck.</span>
+          </div>
         )}
 
         {phase === 'error' && (
           <div
             data-testid="studio-error"
             role="alert"
-            className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-800"
+            className="rounded-xl border border-rose-200 bg-rose-50/90 p-6 text-rose-900 shadow-sm"
           >
             <p className="text-sm font-semibold">The package for this file could not be loaded.</p>
             <p className="mt-1 font-mono text-xs">{error}</p>
-            <p className="mt-2 text-xs">
+            <p className="mt-2 text-xs text-rose-700">
               Check the institution (the file belongs to one tenant) and that the link names an uploaded
               artifact.
             </p>
@@ -225,9 +233,9 @@ export default function StudioPage({ artifactId, loadRender }: StudioPageProps) 
         )}
 
         {phase === 'ready' && review && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {notice && (
-              <p data-testid="studio-notice" className="text-[11px] text-slate-500">
+              <p data-testid="studio-notice" className="rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-1.5 text-[11px] text-slate-500">
                 {notice}
               </p>
             )}

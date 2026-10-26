@@ -131,8 +131,12 @@ export default function ClassroomHomePage() {
     }
   }
 
+  const activeCount = classes.filter((c) => c.state === 'ACTIVE' || c.state === 'DEGRADED').length
+  const scheduledCount = classes.filter((c) => c.state === 'SCHEDULED' || c.state === 'PREPARING').length
+  const completedCount = classes.filter((c) => c.state === 'COMPLETED').length
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas text-slate-900 bg-academic-grid">
       <PageHeader
         nav="classroom"
         title="Classroom"
@@ -147,7 +151,43 @@ export default function ClassroomHomePage() {
         }
       />
 
-      <main className={`mx-auto grid max-w-4xl grid-cols-1 gap-5 ${PAGE_PADDING}`}>
+      <div className="mx-auto max-w-5xl px-4 pt-6 pb-2 sm:px-6">
+        <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 p-6 text-white shadow-sm sm:p-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                University Lecture Halls
+              </span>
+              <h2 className="mt-2 text-xl font-bold tracking-tight text-white sm:text-2xl">
+                {student ? 'Your Enrolled AI Lectures' : 'Active Lecture Hub & Seminars'}
+              </h2>
+              <p className="mt-1 text-xs text-indigo-200/90 max-w-xl">
+                {student
+                  ? 'Join running sessions with real-time AI speech narration and synchronous slide display.'
+                  : 'Start and oversee university lectures powered by the automated presentation clock.'}
+              </p>
+            </div>
+            {/* Quick stats grid */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center backdrop-blur-xs">
+                <div className="text-xl font-bold text-emerald-400">{activeCount}</div>
+                <div className="text-[10px] font-medium tracking-wide text-indigo-200 uppercase">Live</div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center backdrop-blur-xs">
+                <div className="text-xl font-bold text-amber-300">{scheduledCount}</div>
+                <div className="text-[10px] font-medium tracking-wide text-indigo-200 uppercase">Scheduled</div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center backdrop-blur-xs">
+                <div className="text-xl font-bold text-slate-300">{completedCount}</div>
+                <div className="text-[10px] font-medium tracking-wide text-indigo-200 uppercase">Done</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <main className={`mx-auto grid max-w-5xl grid-cols-1 gap-5 ${PAGE_PADDING}`}>
         <Banner tone="info">
           {student ? (
             <>
@@ -197,8 +237,17 @@ export default function ClassroomHomePage() {
               <Panel
                 key={item.class_id}
                 title={item.title}
+                className={running ? 'ring-2 ring-emerald-500/30 border-emerald-300/80 shadow-md' : ''}
                 actions={
-                  <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{stateLabel(item.state)}</Badge>
+                  <div className="flex items-center gap-2">
+                    {running && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 animate-pulse-subtle">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-ping" />
+                        LIVE LECTURE
+                      </span>
+                    )}
+                    <Badge tone={STATE_TONE[item.state] ?? 'neutral'}>{stateLabel(item.state)}</Badge>
+                  </div>
                 }
               >
                 <dl className="space-y-1 text-sm">

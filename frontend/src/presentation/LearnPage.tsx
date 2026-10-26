@@ -275,7 +275,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
   }, [count, now, phase, play, teachAt])
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas bg-academic-grid text-slate-900">
       <PageHeader
         nav="learn"
         title="Learning"
@@ -288,26 +288,34 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
 
       <main className={PAGE_PADDING}>
         {phase === 'loading' && (
-          <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Loading the deck…
-          </p>
+          <div role="status" className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-6 text-sm text-slate-600 shadow-sm backdrop-blur-sm">
+            <svg className="animate-spin h-5 w-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Loading the deck…</span>
+          </div>
         )}
 
         {phase === 'building' && (
-          <p role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Rendering every slide and validating the package — this takes a few seconds for a real deck.
-          </p>
+          <div role="status" className="flex items-center gap-3 rounded-xl border border-indigo-200/80 bg-indigo-50/70 p-6 text-sm text-indigo-900 shadow-sm backdrop-blur-sm">
+            <svg className="animate-spin h-5 w-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Rendering every slide and validating the package — this takes a few seconds for a real deck.</span>
+          </div>
         )}
 
         {phase === 'error' && (
           <div
             data-testid="learn-error"
             role="alert"
-            className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-800"
+            className="rounded-xl border border-rose-200 bg-rose-50/90 p-6 text-rose-900 shadow-sm"
           >
             <p className="text-sm font-semibold">The deck for this page could not be loaded.</p>
             <p className="mt-1 font-mono text-xs">{error}</p>
-            <p className="mt-2 text-xs">
+            <p className="mt-2 text-xs text-rose-700">
               Check the institution (the deck belongs to one tenant) and that the link names an uploaded
               artifact.
             </p>
@@ -315,8 +323,8 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
         )}
 
         {phase === 'ready' && current && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-sm">
               <button
                 type="button"
                 onClick={() => go(position - 1)}
@@ -325,7 +333,7 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
               >
                 ← Previous
               </button>
-              <span data-testid="learn-slide-counter" className="text-xs font-medium text-slate-600">
+              <span data-testid="learn-slide-counter" className="text-xs font-semibold text-slate-700">
                 Slide {position + 1} / {count}
               </span>
               <button
@@ -336,13 +344,13 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
               >
                 Next →
               </button>
-              <label className="flex items-center gap-1 text-[11px] text-slate-500 sm:ml-2">
+              <label className="flex items-center gap-1.5 text-xs text-slate-600 sm:ml-2">
                 Jump to
                 <select
                   aria-label="Jump to slide"
                   value={position}
                   onChange={(event) => go(Number(event.target.value))}
-                  className="rounded border border-slate-300 bg-white px-2 py-2 text-base lg:px-1 lg:py-0.5 lg:text-xs"
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 lg:py-1"
                 >
                   {scenes.map((scene, position) => (
                     <option key={scene.scene_id} value={position}>
@@ -352,27 +360,30 @@ export default function LearnPage({ artifactId, loadRender = fetchObjectUrl }: L
                 </select>
               </label>
               {/* A keyboard hint is useless on a phone, where there is no keyboard. */}
-              <span className="ml-auto hidden text-[11px] text-slate-400 sm:inline">
+              <span className="ml-auto hidden text-[11px] font-medium text-slate-400 sm:inline">
                 Use ← / → to move through the deck
               </span>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
-              <section aria-label="Learning surface" className="space-y-2">
-                <SlideStage
-                  institutionId={institution}
-                  scene={current}
-                  loadRender={loadRender}
-                  strokes={strokes}
-                  onStrokesChange={setStrokes}
-                />
+              <section aria-label="Learning surface" className="space-y-3">
+                <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
+                  <SlideStage
+                    institutionId={institution}
+                    scene={current}
+                    loadRender={loadRender}
+                    strokes={strokes}
+                    onStrokesChange={setStrokes}
+                  />
+                </div>
                 {playing && settings.teachingCaptions && (
                   <p
                     data-testid="learn-caption"
                     role="status"
                     aria-live="polite"
-                    className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900"
+                    className="rounded-xl border border-indigo-200/90 bg-gradient-to-r from-indigo-900 to-slate-900 px-4 py-3 text-sm text-indigo-50 shadow-md backdrop-blur-sm"
                   >
+                    <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse-subtle" />
                     {segment?.text
                       ? segment.text
                       : 'This slide has no authored script, notes or text to narrate.'}

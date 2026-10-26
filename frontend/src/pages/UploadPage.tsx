@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ContentIrView from '../components/ContentIrView'
 import PageHeader from '../components/PageHeader'
-import { BUTTON_PRIMARY, BUTTON_SMALL, INPUT_CLASS, PANEL_PADDING } from '../components/ui'
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_SMALL, INPUT_CLASS } from '../components/ui'
 import { Link, classroomPath, studioPath } from '../router'
 import {
   ApiError,
@@ -281,7 +281,7 @@ export default function UploadPage() {
   const canUpload = Boolean(file && courseId) && !busy
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas text-slate-900 bg-academic-grid">
       <PageHeader
         nav="library"
         title="Upload Course Material"
@@ -291,21 +291,42 @@ export default function UploadPage() {
         onInstitutionChange={setInstitution}
       />
 
-      <main className="mx-auto grid grid-cols-1 max-w-7xl gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8 md:grid-cols-[360px_minmax(0,1fr)]">
-        <p className="text-sm text-slate-500 md:col-span-2">
-          Upload a PowerPoint <code className="rounded bg-slate-100 px-1">.pptx</code> file: it is
-          validated, stored immutably, recorded in SQLite, and can be structurally extracted.
-        </p>
-        <section className={`space-y-5 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm`}>
+      <div className="mx-auto max-w-7xl px-4 pt-6 pb-2 sm:px-6">
+        <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 p-6 text-white shadow-sm sm:p-7">
+          <div className="max-w-3xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-200">
+              <svg className="h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              Courseware & Syllabus Repository
+            </span>
+            <h2 className="mt-2 text-xl font-bold tracking-tight text-white sm:text-2xl">
+              Course Material Ingestion & Slide Engine
+            </h2>
+            <p className="mt-1 text-xs text-indigo-200/90 leading-relaxed">
+              Upload PowerPoint <code className="rounded bg-white/10 px-1 font-mono text-indigo-100">.pptx</code> lecture decks to extract semantic Content IR, render vector visuals, and publish verified teaching packages.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto grid grid-cols-1 max-w-7xl gap-5 px-4 py-4 sm:gap-6 sm:px-6 sm:py-6 md:grid-cols-[380px_minmax(0,1fr)]">
+        <section className={`space-y-4 self-start rounded-2xl border border-slate-200/85 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_4px_12px_rgba(0,0,0,0.02)]`}>
+          <div className="border-b border-slate-100 pb-2.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Select or Create Course
+            </h2>
+          </div>
+
           <div>
-            <label className="block text-sm font-medium text-slate-700" htmlFor="course">
-              Course
+            <label className="block text-xs font-semibold text-slate-700" htmlFor="course">
+              Academic Course
             </label>
             <select
               id="course"
               value={courseId}
               onChange={(event) => setCourseId(event.target.value)}
-              className={`mt-1 bg-white ${INPUT_CLASS}`}
+              className={`mt-1 bg-white font-medium ${INPUT_CLASS}`}
             >
               {courses.length === 0 && <option value="">No courses yet — create one below</option>}
               {courses.map((course) => (
@@ -321,48 +342,60 @@ export default function UploadPage() {
               value={newTitle}
               onChange={(event) => setNewTitle(event.target.value)}
               onKeyDown={(event) => event.key === 'Enter' && void onCreateCourse()}
-              placeholder="New course title"
+              placeholder="e.g. CS101: Intro to AI"
               className={`min-w-0 ${INPUT_CLASS}`}
             />
             <button
               type="button"
               onClick={() => void onCreateCourse()}
               disabled={busy || !newTitle.trim()}
-              className="shrink-0 rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white disabled:opacity-40 min-h-11 lg:min-h-0"
+              className="shrink-0 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-slate-700 active:scale-[0.99] transition disabled:opacity-40 min-h-11 lg:min-h-0"
             >
               Create
             </button>
           </div>
 
-          <label
-            onDragOver={(event) => {
-              event.preventDefault()
-              setDragging(true)
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(event) => {
-              event.preventDefault()
-              setDragging(false)
-              pickFile(event.dataTransfer.files?.[0])
-            }}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
-              dragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'
-            }`}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".pptx"
-              className="hidden"
-              onChange={(event) => pickFile(event.target.files?.[0])}
-            />
-            <span className="text-sm font-medium text-slate-700">
-              {file ? file.name : 'Drop a .pptx here or click to browse'}
-            </span>
-            {file && (
-              <span className="mt-1 text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KiB</span>
-            )}
-          </label>
+          <div className="border-t border-slate-100 pt-3">
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              PowerPoint Deck
+            </label>
+            <label
+              onDragOver={(event) => {
+                event.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setDragging(false)
+                pickFile(event.dataTransfer.files?.[0])
+              }}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-8 text-center transition-all ${
+                dragging
+                  ? 'border-indigo-500 bg-indigo-50/80 scale-[1.01]'
+                  : 'border-slate-300/90 bg-slate-50/60 hover:bg-slate-50 hover:border-indigo-400'
+              }`}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".pptx"
+                className="hidden"
+                onChange={(event) => pickFile(event.target.files?.[0])}
+              />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm mb-2.5">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
+              </div>
+              <span className="text-sm font-semibold text-slate-800">
+                {file ? file.name : 'Drop .pptx slide deck here'}
+              </span>
+              <span className="mt-1 text-xs text-slate-500">
+                {file ? `${(file.size / 1024).toFixed(1)} KiB` : 'or click to browse your files'}
+              </span>
+            </label>
+          </div>
 
           <button
             type="button"
@@ -370,20 +403,20 @@ export default function UploadPage() {
             disabled={!canUpload}
             className={`${BUTTON_PRIMARY} w-full`}
           >
-            {busy ? 'Working…' : 'Upload'}
+            {busy ? 'Processing Slide Deck…' : 'Upload'}
           </button>
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              <span className="font-mono font-semibold">{error.code}</span>: {error.message}
+            <div className="rounded-xl border border-rose-200 bg-rose-50/90 px-3.5 py-2.5 text-xs text-rose-800">
+              <span className="font-mono font-bold">{error.code}</span>: {error.message}
             </div>
           )}
         </section>
 
-        <section className={`space-y-5 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm`}>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Uploaded files</h2>
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+        <section className={`space-y-4 self-start rounded-2xl border border-slate-200/85 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_4px_12px_rgba(0,0,0,0.02)]`}>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-2.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">Uploaded files</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
               {materials.length}
             </span>
             <button
@@ -396,8 +429,8 @@ export default function UploadPage() {
             </button>
           </div>
 
-          <p className="text-xs text-slate-400">
-            Select a file to see its stored details and its extracted content.
+          <p className="text-xs text-slate-500">
+            Select a file to inspect its stored artifacts, metadata, and extracted Content IR.
           </p>
 
           {!courseId && <p className="text-sm text-slate-400">Select a course to see its uploaded files.</p>}
@@ -407,7 +440,7 @@ export default function UploadPage() {
           )}
 
           {materials.length > 0 && (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {materials.map((material) => {
                 const active = material.artifact_id === selectedId
                 return (
@@ -416,26 +449,26 @@ export default function UploadPage() {
                       type="button"
                       onClick={() => void onSelectMaterial(material)}
                       aria-pressed={active}
-                      className={`flex w-full flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition ${
+                      className={`flex w-full flex-col gap-1 rounded-xl border p-3 text-left transition-all ${
                         active
-                          ? 'border-indigo-500 bg-indigo-50'
-                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                          ? 'border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-500/20'
+                          : 'border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80 shadow-2xs'
                       }`}
                     >
                       <span className="flex w-full items-center gap-2">
-                        <span className="truncate text-sm font-medium text-slate-800">
+                        <span className="truncate text-sm font-semibold text-slate-900">
                           {material.filename}
                         </span>
                         <span
-                          className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                             STATUS_STYLE[material.job_status] ?? 'bg-slate-100 text-slate-600'
                           }`}
                         >
                           {material.job_status}
                         </span>
                       </span>
-                      <span className="text-[11px] text-slate-500">
-                        v{material.version} · {formatBytes(material.byte_size)} ·{' '}
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        Version {material.version} · {formatBytes(material.byte_size)} ·{' '}
                         {formatWhen(material.created_at)}
                       </span>
                     </button>
@@ -446,58 +479,58 @@ export default function UploadPage() {
           )}
 
           {notice && (
-            <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+            <p className="rounded-xl border border-indigo-200 bg-indigo-50/90 px-3.5 py-2.5 text-xs text-indigo-900">
               {notice}
             </p>
           )}
 
           {selected && (
             <div className="space-y-3 border-t border-slate-100 pt-3">
-              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-                <dt className="text-slate-500">File</dt>
-                <dd className="truncate text-xs">{selected.filename}</dd>
-                <dt className="text-slate-500">Artifact</dt>
-                <dd className="truncate font-mono text-xs">{selected.artifact_id}</dd>
-                <dt className="text-slate-500">Version</dt>
-                <dd className="truncate font-mono text-xs">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+                <dt className="text-slate-500 font-medium">File</dt>
+                <dd className="truncate font-medium text-slate-800">{selected.filename}</dd>
+                <dt className="text-slate-500 font-medium">Artifact</dt>
+                <dd className="truncate font-mono text-slate-600">{selected.artifact_id}</dd>
+                <dt className="text-slate-500 font-medium">Version</dt>
+                <dd className="truncate font-mono text-slate-600">
                   {selected.version_id} (v{selected.version})
                 </dd>
-                <dt className="text-slate-500">Job</dt>
-                <dd className="truncate font-mono text-xs">
+                <dt className="text-slate-500 font-medium">Job</dt>
+                <dd className="truncate font-mono text-slate-600">
                   {selected.job_id} ({selected.job_status})
                 </dd>
-                <dt className="text-slate-500">SHA-256</dt>
-                <dd className="truncate font-mono text-xs">{selected.sha256}</dd>
-                <dt className="text-slate-500">Size</dt>
-                <dd className="text-xs">
+                <dt className="text-slate-500 font-medium">SHA-256</dt>
+                <dd className="truncate font-mono text-slate-600">{selected.sha256}</dd>
+                <dt className="text-slate-500 font-medium">Size</dt>
+                <dd className="text-slate-700">
                   {formatBytes(selected.byte_size)} ({selected.byte_size.toLocaleString()} bytes)
                 </dd>
-                <dt className="text-slate-500">Uploaded</dt>
-                <dd className="text-xs">{formatWhen(selected.created_at)}</dd>
+                <dt className="text-slate-500 font-medium">Uploaded</dt>
+                <dd className="text-slate-700">{formatWhen(selected.created_at)}</dd>
               </dl>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1">
                 <button
                   type="button"
                   onClick={() => void runExtract(selected.artifact_id)}
                   disabled={extracting}
-                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-40 lg:min-h-0 lg:py-2"
+                  className={BUTTON_SECONDARY}
                 >
                   {extracting ? 'Extracting…' : 'Extract structure again'}
                 </button>
                 {/* A real link: the studio is a page, and opens in its own tab. */}
                 <Link
                   to={studioPath(selected.artifact_id)}
-                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-center text-sm font-semibold text-white lg:min-h-0 lg:py-2"
+                  className={BUTTON_PRIMARY}
                 >
                   Open Teacher Studio
                 </Link>
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-500">
                 <a
                   href={studioPath(selected.artifact_id)}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-medium text-indigo-600 underline"
+                  className="font-semibold text-indigo-600 hover:underline"
                 >
                   Open the Teacher Studio in a new tab ↗
                 </a>{' '}
@@ -515,10 +548,10 @@ export default function UploadPage() {
 
         {/* The third page of the app: a class's classroom. Listed here so it is
             reachable without knowing the id for a deep link. */}
-        <section className={`space-y-3 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm md:col-span-2`}>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Classes</h2>
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+        <section className={`space-y-4 self-start rounded-2xl border border-slate-200/85 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_4px_12px_rgba(0,0,0,0.02)] md:col-span-2`}>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-2.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">Classes</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
               {classes.length}
             </span>
             <button
@@ -530,30 +563,30 @@ export default function UploadPage() {
               {loadingClasses ? 'Loading…' : 'Refresh'}
             </button>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Classes scheduled for this institution. Each opens its own classroom page.
           </p>
           {classesError && <p className="text-xs text-rose-700">{classesError}</p>}
           {!loadingClasses && !classesError && classes.length === 0 && (
             <p className="text-sm text-slate-400">
               No classes yet — a class is scheduled through the runtime API (
-              <code className="rounded bg-slate-100 px-1">POST /classes</code>).
+              <code className="rounded bg-slate-100 px-1 font-mono">POST /classes</code>).
             </p>
           )}
           {classes.length > 0 && (
-            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {classes.map((item) => (
                 <li key={item.class_id}>
                   <Link
                     to={classroomPath(item.class_id)}
-                    className="flex h-full flex-col gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left transition hover:bg-slate-50"
+                    className="flex h-full flex-col justify-between gap-2 rounded-xl border border-slate-200/85 bg-slate-50/50 p-4 transition-all hover:bg-white hover:border-indigo-400 hover:shadow-xs"
                   >
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-slate-800">{item.title}</span>
-                      <span className="ml-auto shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-slate-900">{item.title}</span>
+                      <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
                         {item.state}
                       </span>
-                    </span>
+                    </div>
                     <span className="truncate font-mono text-[10px] text-slate-400">{item.class_id}</span>
                   </Link>
                 </li>

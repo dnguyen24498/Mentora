@@ -414,11 +414,11 @@ export default function TeacherStudio({
   return (
     <div className="space-y-4" data-testid="teacher-studio">
       <section
-        className="rounded-xl border border-slate-200 bg-white p-3"
+        className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm"
         aria-labelledby="studio-heading"
       >
         <div className="flex flex-wrap items-center gap-2">
-          <h2 id="studio-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 id="studio-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Teacher Studio — course version {review.course_version}
           </h2>
           <Badge value={review.state} style={STATE_STYLE[review.state]} />
@@ -431,7 +431,7 @@ export default function TeacherStudio({
           )}
           {review.requires_review && <Badge value="requires review" style="bg-amber-100 text-amber-700" />}
           {review.publishable && <Badge value="publishable" style="bg-emerald-100 text-emerald-700" />}
-          <span className="ml-auto text-[11px] text-slate-400">
+          <span className="ml-auto text-[11px] font-medium text-slate-400">
             {review.scene_count} slides · {review.file_count} package files
           </span>
         </div>
@@ -440,7 +440,7 @@ export default function TeacherStudio({
             slides were produced — the deck's own layout with the platform's look
             where a component cannot be reproduced, or a full platform re-layout —
             and never implies a native render. */}
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+        <p className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800">
           {review.placeholder_notice}
           {review.renderer && (
             <>
@@ -451,7 +451,7 @@ export default function TeacherStudio({
           )}
         </p>
 
-        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+        <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs bg-slate-50/70 p-3 rounded-lg border border-slate-100">
           <KeyValue term="Package">{review.package_id}</KeyValue>
           <KeyValue term="Content version">{review.content_package_version}</KeyValue>
           <KeyValue term="Lesson plan">{review.lesson_plan_version ?? '—'}</KeyValue>
@@ -461,18 +461,18 @@ export default function TeacherStudio({
       </section>
 
       {/* Blocking status: the first thing a teacher must know. */}
-      <section aria-labelledby="status-heading" className="rounded-xl border border-slate-200 bg-white p-3">
-        <h2 id="status-heading" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <section aria-labelledby="status-heading" className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
+        <h2 id="status-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           Warnings &amp; blocking status
         </h2>
         {blocked ? (
           <div
             id="approve-blocked-reason"
             role="alert"
-            className="mt-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800"
+            className="mt-2.5 rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-800"
           >
             <p className="font-semibold">Publication is blocked — this document cannot be approved.</p>
-            <p className="mt-1 text-xs">
+            <p className="mt-1 text-xs leading-relaxed">
               {blockedScenes.length > 0
                 ? `${blockedScenes.length} slide(s) failed to render (slide ${blockedScenes
                     .map((item) => item.order + 1)
@@ -490,9 +490,9 @@ export default function TeacherStudio({
           </p>
         )}
         {reviewNotices.length > 0 && (
-          <ul className="mt-2 space-y-0.5">
+          <ul className="mt-2.5 space-y-1">
             {reviewNotices.map((candidate) => (
-              <li key={candidate.scene_id} className="text-[11px] text-amber-800">
+              <li key={candidate.scene_id} className="text-xs text-amber-800 bg-amber-50/70 border border-amber-200/60 rounded px-2.5 py-1">
                 Slide {candidate.order + 1}: {candidate.fidelity ?? 'unknown fidelity'}
                 {candidate.missing_fonts.length > 0
                   ? ` — missing font(s) ${candidate.missing_fonts.join(', ')}`
@@ -504,13 +504,13 @@ export default function TeacherStudio({
       </section>
 
       {/* Reviewer actions. */}
-      <section aria-labelledby="decision-heading" className="rounded-xl border border-slate-200 bg-white p-3">
-        <h2 id="decision-heading" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <section aria-labelledby="decision-heading" className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
+        <h2 id="decision-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           Review decision
         </h2>
 
         {reviewState?.decision ? (
-          <p className="mt-2 text-sm text-slate-700">
+          <div className="mt-2.5 rounded-lg border border-slate-200/70 bg-slate-50/80 p-3 text-sm text-slate-700">
             <span className="font-semibold" data-testid="current-decision">
               {reviewState.decision.decision === 'APPROVE' ? 'Approved' : 'Rejected'}
             </span>{' '}
@@ -524,12 +524,12 @@ export default function TeacherStudio({
             {reviewState.decision.reason && (
               <span className="mt-1 block text-xs text-slate-500">Reason: {reviewState.decision.reason}</span>
             )}
-          </p>
+          </div>
         ) : (
           <p className="mt-2 text-sm text-slate-500">Not reviewed yet.</p>
         )}
 
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
           <div>
             <label htmlFor="reviewer" className="block text-xs font-medium text-slate-700">
               Reviewer (optional)
@@ -559,13 +559,13 @@ export default function TeacherStudio({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
           <button
             type="button"
             onClick={approve}
             disabled={busy || blocked}
             aria-describedby={blocked ? 'approve-blocked-reason' : undefined}
-            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 lg:min-h-0 lg:py-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 lg:min-h-0 lg:py-2 transition-colors"
           >
             {approved ? 'Approve again' : 'Approve'}
           </button>
@@ -573,29 +573,29 @@ export default function TeacherStudio({
             type="button"
             onClick={reject}
             disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-40 lg:min-h-0 lg:py-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-40 lg:min-h-0 lg:py-2 transition-colors"
           >
             {rejected ? 'Reject again' : 'Reject'}
           </button>
           {blocked && (
-            <span className="text-[11px] text-rose-700">
+            <span className="text-[11px] font-medium text-rose-700">
               Approve is unavailable: see the blocking status above.
             </span>
           )}
         </div>
 
         {actionError && (
-          <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p role="alert" className="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             {actionError}
           </p>
         )}
         {error && (
-          <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p role="alert" className="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             {error}
           </p>
         )}
         {notice && (
-          <p role="status" className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+          <p role="status" className="mt-2.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
             {notice}
           </p>
         )}
@@ -607,10 +607,10 @@ export default function TeacherStudio({
         <section
           aria-labelledby="lesson-order-heading"
           hidden={focus}
-          className="space-y-2 self-start rounded-xl border border-slate-200 bg-white p-3"
+          className="space-y-3 self-start rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm"
         >
           <div className="flex flex-wrap items-baseline gap-2">
-            <h2 id="lesson-order-heading" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h2 id="lesson-order-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Lesson order
             </h2>
             {reviewState?.draft && (
@@ -621,23 +621,23 @@ export default function TeacherStudio({
             )}
             {dirty && <Badge value="unsaved changes" style="bg-amber-100 text-amber-700" />}
           </div>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-500 leading-relaxed">
             Reorder with the buttons, edit a script below. Saving records a <em>draft</em> — the built
             package is never modified.
           </p>
 
-          <ol className="space-y-1.5" data-testid="lesson-order">
+          <ol className="space-y-2" data-testid="lesson-order">
             {order.map((section, index) => {
               const active = section.scene_id === selectedSceneId
               const scriptId = `script-${section.section_id}`
               return (
                 <li
                   key={section.section_id}
-                  className={`rounded-lg border px-2 py-1.5 ${
-                    active ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200'
+                  className={`rounded-lg border p-2.5 transition-all ${
+                    active ? 'border-indigo-400 bg-indigo-50/70 ring-1 ring-indigo-400/30 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => section.scene_id && setSelectedSceneId(section.scene_id)}
@@ -645,11 +645,11 @@ export default function TeacherStudio({
                       className="flex min-w-0 flex-1 flex-col gap-0.5 rounded text-left focus:outline focus:outline-2 focus:outline-indigo-500"
                     >
                       <span className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-700">
+                        <span className="text-xs font-semibold text-slate-800">
                           {index + 1}. {section.type.toLowerCase()}
                         </span>
                         {section.requires_review && (
-                          <span className="ml-auto rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
+                          <span className="ml-auto rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
                             review
                           </span>
                         )}
@@ -658,18 +658,18 @@ export default function TeacherStudio({
                         {section.scene_id}
                       </span>
                       {section.safe_markers.length > 0 && (
-                        <span className="truncate font-mono text-[10px] text-slate-400">
+                        <span className="truncate font-mono text-[10px] text-indigo-600">
                           safe: {section.safe_markers.join(', ')}
                         </span>
                       )}
                     </button>
-                    <div className="flex shrink-0 flex-col">
+                    <div className="flex shrink-0 flex-col gap-0.5">
                       <button
                         type="button"
                         onClick={() => move(index, -1)}
                         disabled={index === 0 || busy}
                         aria-label={`Move section ${index + 1} (${section.type.toLowerCase()}) up`}
-                        className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-slate-300 px-1 text-xs leading-4 text-slate-700 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px]"
+                        className="inline-flex min-h-8 min-w-8 items-center justify-center rounded border border-slate-300 bg-white px-1 text-xs leading-4 text-slate-700 hover:bg-slate-50 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px] transition-colors"
                       >
                         ↑
                       </button>
@@ -678,13 +678,13 @@ export default function TeacherStudio({
                         onClick={() => move(index, 1)}
                         disabled={index === order.length - 1 || busy}
                         aria-label={`Move section ${index + 1} (${section.type.toLowerCase()}) down`}
-                        className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-slate-300 px-1 text-xs leading-4 text-slate-700 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px]"
+                        className="inline-flex min-h-8 min-w-8 items-center justify-center rounded border border-slate-300 bg-white px-1 text-xs leading-4 text-slate-700 hover:bg-slate-50 disabled:opacity-30 lg:min-h-0 lg:min-w-0 lg:text-[10px] transition-colors"
                       >
                         ↓
                       </button>
                     </div>
                   </div>
-                  <label htmlFor={scriptId} className="mt-1 block text-[10px] font-medium text-slate-500">
+                  <label htmlFor={scriptId} className="mt-2 block text-[10px] font-medium text-slate-500">
                     Script for section {index + 1}
                   </label>
                   <textarea
@@ -693,19 +693,19 @@ export default function TeacherStudio({
                     onChange={(event) => editScript(index, event.target.value)}
                     rows={2}
                     placeholder="No script"
-                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-2 text-base focus:border-indigo-500 focus:outline-none lg:py-1 lg:text-xs"
+                    className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 lg:text-xs"
                   />
                 </li>
               )
             })}
           </ol>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
               onClick={save}
               disabled={busy || !dirty}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs transition-colors"
             >
               Save draft
             </button>
@@ -713,7 +713,7 @@ export default function TeacherStudio({
               type="button"
               onClick={discard}
               disabled={busy || !dirty}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:min-h-0 lg:py-1.5 lg:text-xs transition-colors"
             >
               Discard local changes
             </button>
@@ -732,12 +732,12 @@ export default function TeacherStudio({
         {/* Side-by-side: rendered scene and the extracted information. */}
         <section
           ref={fullscreen.ref}
-          className={`space-y-3 ${fullscreen.active ? 'overflow-auto bg-slate-100 p-4' : ''}`}
+          className={`space-y-4 ${fullscreen.active ? 'overflow-auto bg-slate-900/90 p-6' : ''}`}
           onKeyDown={onKeyDown}
           tabIndex={-1}
           aria-label="Slide review"
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-sm">
             <button
               type="button"
               onClick={() => previousScene && setSelectedSceneId(previousScene.scene_id)}
@@ -766,7 +766,7 @@ export default function TeacherStudio({
               </>
             )}
             {/* A keyboard hint is useless on a phone, where there is no keyboard. */}
-            <span className="ml-auto hidden text-[11px] text-slate-400 sm:inline">
+            <span className="ml-auto hidden text-[11px] font-medium text-slate-400 sm:inline">
               Use ← / → to move between slides
             </span>
             <button
@@ -786,29 +786,31 @@ export default function TeacherStudio({
 
           {scene ? (
             <div
-              className={`grid grid-cols-1 gap-3 ${
+              className={`grid grid-cols-1 gap-4 ${
                 focus ? 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'md:grid-cols-2'
               }`}
               data-testid="scene-side-by-side"
             >
-              <SlideFrame
-                institutionId={institutionId}
-                scene={scene}
-                loadRender={renderLoader}
-                large={focus || fullscreen.active}
-              />
+              <div className="rounded-xl border border-slate-200/80 bg-white/95 p-3.5 shadow-sm">
+                <SlideFrame
+                  institutionId={institutionId}
+                  scene={scene}
+                  loadRender={renderLoader}
+                  large={focus || fullscreen.active}
+                />
+              </div>
 
-              <div className="space-y-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="space-y-3.5">
+                <div className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Extracted text
                   </h3>
                   {scene.text.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-400">No text on this slide.</p>
+                    <p className="mt-1.5 text-xs text-slate-400">No text on this slide.</p>
                   ) : (
-                    <ul className="mt-1 space-y-0.5">
+                    <ul className="mt-2 space-y-1">
                       {scene.text.map((line, index) => (
-                        <li key={index} className="whitespace-pre-wrap text-sm leading-snug text-slate-800">
+                        <li key={index} className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800 bg-slate-50/70 p-2 rounded border border-slate-100">
                           {line}
                         </li>
                       ))}
@@ -816,33 +818,35 @@ export default function TeacherStudio({
                   )}
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Speaker notes
                   </h3>
                   {scene.notes ? (
-                    <p className="mt-1 text-sm whitespace-pre-line text-indigo-900">{scene.notes}</p>
+                    <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-indigo-950 bg-indigo-50/60 p-3 rounded-lg border border-indigo-100/80 font-serif">
+                      {scene.notes}
+                    </p>
                   ) : (
-                    <p className="mt-1 text-xs text-slate-400">No speaker notes on this slide.</p>
+                    <p className="mt-1.5 text-xs text-slate-400">No speaker notes on this slide.</p>
                   )}
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="rounded-xl border border-slate-200/80 bg-white/95 p-4 shadow-sm">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Warnings &amp; fidelity
                   </h3>
                   {scene.missing_fonts.length > 0 && (
-                    <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                    <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200/80 px-3 py-1.5 text-xs text-amber-800">
                       Missing font(s): {scene.missing_fonts.join(', ')} — lines using them are
                       approximate.
                     </p>
                   )}
                   {scene.warnings.length === 0 && scene.missing_fonts.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-400">No warnings for this slide.</p>
+                    <p className="mt-1.5 text-xs text-slate-400">No warnings for this slide.</p>
                   ) : (
-                    <ul className="mt-1 space-y-0.5">
+                    <ul className="mt-2 space-y-1">
                       {scene.warnings.map((warning, index) => (
-                        <li key={index} className="font-mono text-[11px] text-slate-700">
+                        <li key={index} className="font-mono text-xs text-slate-700 bg-slate-50 p-1.5 rounded border border-slate-200/70">
                           {warning}
                         </li>
                       ))}

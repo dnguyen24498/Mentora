@@ -111,7 +111,7 @@ export default function JoinClassPage({ classId }: { classId: string }) {
   const running = klass?.state === 'ACTIVE' || klass?.state === 'DEGRADED'
   const finished = klass?.state === 'COMPLETED'
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas text-slate-900 bg-academic-grid">
       <PageHeader
         nav="join"
         title="Join a class"
@@ -120,6 +120,21 @@ export default function JoinClassPage({ classId }: { classId: string }) {
         institution={session?.principal.institution_id ?? ''}
         onInstitutionChange={() => undefined}
       />
+
+      <div className="mx-auto max-w-3xl px-4 pt-6 pb-2 sm:px-6">
+        <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 p-6 text-white shadow-sm sm:p-7">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-200">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            Lecture Hall Access
+          </span>
+          <h2 className="mt-2 text-xl font-bold tracking-tight text-white sm:text-2xl">
+            {klass?.title ?? 'Classroom Entry'}
+          </h2>
+          <p className="mt-1 text-xs text-indigo-200/90 leading-relaxed">
+            Verify your enrolled student credentials and enter the real-time AI lecture hall.
+          </p>
+        </div>
+      </div>
 
       <main className={`${PAGE_PADDING} mx-auto grid grid-cols-1 max-w-3xl gap-6`}>
         {loadError && <Banner tone="bad">{loadError}</Banner>}

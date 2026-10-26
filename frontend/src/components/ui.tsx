@@ -43,44 +43,55 @@ export const PANEL_PADDING = 'p-4 sm:p-5'
 
 /** A form control: 16px on a touch screen (no iOS zoom), denser from `lg` up. */
 export const INPUT_CLASS =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-base focus:border-indigo-500 focus:outline-none lg:text-sm'
+  'w-full rounded-xl border border-slate-300/85 bg-white px-3.5 py-2.5 text-base text-slate-800 shadow-2xs transition placeholder:text-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none lg:text-sm'
 
 /** The same control for a page header or a filter row: it fills a phone's row. */
 export const INPUT_CHROME_CLASS =
-  'min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-base focus:border-indigo-500 focus:outline-none lg:w-40 lg:flex-none lg:px-2 lg:py-1 lg:text-xs'
+  'min-w-0 flex-1 rounded-lg border border-slate-300/85 bg-white px-3 py-2 text-base text-slate-800 shadow-2xs transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none lg:w-44 lg:flex-none lg:px-2.5 lg:py-1.5 lg:text-xs'
 
 /** A page's or a form's main action. */
-export const BUTTON_PRIMARY = `inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40 lg:py-2 ${TOUCH_TARGET}`
+export const BUTTON_PRIMARY = `inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-600 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:from-indigo-500 hover:to-blue-500 hover:shadow active:scale-[0.99] transition-all disabled:opacity-40 disabled:pointer-events-none lg:py-2 ${TOUCH_TARGET}`
 
 /** A secondary action beside the main one. */
-export const BUTTON_SECONDARY = `inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:py-2 ${TOUCH_TARGET}`
+export const BUTTON_SECONDARY = `inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300/90 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-2xs hover:bg-slate-50 hover:border-slate-400/80 hover:text-slate-900 active:scale-[0.99] transition-all disabled:opacity-40 disabled:pointer-events-none lg:py-2 ${TOUCH_TARGET}`
 
 /** An in-place action: a header action, a table row, a toolbar. */
-export const BUTTON_SMALL = `inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:px-2.5 lg:py-1 lg:text-[11px] ${TOUCH_TARGET}`
+export const BUTTON_SMALL = `inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/90 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-2xs hover:bg-slate-50 hover:text-slate-900 active:scale-[0.99] transition-all disabled:opacity-40 disabled:pointer-events-none lg:px-2.5 lg:py-1 lg:text-[11px] ${TOUCH_TARGET}`
 
 /** A section tab (Admin/Settings): a chip that scrolls sideways on a phone. */
-export const TAB_CLASS = `inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition lg:px-2.5 lg:py-1 lg:text-xs ${TOUCH_TARGET}`
+export const TAB_CLASS = `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 lg:px-3 lg:py-1.5 lg:text-xs ${TOUCH_TARGET}`
 
 export type Tone = 'neutral' | 'good' | 'warn' | 'bad' | 'info'
 
 const TONE_STYLE: Record<Tone, string> = {
-  neutral: 'bg-slate-100 text-slate-600',
-  good: 'bg-emerald-100 text-emerald-700',
-  warn: 'bg-amber-100 text-amber-700',
-  bad: 'bg-rose-100 text-rose-700',
-  info: 'bg-indigo-100 text-indigo-700',
+  neutral: 'border border-slate-200/90 bg-slate-100 text-slate-700',
+  good: 'border border-emerald-200/90 bg-emerald-50 text-emerald-800',
+  warn: 'border border-amber-200/90 bg-amber-50 text-amber-800',
+  bad: 'border border-rose-200/90 bg-rose-50 text-rose-800',
+  info: 'border border-indigo-200/90 bg-indigo-50 text-indigo-800',
 }
 
-/** A coloured status pill. */
+const TONE_DOT: Record<Tone, string> = {
+  neutral: 'bg-slate-400',
+  good: 'bg-emerald-500',
+  warn: 'bg-amber-500',
+  bad: 'bg-rose-500',
+  info: 'bg-indigo-500',
+}
+
+/** A coloured status pill with subtle indicator dot. */
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: Tone }) {
   return (
-    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${TONE_STYLE[tone]}`}>
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${TONE_STYLE[tone]}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
       {children}
     </span>
   )
 }
 
-/** A titled card. */
+/** A titled university academic card. */
 export function Panel({
   title,
   actions,
@@ -93,11 +104,15 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={`space-y-3 self-start rounded-xl border border-slate-200 bg-white ${PANEL_PADDING} shadow-sm ${className}`}>
+    <section
+      className={`space-y-3.5 self-start rounded-2xl border border-slate-200/85 bg-white p-4 sm:p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_4px_12px_rgba(0,0,0,0.02)] transition-shadow hover:shadow-[0_4px_16px_-2px_rgba(0,0,0,0.05)] ${className}`}
+    >
       {(title || actions) && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-b border-slate-100 pb-2.5">
           {title && (
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              {title}
+            </h2>
           )}
           {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -111,18 +126,18 @@ export function Panel({
 export function Banner({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
   const style =
     tone === 'bad'
-      ? 'border-rose-200 bg-rose-50 text-rose-800'
+      ? 'border-rose-200 bg-rose-50/90 text-rose-800'
       : tone === 'warn'
-        ? 'border-amber-300 bg-amber-50 text-amber-800'
+        ? 'border-amber-200 bg-amber-50/90 text-amber-800'
         : tone === 'good'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          : 'border-slate-200 bg-slate-50 text-slate-600'
+          ? 'border-emerald-200 bg-emerald-50/90 text-emerald-800'
+          : 'border-slate-200 bg-slate-50/90 text-slate-700'
   return (
     <p
       role={tone === 'bad' ? 'alert' : 'status'}
-      className={`rounded-lg border px-3 py-2 text-sm ${style}`}
+      className={`flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm shadow-2xs ${style}`}
     >
-      {children}
+      <span className="min-w-0 flex-1">{children}</span>
     </p>
   )
 }

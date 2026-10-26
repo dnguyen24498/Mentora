@@ -69,33 +69,33 @@ export default function AdminOverview({ institutionId }: { institutionId: string
         {error && <Banner tone="bad">{error}</Banner>}
         {loading && <EmptyState>Loading…</EmptyState>}
 
-        <dl className="grid grid-cols-3 gap-2 text-center sm:gap-3">
-          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
-            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Courses</dt>
-            <dd data-testid="admin-course-count" className="mt-1 text-xl font-semibold sm:text-2xl">
+        <dl className="grid grid-cols-3 gap-2.5 text-center sm:gap-4">
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 sm:p-4 shadow-xs">
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:text-[11px]">Courses</dt>
+            <dd data-testid="admin-course-count" className="mt-1 text-2xl font-serif font-bold text-slate-900 sm:text-3xl">
               {courses.length}
             </dd>
           </div>
-          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
-            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Classes</dt>
-            <dd data-testid="admin-class-count" className="mt-1 text-xl font-semibold sm:text-2xl">
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 sm:p-4 shadow-xs">
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:text-[11px]">Classes</dt>
+            <dd data-testid="admin-class-count" className="mt-1 text-2xl font-serif font-bold text-slate-900 sm:text-3xl">
               {classes.length}
             </dd>
           </div>
-          <div className="rounded-lg border border-slate-200 p-2 sm:p-3">
-            <dt className="text-[10px] uppercase tracking-wide text-slate-400 sm:text-[11px]">Running</dt>
-            <dd className="mt-1 text-xl font-semibold sm:text-2xl">{activeClasses}</dd>
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 sm:p-4 shadow-xs">
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 sm:text-[11px]">Running</dt>
+            <dd className="mt-1 text-2xl font-serif font-bold text-emerald-600 sm:text-3xl">{activeClasses}</dd>
           </div>
         </dl>
 
-        <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-xs">
-          <Link to={adminPath('courses')} className="font-medium text-indigo-600 underline">
-            Manage courses & materials
+        <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-3.5 text-xs">
+          <Link to={adminPath('courses')} className="font-medium text-indigo-600 hover:text-indigo-800 underline">
+            Manage courses &amp; materials
           </Link>
-          <Link to={adminPath('classes')} className="font-medium text-indigo-600 underline">
+          <Link to={adminPath('classes')} className="font-medium text-indigo-600 hover:text-indigo-800 underline">
             Schedule a class
           </Link>
-          <Link to={adminPath('publications')} className="font-medium text-indigo-600 underline">
+          <Link to={adminPath('publications')} className="font-medium text-indigo-600 hover:text-indigo-800 underline">
             Publish and verify
           </Link>
         </div>
@@ -113,14 +113,14 @@ export default function AdminOverview({ institutionId }: { institutionId: string
             upload material into.
           </EmptyState>
         )}
-        <ul className="space-y-1.5">
+        <ul className="space-y-2">
           {courses.map((course) => (
             <li key={course.course_id}>
               <Link
                 to={adminPath('courses')}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 p-3 hover:border-indigo-300 hover:bg-white hover:shadow-xs transition-all"
               >
-                <span className="truncate text-sm font-medium text-slate-800">{course.title}</span>
+                <span className="truncate text-sm font-medium text-slate-900">{course.title}</span>
                 <span className="ml-auto truncate font-mono text-[10px] text-slate-400">
                   {course.course_id}
                 </span>
@@ -134,15 +134,15 @@ export default function AdminOverview({ institutionId }: { institutionId: string
         {classes.length === 0 && !loading && (
           <EmptyState>No classes yet.</EmptyState>
         )}
-        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {classes.map((item) => (
             <li key={item.class_id}>
               <Link
                 to={classroomPath(item.class_id)}
-                className="flex flex-col gap-1 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                className="flex flex-col gap-1.5 rounded-xl border border-slate-200/80 bg-white/80 p-3.5 hover:border-indigo-300 hover:bg-white hover:shadow-xs transition-all"
               >
                 <span className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium text-slate-800">{item.title}</span>
+                  <span className="truncate text-sm font-medium text-slate-900">{item.title}</span>
                   <Badge tone={item.state === 'ACTIVE' ? 'good' : 'neutral'}>{item.state}</Badge>
                 </span>
                 <span className="truncate font-mono text-[10px] text-slate-400">{item.class_id}</span>

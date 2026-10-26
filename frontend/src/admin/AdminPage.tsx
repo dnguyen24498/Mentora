@@ -55,11 +55,11 @@ export default function AdminPage({ section }: AdminPageProps) {
   const current = available.find((tab) => tab.section === section)
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-academic-canvas text-slate-900 bg-academic-grid">
       <PageHeader nav="admin" title="Admin" institution={institution} onInstitutionChange={setInstitution}>
         <nav
           aria-label="Admin sections"
-          className="flex flex-wrap gap-1 border-t border-slate-100 px-3 py-2 sm:px-4"
+          className="flex flex-wrap gap-1.5 border-t border-slate-100 bg-slate-50/50 px-3 py-2 sm:px-4"
         >
           {available.map((tab) => {
             const active = tab.section === section
@@ -70,8 +70,8 @@ export default function AdminPage({ section }: AdminPageProps) {
                 aria-current={active ? 'page' : undefined}
                 className={`${TAB_CLASS} ${
                   active
-                    ? 'bg-indigo-600 text-white'
-                    : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-2xs font-semibold'
+                    : 'border border-slate-200/90 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 shadow-2xs'
                 }`}
               >
                 {tab.label}
@@ -81,7 +81,7 @@ export default function AdminPage({ section }: AdminPageProps) {
         </nav>
       </PageHeader>
 
-      <main className={PAGE_PADDING}>
+      <main className={`${PAGE_PADDING} mx-auto max-w-7xl`}>
         {!current ? (
           <UnavailableSection available={available} />
         ) : (

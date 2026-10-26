@@ -92,7 +92,7 @@ interface NavEntryProps {
   hint: string
 }
 
-const ITEM_BASE = `inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition lg:px-2 lg:py-1 lg:text-[11px] ${TOUCH_TARGET}`
+const ITEM_BASE = `inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-all duration-150 lg:px-2.5 lg:py-1 lg:text-[11px] ${TOUCH_TARGET}`
 
 function NavEntry({ to, label, current, hint }: NavEntryProps) {
   if (!to) {
@@ -100,7 +100,7 @@ function NavEntry({ to, label, current, hint }: NavEntryProps) {
       <span
         aria-disabled="true"
         title={hint}
-        className={`${ITEM_BASE} cursor-not-allowed border border-slate-200 text-slate-400`}
+        className={`${ITEM_BASE} cursor-not-allowed border border-slate-200/80 bg-slate-50 text-slate-400`}
       >
         {label}
       </span>
@@ -113,8 +113,8 @@ function NavEntry({ to, label, current, hint }: NavEntryProps) {
       aria-current={current ? 'page' : undefined}
       className={`${ITEM_BASE} border ${
         current
-          ? 'border-indigo-600 bg-indigo-600 text-white'
-          : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+          ? 'border-indigo-600 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-2xs font-semibold'
+          : 'border-slate-200/90 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 shadow-2xs'
       }`}
     >
       {label}
@@ -191,8 +191,9 @@ export default function SiteNav({ current, artifactId }: SiteNavProps) {
           <span
             data-testid="session-principal"
             title={session?.principal.institution_id}
-            className={`${ITEM_BASE} border border-emerald-200 bg-emerald-50 text-emerald-800`}
+            className={`${ITEM_BASE} border border-emerald-300/80 bg-emerald-50 text-emerald-800 shadow-2xs font-medium`}
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
             {describePrincipal(session)}
           </span>
           <button
@@ -201,7 +202,7 @@ export default function SiteNav({ current, artifactId }: SiteNavProps) {
               void logout().catch(() => undefined)
               clearSession()
             }}
-            className={`${ITEM_BASE} border border-slate-300 text-slate-700 hover:bg-slate-50`}
+            className={`${ITEM_BASE} border border-slate-200/90 bg-white text-slate-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700 shadow-2xs`}
           >
             Sign out
           </button>

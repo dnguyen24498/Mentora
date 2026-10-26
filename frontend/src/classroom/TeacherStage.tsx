@@ -283,10 +283,13 @@ export default function TeacherStage({
     return (
       <section
         data-testid="teacher-stage"
-        className="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="mb-6 rounded-2xl border border-slate-200/85 bg-white p-5 sm:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_16px_rgba(0,0,0,0.02)]"
       >
-        <h2 className="text-base font-semibold text-slate-800">Presenting</h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+          <span className="flex h-2.5 w-2.5 rounded-full bg-slate-300" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">Presenting</h2>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
           This class has not started. Start it from class management; once running, the class
           server presents its pinned slides automatically and students can join.
         </p>
@@ -298,11 +301,14 @@ export default function TeacherStage({
     return (
       <section
         data-testid="teacher-stage"
-        className="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="mb-6 rounded-2xl border border-slate-200/85 bg-white p-5 sm:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_16px_rgba(0,0,0,0.02)]"
       >
-        <h2 className="text-base font-semibold text-slate-800">Presenting</h2>
-        <p className="mt-2 text-sm text-slate-600">
-          This class is <span className="font-mono">{sessionState}</span>. The class server presents
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+          <span className="flex h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">Presenting</h2>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          This class is <span className="font-mono font-semibold text-slate-800">{sessionState}</span>. The class server presents
           the pinned slides while the session is running.
         </p>
       </section>
@@ -312,44 +318,57 @@ export default function TeacherStage({
   return (
     <section
       data-testid="teacher-stage"
-      className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
+      className="mb-6 rounded-2xl border border-slate-200/85 bg-white p-4 sm:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_16px_rgba(0,0,0,0.02)]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-slate-800">Presenting</h2>
-        <span className="text-sm text-slate-600" data-testid="teacher-slide-counter">
-          {index >= 0 ? `Slide ${index + 1} of ${scenes.length}` : 'No slide'}
-        </span>
-        <span className="text-xs text-slate-500" data-testid="presentation-status">
-          {describePresentation(presentation, presentationError, running)}
-        </span>
-        {canControl && (
-          <button
-            type="button"
-            onClick={() => void togglePresentation()}
-            disabled={control !== null}
-            className={BUTTON_SECONDARY}
-          >
-            {control === 'pause' ? 'Pausing…' : presentation?.paused ? 'Resume' : 'Pause'}
-          </button>
-        )}
-        {canStart && (
-          <button
-            type="button"
-            onClick={() => void togglePresentation()}
-            disabled={control !== null}
-            className={BUTTON_SECONDARY}
-          >
-            {control === 'resume' ? 'Starting…' : 'Start presentation'}
-          </button>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <h2 className="text-base font-bold tracking-tight text-slate-900">Presenting</h2>
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700" data-testid="teacher-slide-counter">
+            {index >= 0 ? `Slide ${index + 1} of ${scenes.length}` : 'No slide'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-xs text-slate-500 font-medium" data-testid="presentation-status">
+            {describePresentation(presentation, presentationError, running)}
+          </span>
+          {canControl && (
+            <button
+              type="button"
+              onClick={() => void togglePresentation()}
+              disabled={control !== null}
+              className={BUTTON_SECONDARY}
+            >
+              {control === 'pause' ? 'Pausing…' : presentation?.paused ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          {canStart && (
+            <button
+              type="button"
+              onClick={() => void togglePresentation()}
+              disabled={control !== null}
+              className={BUTTON_SECONDARY}
+            >
+              {control === 'resume' ? 'Starting…' : 'Start presentation'}
+            </button>
+          )}
+        </div>
       </div>
 
       {presentation?.available && running && (
         <div
-          className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600"
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-2.5 text-xs text-slate-600 border border-slate-200/80"
           data-testid="teacher-voice"
         >
-          <span>
+          <div className="flex items-center gap-0.5 h-3 px-0.5" aria-hidden="true">
+            <span className="w-0.5 bg-indigo-500 rounded-full animate-wave-1" />
+            <span className="w-0.5 bg-indigo-500 rounded-full animate-wave-2" />
+            <span className="w-0.5 bg-indigo-500 rounded-full animate-wave-3" />
+          </div>
+          <span className="font-medium">
             Voice: {describeNarration(narration.status, Boolean(presentation.paused))}
             {narration.provider === 'neutral-deterministic' &&
               ' · neutral-deterministic development mock (tones, not speech; DEC-TECH-007 is OPEN)'}
@@ -357,7 +376,7 @@ export default function TeacherStage({
               ' · OmniVoice local prototype (not a decided provider; DEC-TECH-007 is OPEN)'}
           </span>
           {narration.status === 'blocked' && (
-            <button type="button" onClick={narration.enable} className={BUTTON_SECONDARY}>
+            <button type="button" onClick={narration.enable} className={`${BUTTON_SECONDARY} ml-auto`}>
               Enable sound
             </button>
           )}
@@ -382,15 +401,15 @@ export default function TeacherStage({
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-center bg-black">
+      <div className="mt-4 flex items-center justify-center rounded-2xl bg-slate-950 p-2 sm:p-4 shadow-inner ring-1 ring-white/10">
         {url ? (
           <img
             src={url}
             alt={index >= 0 ? `Slide ${index + 1}` : 'Class slide'}
-            className="h-auto max-h-[60vh] w-full object-contain"
+            className="h-auto max-h-[62vh] w-full object-contain rounded-lg shadow-2xl"
           />
         ) : (
-          <div className="p-6">
+          <div className="p-8 text-center">
             <EmptyState>{loading ? 'Loading the slides…' : 'No slide to show yet.'}</EmptyState>
           </div>
         )}
